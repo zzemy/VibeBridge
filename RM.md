@@ -198,6 +198,14 @@ MVP 阶段就应该提供快捷键栏：
 
 前端使用 React + TypeScript 生态，不需要 Next.js。这个项目的手机端页面是一个由 Go 程序托管的本地控制台，第一版用 Vite React SPA 更轻、更容易嵌入 Go 二进制。
 
+样式体系建议使用 Tailwind CSS + shadcn/ui：
+
+- Tailwind CSS 负责布局、间距、颜色、响应式和主题 token。
+- shadcn/ui 负责按钮、输入框、弹窗、抽屉、提示、状态徽标等可访问组件。
+- xterm.js 仍然负责终端主体渲染，不要把终端输出拆成 React 节点。
+- 视觉风格应该是移动端优先、深色终端优先、信息密度高但不拥挤。
+- shadcn/ui 只选择性安装需要的组件，不一次性引入大量无关组件。
+
 建议前端结构：
 
 ```text
@@ -205,10 +213,18 @@ web/
   src/
     App.tsx
     components/
+      ui/
+        button.tsx
+        textarea.tsx
+        alert-dialog.tsx
+        drawer.tsx
+        badge.tsx
       TerminalView.tsx
       PromptComposer.tsx
       ShortcutBar.tsx
       ConnectionStatus.tsx
+    styles/
+      globals.css
     lib/
       protocol.ts
       terminalKeys.ts
@@ -217,10 +233,25 @@ web/
 核心组件边界：
 
 - `TerminalView`：封装 xterm.js，负责渲染 PTY 输出、处理 resize。
-- `PromptComposer`：自然语言输入框，负责多行编辑、composition 状态和发送行为。
-- `ShortcutBar`：快捷键栏，负责 `Enter`、`Esc`、`Ctrl+C`、方向键等控制输入。
-- `ConnectionStatus`：显示连接状态、重连状态和结束会话按钮。
+- `PromptComposer`：自然语言输入框，负责多行编辑、composition 状态和发送行为。可以基于 shadcn/ui `Textarea` 和 `Button` 实现。
+- `ShortcutBar`：快捷键栏，负责 `Enter`、`Esc`、`Ctrl+C`、方向键等控制输入。可以基于 shadcn/ui `Button` 实现。
+- `ConnectionStatus`：显示连接状态、重连状态和结束会话按钮。可以基于 shadcn/ui `Badge`、`AlertDialog` 或 `Drawer` 实现。
 - `protocol.ts`：定义 WebSocket 消息类型，避免前后端协议散落在组件里。
+
+首批建议安装的 shadcn/ui 组件：
+
+```powershell
+npx shadcn@latest add button textarea alert-dialog drawer badge separator tooltip
+```
+
+样式原则：
+
+- 主界面应该像一个精致的移动端终端控制台，而不是后台管理面板。
+- 终端区域全屏优先，不要放进厚重卡片里。
+- 底部固定自然语言输入框和快捷键栏，适配手机软键盘。
+- 状态信息用轻量 badge/toast/顶部栏，不要打断终端操作。
+- 结束会话、断线重连、超长粘贴这类风险操作用确认弹窗。
+- 默认深色主题，保留清晰的焦点态、按压态和禁用态。
 
 WebSocket 消息类型应该在 TypeScript 中建模，例如用 discriminated union 表达 `output`、`input`、`resize`、`exit`、`error` 等消息。
 
@@ -251,7 +282,7 @@ WebSocket 消息类型应该在 TypeScript 中建模，例如用 discriminated u
 3. 手机页面与 Go 建立 WebSocket，先完成 echo 测试。
 4. Go 启动一个普通 shell，桥接 WebSocket 输入输出。
 5. 把普通 shell 换成 PTY，验证彩色输出和交互工具是否正常。
-6. 初始化 Vite React + TypeScript 前端，接入 xterm.js，渲染终端输出。
+6. 初始化 Vite React + TypeScript 前端，接入 Tailwind CSS、shadcn/ui 和 xterm.js，渲染终端输出。
 7. 增加 `session token` 校验，防止未授权连接。
 8. 增加移动端自然语言输入框，支持编辑后一次性发送到 PTY。
 9. 增加移动端快捷键栏。
