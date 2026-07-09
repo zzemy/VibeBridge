@@ -26,7 +26,7 @@
 
 1. **手机浏览器**
 
-   相当于“遥控器屏幕”，负责显示终端内容，并收集你的按键。
+   相当于“遥控器屏幕”，负责显示终端内容，并收集你的按键。前端使用 React + TypeScript 生态实现，第一版建议用 Vite 构建静态 SPA。
 
 2. **电脑上的 Go 程序**
 
@@ -194,9 +194,43 @@ MVP 阶段就应该提供快捷键栏：
 - 处理换行差异，例如 `\r`、`\n`、`\r\n`。
 - 兼容手机输入法和软键盘弹起后的布局变化。
 
-## 七、终端尺寸与渲染
+## 七、前端技术栈、终端尺寸与渲染
 
-前端建议使用 xterm.js 渲染终端。
+前端使用 React + TypeScript 生态，不需要 Next.js。这个项目的手机端页面是一个由 Go 程序托管的本地控制台，第一版用 Vite React SPA 更轻、更容易嵌入 Go 二进制。
+
+建议前端结构：
+
+```text
+web/
+  src/
+    App.tsx
+    components/
+      TerminalView.tsx
+      PromptComposer.tsx
+      ShortcutBar.tsx
+      ConnectionStatus.tsx
+    lib/
+      protocol.ts
+      terminalKeys.ts
+```
+
+核心组件边界：
+
+- `TerminalView`：封装 xterm.js，负责渲染 PTY 输出、处理 resize。
+- `PromptComposer`：自然语言输入框，负责多行编辑、composition 状态和发送行为。
+- `ShortcutBar`：快捷键栏，负责 `Enter`、`Esc`、`Ctrl+C`、方向键等控制输入。
+- `ConnectionStatus`：显示连接状态、重连状态和结束会话按钮。
+- `protocol.ts`：定义 WebSocket 消息类型，避免前后端协议散落在组件里。
+
+WebSocket 消息类型应该在 TypeScript 中建模，例如用 discriminated union 表达 `output`、`input`、`resize`、`exit`、`error` 等消息。
+
+构建与托管方式：
+
+- 开发阶段：Vite dev server 可单独运行，代理 WebSocket 到 Go server。
+- 交付阶段：`vite build` 生成静态文件，由 Go HTTP server 托管。
+- 后续打包：可以用 Go `embed.FS` 把前端构建产物打进 `vibebridge` 单个二进制。
+
+终端渲染使用 xterm.js。
 
 必须处理终端 resize：
 
@@ -217,7 +251,7 @@ MVP 阶段就应该提供快捷键栏：
 3. 手机页面与 Go 建立 WebSocket，先完成 echo 测试。
 4. Go 启动一个普通 shell，桥接 WebSocket 输入输出。
 5. 把普通 shell 换成 PTY，验证彩色输出和交互工具是否正常。
-6. 前端接入 xterm.js，渲染终端输出。
+6. 初始化 Vite React + TypeScript 前端，接入 xterm.js，渲染终端输出。
 7. 增加 `session token` 校验，防止未授权连接。
 8. 增加移动端自然语言输入框，支持编辑后一次性发送到 PTY。
 9. 增加移动端快捷键栏。
