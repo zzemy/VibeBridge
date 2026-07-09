@@ -1,4 +1,4 @@
-# VibeGate 需求与实现说明
+# VibeBridge 需求与实现说明
 
 ## 一、核心概念：这个项目到底在干嘛？
 
@@ -6,7 +6,7 @@
 
 普通的远程控制（如 TeamViewer）是把整个电脑屏幕录制成视频，通过网络发给手机，这在手机上极其卡顿且难操作。
 
-而 VibeGate 只传输文字和按键：
+而 VibeBridge 只传输文字和按键：
 
 - 把电脑命令行里 AI 吐出来的文字、颜色和终端控制字符传给手机。
 - 把你在手机上敲下的按键、快捷键和控制输入传回电脑。
@@ -15,9 +15,9 @@
 
 项目边界：
 
-- VibeGate 不做完整屏幕共享。
-- VibeGate 不做远程文件浏览器。
-- VibeGate 不做多人协作。
+- VibeBridge 不做完整屏幕共享。
+- VibeBridge 不做远程文件浏览器。
+- VibeBridge 不做多人协作。
 - 第一阶段只做一件事：**安全地把一个本地终端会话映射到手机浏览器**。
 
 ## 二、这个项目由哪三部分组成？（核心角色）
@@ -55,9 +55,9 @@ Go 程序在电脑控制台上打印出一个二维码。
 一旦手机连接成功，Go 程序立刻在电脑后台启动指定命令。这个命令不要写死成 `claude`，而是做成可配置参数，例如：
 
 ```powershell
-vibegate --cmd "codex"
-vibegate --cmd "claude"
-vibegate --cmd "powershell"
+vibebridge --cmd "codex"
+vibebridge --cmd "claude"
+vibebridge --cmd "powershell"
 ```
 
 Go 程序不是简单地启动它，而是把它启动在一个**“虚拟终端（PTY）”**里。
@@ -110,7 +110,7 @@ Claude Code 或 Codex 以为是坐在电脑前的真人敲下了 `y`，于是立
 
 ## 四、安全模型
 
-VibeGate 的本质是“让手机控制电脑上的一个本地终端”，权限非常大，所以安全模型必须在 MVP 阶段就做。
+VibeBridge 的本质是“让手机控制电脑上的一个本地终端”，权限非常大，所以安全模型必须在 MVP 阶段就做。
 
 最低要求：
 
@@ -223,7 +223,7 @@ MVP 阶段就应该提供快捷键栏：
 
 第一版完成后，至少应该能做到：
 
-- 电脑运行 `vibegate --cmd "codex"` 或类似命令。
+- 电脑运行 `vibebridge --cmd "codex"` 或类似命令。
 - 控制台打印二维码。
 - 手机扫码后打开终端页面。
 - 手机能看到电脑 PTY 里的彩色终端输出。
