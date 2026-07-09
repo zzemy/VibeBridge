@@ -5,9 +5,10 @@ import { useEffect, useRef } from "react";
 
 type Props = {
   chunks: string[];
+  onResize: (cols: number, rows: number) => void;
 };
 
-export function TerminalView({ chunks }: Props) {
+export function TerminalView({ chunks, onResize }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -36,7 +37,7 @@ export function TerminalView({ chunks }: Props) {
     terminal.loadAddon(fitAddon);
     terminal.open(containerRef.current);
     terminal.writeln("VibeBridge terminal preview");
-    terminal.writeln("WebSocket echo mode is active.");
+    terminal.writeln("PTY bridge mode is active.");
     terminal.writeln("");
 
     terminalRef.current = terminal;
@@ -45,6 +46,7 @@ export function TerminalView({ chunks }: Props) {
     const fit = () => {
       try {
         fitAddon.fit();
+        onResize(terminal.cols, terminal.rows);
       } catch {
         // xterm can throw while hidden or before layout settles.
       }
@@ -60,7 +62,7 @@ export function TerminalView({ chunks }: Props) {
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, []);
+  }, [onResize]);
 
   useEffect(() => {
     const terminal = terminalRef.current;

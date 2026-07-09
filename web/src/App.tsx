@@ -104,6 +104,15 @@ export function App() {
     socket.send(JSON.stringify({ type: "input", data }));
   }, []);
 
+  const sendResize = useCallback((cols: number, rows: number) => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    socket.send(JSON.stringify({ type: "resize", cols, rows }));
+  }, []);
+
   const canSend = connectionState === "connected";
 
   return (
@@ -135,7 +144,7 @@ export function App() {
 
         <section className="min-h-0 flex-1 overflow-hidden rounded-md border border-zinc-800 bg-black shadow-2xl shadow-black/30">
           <Suspense fallback={<div className="grid h-full min-h-[22rem] place-items-center text-sm text-zinc-500">Loading terminal...</div>}>
-            <TerminalView chunks={terminalChunks} />
+            <TerminalView chunks={terminalChunks} onResize={sendResize} />
           </Suspense>
         </section>
 
@@ -146,7 +155,7 @@ export function App() {
           <div className="flex items-center justify-between gap-3 text-xs text-zinc-500">
             <span className="flex min-w-0 items-center gap-1 truncate">
               {canSend ? <SendHorizontal className="size-3" /> : <WifiOff className="size-3" />}
-              {canSend ? "Ready to send natural language input" : "Waiting for WebSocket connection"}
+              {canSend ? "Ready to send input to the local PTY" : "Waiting for WebSocket connection"}
             </span>
             <Button
               type="button"

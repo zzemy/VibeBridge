@@ -7,12 +7,12 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	pty "github.com/aymanbagabas/go-pty"
 	"github.com/gorilla/websocket"
 )
 
@@ -30,6 +30,8 @@ type Server struct {
 type ClientMessage struct {
 	Type string `json:"type"`
 	Data string `json:"data,omitempty"`
+	Cols int    `json:"cols,omitempty"`
+	Rows int    `json:"rows,omitempty"`
 }
 
 type ServerMessage struct {
@@ -95,21 +97,14 @@ func (s *Server) bridgeCommand(ctx context.Context, writer *websocketWriter, con
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, s.config.Command[0], s.config.Command[1:]...)
-	cmd.Env = os.Environ()
+	terminal, err := pty.New()
+	if err != nil {
+		return err
+	}
+	defer terminal.Close()
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
+	cmd := terminal.CommandContext(ctx, s.config.Command[0], s.config.Command[1:]...)
+	cmd.Env = os.Environ()
 
 	if err := cmd.Start(); err != nil {
 		return err
@@ -123,19 +118,17 @@ func (s *Server) bridgeCommand(ctx context.Context, writer *websocketWriter, con
 	}()
 	defer func() {
 		cancel()
-		_ = stdin.Close()
 		select {
 		case <-waitDone:
 		case <-time.After(2 * time.Second):
 		}
 	}()
 
-	if err := writer.writeJSON(ServerMessage{Type: "output", Data: "started shell: " + strings.Join(s.config.Command, " ") + "\r\n"}); err != nil {
+	if err := writer.writeJSON(ServerMessage{Type: "output", Data: "started PTY shell: " + strings.Join(s.config.Command, " ") + "\r\n"}); err != nil {
 		return err
 	}
 
-	go streamOutput(writer, stdout)
-	go streamOutput(writer, stderr)
+	go streamOutput(writer, terminal)
 
 	for {
 		select {
@@ -156,8 +149,14 @@ func (s *Server) bridgeCommand(ctx context.Context, writer *websocketWriter, con
 
 		switch msg.Type {
 		case "input":
-			if _, err := io.WriteString(stdin, normalizePipeInput(msg.Data)); err != nil {
+			if _, err := io.WriteString(terminal, msg.Data); err != nil {
 				return err
+			}
+		case "resize":
+			if msg.Cols > 0 && msg.Rows > 0 {
+				if err := terminal.Resize(msg.Cols, msg.Rows); err != nil {
+					return err
+				}
 			}
 		case "ping":
 			if err := writer.writeJSON(ServerMessage{Type: "pong"}); err != nil {
@@ -195,10 +194,6 @@ func streamOutput(writer *websocketWriter, reader io.Reader) {
 			return
 		}
 	}
-}
-
-func normalizePipeInput(input string) string {
-	return strings.ReplaceAll(input, "\r", "\n")
 }
 
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
