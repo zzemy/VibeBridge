@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,7 +21,13 @@ import (
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8787", "HTTP listen address")
 	webDir := flag.String("web-dir", "web/dist", "frontend static build directory")
+	commandLine := flag.String("cmd", defaultCommandLine(), "command to run for each WebSocket session")
 	flag.Parse()
+
+	command := strings.Fields(*commandLine)
+	if len(command) == 0 {
+		log.Fatal("cmd must not be empty")
+	}
 
 	token, err := newSessionToken()
 	if err != nil {
@@ -29,6 +37,7 @@ func main() {
 	app := server.New(server.Config{
 		SessionToken: token,
 		WebDir:       *webDir,
+		Command:      command,
 	})
 
 	httpServer := &http.Server{
@@ -69,4 +78,11 @@ func newSessionToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(raw[:]), nil
+}
+
+func defaultCommandLine() string {
+	if runtime.GOOS == "windows" {
+		return "powershell.exe -NoLogo -NoExit"
+	}
+	return "/bin/sh"
 }

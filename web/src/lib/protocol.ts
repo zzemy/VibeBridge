@@ -6,6 +6,7 @@ export type ClientMessage =
 export type ServerMessage =
   | { type: "output"; data?: string }
   | { type: "error"; data?: string }
+  | { type: "exit"; data?: string }
   | { type: "pong" };
 
 export function isServerMessage(value: unknown): value is ServerMessage {
@@ -19,7 +20,7 @@ export function isServerMessage(value: unknown): value is ServerMessage {
   }
 
   return (
-    (candidate.type === "output" || candidate.type === "error") &&
+    (candidate.type === "output" || candidate.type === "error" || candidate.type === "exit") &&
     (candidate.data === undefined || typeof candidate.data === "string")
   );
 }

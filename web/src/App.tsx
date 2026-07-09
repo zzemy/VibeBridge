@@ -85,6 +85,10 @@ export function App() {
       case "error":
         setTerminalChunks((chunks) => [...chunks, `error: ${message.data ?? "unknown"}\r\n`]);
         break;
+      case "exit":
+        setTerminalChunks((chunks) => [...chunks, `process: ${message.data ?? "exited"}\r\n`]);
+        setConnectionState("closed");
+        break;
       case "pong":
         break;
     }

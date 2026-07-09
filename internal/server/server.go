@@ -1,12 +1,16 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -15,6 +19,7 @@ import (
 type Config struct {
 	SessionToken string
 	WebDir       string
+	Command      []string
 }
 
 type Server struct {
@@ -75,31 +80,125 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 	})
 
-	if err := conn.WriteJSON(ServerMessage{Type: "output", Data: "connected to VibeBridge echo server\r\n"}); err != nil {
+	writer := websocketWriter{conn: conn}
+	if err := s.bridgeCommand(r.Context(), &writer, conn); err != nil {
+		_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
 		return
 	}
+}
+
+func (s *Server) bridgeCommand(ctx context.Context, writer *websocketWriter, conn *websocket.Conn) error {
+	if len(s.config.Command) == 0 {
+		return errors.New("no command configured")
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, s.config.Command[0], s.config.Command[1:]...)
+	cmd.Env = os.Environ()
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	waitCh := make(chan error, 1)
+	waitDone := make(chan struct{})
+	go func() {
+		waitCh <- cmd.Wait()
+		close(waitDone)
+	}()
+	defer func() {
+		cancel()
+		_ = stdin.Close()
+		select {
+		case <-waitDone:
+		case <-time.After(2 * time.Second):
+		}
+	}()
+
+	if err := writer.writeJSON(ServerMessage{Type: "output", Data: "started shell: " + strings.Join(s.config.Command, " ") + "\r\n"}); err != nil {
+		return err
+	}
+
+	go streamOutput(writer, stdout)
+	go streamOutput(writer, stderr)
 
 	for {
+		select {
+		case err := <-waitCh:
+			if err != nil {
+				_ = writer.writeJSON(ServerMessage{Type: "exit", Data: err.Error()})
+			} else {
+				_ = writer.writeJSON(ServerMessage{Type: "exit", Data: "process exited"})
+			}
+			return nil
+		default:
+		}
+
 		var msg ClientMessage
 		if err := conn.ReadJSON(&msg); err != nil {
-			return
+			return nil
 		}
 
 		switch msg.Type {
 		case "input":
-			if err := conn.WriteJSON(ServerMessage{Type: "output", Data: "echo: " + msg.Data + "\r\n"}); err != nil {
-				return
+			if _, err := io.WriteString(stdin, normalizePipeInput(msg.Data)); err != nil {
+				return err
 			}
 		case "ping":
-			if err := conn.WriteJSON(ServerMessage{Type: "pong"}); err != nil {
-				return
+			if err := writer.writeJSON(ServerMessage{Type: "pong"}); err != nil {
+				return err
 			}
 		default:
-			if err := conn.WriteJSON(ServerMessage{Type: "error", Data: "unsupported message type"}); err != nil {
-				return
+			if err := writer.writeJSON(ServerMessage{Type: "error", Data: "unsupported message type"}); err != nil {
+				return err
 			}
 		}
 	}
+}
+
+type websocketWriter struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (w *websocketWriter) writeJSON(value ServerMessage) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.conn.WriteJSON(value)
+}
+
+func streamOutput(writer *websocketWriter, reader io.Reader) {
+	buffer := make([]byte, 4096)
+	for {
+		n, err := reader.Read(buffer)
+		if n > 0 {
+			if writeErr := writer.writeJSON(ServerMessage{Type: "output", Data: string(buffer[:n])}); writeErr != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func normalizePipeInput(input string) string {
+	return strings.ReplaceAll(input, "\r", "\n")
 }
 
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
