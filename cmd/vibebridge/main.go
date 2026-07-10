@@ -25,6 +25,7 @@ func main() {
 	webDir := flag.String("web-dir", "web/dist", "frontend static build directory")
 	commandLine := flag.String("cmd", defaultCommandLine(), "command to run for each WebSocket session")
 	reconnectTimeout := flag.Duration("reconnect-timeout", 90*time.Second, "how long to keep a detached PTY session alive")
+	idleTimeout := flag.Duration("idle-timeout", 30*time.Minute, "how long to keep a PTY session alive without input; set 0 to disable")
 	flag.Parse()
 
 	command := strings.Fields(*commandLine)
@@ -42,6 +43,7 @@ func main() {
 		WebDir:           *webDir,
 		Command:          command,
 		ReconnectTimeout: *reconnectTimeout,
+		IdleTimeout:      *idleTimeout,
 	})
 
 	httpServer := &http.Server{

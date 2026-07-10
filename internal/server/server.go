@@ -23,6 +23,7 @@ type Config struct {
 	WebDir           string
 	Command          []string
 	ReconnectTimeout time.Duration
+	IdleTimeout      time.Duration
 }
 
 type Server struct {
@@ -124,7 +125,7 @@ func (s *Server) getOrCreateSession() (*ptySession, error) {
 		return current, nil
 	}
 
-	session, err := newPTYSession(s.config.Command, s.clearSession)
+	session, err := newPTYSession(s.config.Command, s.config.IdleTimeout, s.clearSession)
 	if err != nil {
 		return nil, err
 	}
@@ -195,9 +196,11 @@ type ptySession struct {
 	buffer      []string
 	ended       bool
 	detachTimer *time.Timer
+	idleTimeout time.Duration
+	idleTimer   *time.Timer
 }
 
-func newPTYSession(command []string, onDone func(*ptySession)) (*ptySession, error) {
+func newPTYSession(command []string, idleTimeout time.Duration, onDone func(*ptySession)) (*ptySession, error) {
 	terminal, err := pty.New()
 	if err != nil {
 		return nil, err
@@ -214,13 +217,15 @@ func newPTYSession(command []string, onDone func(*ptySession)) (*ptySession, err
 	}
 
 	session := &ptySession{
-		command:  command,
-		terminal: terminal,
-		cancel:   cancel,
-		done:     make(chan struct{}),
-		onDone:   onDone,
-		buffer:   []string{"started PTY shell: " + strings.Join(command, " ") + "\r\n"},
+		command:     command,
+		terminal:    terminal,
+		cancel:      cancel,
+		done:        make(chan struct{}),
+		onDone:      onDone,
+		buffer:      []string{"started PTY shell: " + strings.Join(command, " ") + "\r\n"},
+		idleTimeout: idleTimeout,
 	}
+	session.resetIdleTimer()
 
 	go session.streamOutput()
 	go session.waitForExit(cmd)
@@ -241,6 +246,7 @@ func (s *ptySession) attach(writer *websocketWriter) bool {
 	}
 
 	s.client = writer
+	s.resetIdleTimerLocked()
 	buffered := append([]string(nil), s.buffer...)
 	s.buffer = nil
 	s.mu.Unlock()
@@ -284,11 +290,18 @@ func (s *ptySession) isEnded() bool {
 
 func (s *ptySession) writeInput(input string) error {
 	_, err := io.WriteString(s.terminal, input)
+	if err == nil {
+		s.resetIdleTimer()
+	}
 	return err
 }
 
 func (s *ptySession) resize(cols int, rows int) error {
-	return s.terminal.Resize(cols, rows)
+	err := s.terminal.Resize(cols, rows)
+	if err == nil {
+		s.resetIdleTimer()
+	}
+	return err
 }
 
 func (s *ptySession) terminate() {
@@ -347,6 +360,10 @@ func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 		s.detachTimer.Stop()
 		s.detachTimer = nil
 	}
+	if s.idleTimer != nil {
+		s.idleTimer.Stop()
+		s.idleTimer = nil
+	}
 	client := s.client
 	s.client = nil
 	s.mu.Unlock()
@@ -357,6 +374,7 @@ func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 		} else {
 			_ = client.writeJSON(ServerMessage{Type: "exit", Data: "process exited"})
 		}
+		client.close()
 	}
 
 	_ = s.terminal.Close()
@@ -364,6 +382,28 @@ func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 	if s.onDone != nil {
 		s.onDone(s)
 	}
+}
+
+func (s *ptySession) resetIdleTimer() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resetIdleTimerLocked()
+}
+
+func (s *ptySession) resetIdleTimerLocked() {
+	if s.idleTimeout <= 0 || s.ended {
+		return
+	}
+	if s.idleTimer == nil {
+		s.idleTimer = time.AfterFunc(s.idleTimeout, s.expireIdle)
+		return
+	}
+	s.idleTimer.Reset(s.idleTimeout)
+}
+
+func (s *ptySession) expireIdle() {
+	s.deliverOutput("idle timeout reached; ending session\r\n")
+	s.terminate()
 }
 
 type websocketWriter struct {
@@ -375,6 +415,12 @@ func (w *websocketWriter) writeJSON(value ServerMessage) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.conn.WriteJSON(value)
+}
+
+func (w *websocketWriter) close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	writeClose(w.conn)
 }
 
 func writeClose(conn *websocket.Conn) {
