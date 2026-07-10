@@ -15,6 +15,7 @@ export function App() {
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [terminalChunks, setTerminalChunks] = useState<string[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
+  const stopReconnectRef = useRef(false);
 
   const token = useMemo(() => {
     return new URLSearchParams(window.location.search).get("token") ?? "";
@@ -28,55 +29,6 @@ export function App() {
     return `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
   }, [token]);
 
-  useEffect(() => {
-    if (!wsUrl) {
-      setConnectionState("missing-token");
-      setTerminalChunks(["missing session token\r\n"]);
-      return;
-    }
-
-    setConnectionState("connecting");
-    const socket = new WebSocket(wsUrl);
-    socketRef.current = socket;
-
-    socket.addEventListener("open", () => {
-      setConnectionState("connected");
-    });
-
-    socket.addEventListener("message", (event: MessageEvent<string>) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(event.data);
-      } catch {
-        setTerminalChunks((chunks) => [...chunks, event.data]);
-        return;
-      }
-
-      if (!isServerMessage(parsed)) {
-        setTerminalChunks((chunks) => [...chunks, "received malformed server message\r\n"]);
-        return;
-      }
-
-      handleServerMessage(parsed);
-    });
-
-    socket.addEventListener("close", () => {
-      setConnectionState("closed");
-      setTerminalChunks((chunks) => [...chunks, "connection closed\r\n"]);
-    });
-
-    socket.addEventListener("error", () => {
-      setConnectionState("error");
-    });
-
-    return () => {
-      socket.close();
-      if (socketRef.current === socket) {
-        socketRef.current = null;
-      }
-    };
-  }, [wsUrl]);
-
   const handleServerMessage = useCallback((message: ServerMessage) => {
     switch (message.type) {
       case "output":
@@ -86,6 +38,7 @@ export function App() {
         setTerminalChunks((chunks) => [...chunks, `error: ${message.data ?? "unknown"}\r\n`]);
         break;
       case "exit":
+        stopReconnectRef.current = true;
         setTerminalChunks((chunks) => [...chunks, `process: ${message.data ?? "exited"}\r\n`]);
         setConnectionState("closed");
         break;
@@ -93,6 +46,81 @@ export function App() {
         break;
     }
   }, []);
+
+  useEffect(() => {
+    if (!wsUrl) {
+      setConnectionState("missing-token");
+      setTerminalChunks(["missing session token\r\n"]);
+      return;
+    }
+
+    let disposed = false;
+    let reconnectTimer: number | undefined;
+
+    const connect = () => {
+      if (disposed || stopReconnectRef.current) {
+        return;
+      }
+
+      setConnectionState("connecting");
+      const socket = new WebSocket(wsUrl);
+      socketRef.current = socket;
+
+      socket.addEventListener("open", () => {
+        setConnectionState("connected");
+      });
+
+      socket.addEventListener("message", (event: MessageEvent<string>) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(event.data);
+        } catch {
+          setTerminalChunks((chunks) => [...chunks, event.data]);
+          return;
+        }
+
+        if (!isServerMessage(parsed)) {
+          setTerminalChunks((chunks) => [...chunks, "received malformed server message\r\n"]);
+          return;
+        }
+
+        handleServerMessage(parsed);
+      });
+
+      socket.addEventListener("close", () => {
+        if (socketRef.current === socket) {
+          socketRef.current = null;
+        }
+
+        if (disposed || stopReconnectRef.current) {
+          setConnectionState("closed");
+          return;
+        }
+
+        setConnectionState("connecting");
+        setTerminalChunks((chunks) => [...chunks, "connection lost; reconnecting...\r\n"]);
+        reconnectTimer = window.setTimeout(connect, 1000);
+      });
+
+      socket.addEventListener("error", () => {
+        if (!stopReconnectRef.current) {
+          setConnectionState("error");
+        }
+      });
+    };
+
+    stopReconnectRef.current = false;
+    connect();
+
+    return () => {
+      disposed = true;
+      if (reconnectTimer !== undefined) {
+        window.clearTimeout(reconnectTimer);
+      }
+      socketRef.current?.close();
+      socketRef.current = null;
+    };
+  }, [handleServerMessage, wsUrl]);
 
   const sendInput = useCallback((data: string) => {
     const socket = socketRef.current;
@@ -115,7 +143,9 @@ export function App() {
 
   const endSession = useCallback(() => {
     const socket = socketRef.current;
+    stopReconnectRef.current = true;
     if (!socket) {
+      setConnectionState("closed");
       return;
     }
 
@@ -125,6 +155,7 @@ export function App() {
     }
 
     socket.close();
+    setConnectionState("closed");
   }, []);
 
   const canSend = connectionState === "connected";

@@ -10,23 +10,27 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	pty "github.com/aymanbagabas/go-pty"
 	"github.com/gorilla/websocket"
 )
 
+const maxBufferedOutputChunks = 256
+
 type Config struct {
-	SessionToken string
-	WebDir       string
-	Command      []string
+	SessionToken     string
+	WebDir           string
+	Command          []string
+	ReconnectTimeout time.Duration
 }
 
 type Server struct {
 	config   Config
 	upgrader websocket.Upgrader
-	active   atomic.Bool
+
+	mu      sync.Mutex
+	session *ptySession
 }
 
 type ClientMessage struct {
@@ -42,6 +46,10 @@ type ServerMessage struct {
 }
 
 func New(config Config) *Server {
+	if config.ReconnectTimeout <= 0 {
+		config.ReconnectTimeout = 90 * time.Second
+	}
+
 	return &Server{
 		config: config,
 		upgrader: websocket.Upgrader{
@@ -71,11 +79,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid session token"})
 		return
 	}
-	if !s.active.CompareAndSwap(false, true) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "session already active"})
-		return
-	}
-	defer s.active.Store(false)
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -89,98 +92,277 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 	})
 
-	writer := websocketWriter{conn: conn}
-	if err := s.bridgeCommand(r.Context(), &writer, conn); err != nil {
+	writer := &websocketWriter{conn: conn}
+	session, err := s.getOrCreateSession()
+	if err != nil {
 		_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
+		writeClose(conn)
+		return
 	}
-	_ = conn.WriteControl(
-		websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "session ended"),
-		time.Now().Add(time.Second),
-	)
+
+	if !session.attach(writer) {
+		_ = writer.writeJSON(ServerMessage{Type: "error", Data: "session already active"})
+		writeClose(conn)
+		return
+	}
+	defer session.detach(writer, s.config.ReconnectTimeout)
+
+	s.readClientMessages(session, writer, conn)
+	writeClose(conn)
 }
 
-func (s *Server) bridgeCommand(ctx context.Context, writer *websocketWriter, conn *websocket.Conn) error {
+func (s *Server) getOrCreateSession() (*ptySession, error) {
 	if len(s.config.Command) == 0 {
-		return errors.New("no command configured")
+		return nil, errors.New("no command configured")
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	s.mu.Lock()
+	current := s.session
+	s.mu.Unlock()
 
-	terminal, err := pty.New()
+	if current != nil && !current.isEnded() {
+		return current, nil
+	}
+
+	session, err := newPTYSession(s.config.Command, s.clearSession)
 	if err != nil {
-		return err
-	}
-	defer terminal.Close()
-
-	cmd := terminal.CommandContext(ctx, s.config.Command[0], s.config.Command[1:]...)
-	cmd.Env = os.Environ()
-
-	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
 
-	waitCh := make(chan error, 1)
-	waitDone := make(chan struct{})
-	go func() {
-		waitCh <- cmd.Wait()
-		close(waitDone)
-	}()
-	defer func() {
-		cancel()
-		select {
-		case <-waitDone:
-		case <-time.After(2 * time.Second):
-		}
-	}()
-
-	if err := writer.writeJSON(ServerMessage{Type: "output", Data: "started PTY shell: " + strings.Join(s.config.Command, " ") + "\r\n"}); err != nil {
-		return err
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session != nil && !s.session.isEnded() {
+		session.terminate()
+		return s.session, nil
 	}
+	s.session = session
+	return session, nil
+}
 
-	go streamOutput(writer, terminal)
+func (s *Server) clearSession(session *ptySession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session == session {
+		s.session = nil
+	}
+}
 
+func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter, conn *websocket.Conn) {
 	for {
-		select {
-		case err := <-waitCh:
-			if err != nil {
-				_ = writer.writeJSON(ServerMessage{Type: "exit", Data: err.Error()})
-			} else {
-				_ = writer.writeJSON(ServerMessage{Type: "exit", Data: "process exited"})
-			}
-			return nil
-		default:
-		}
-
 		var msg ClientMessage
 		if err := conn.ReadJSON(&msg); err != nil {
-			return nil
+			return
 		}
 
 		switch msg.Type {
 		case "input":
-			if _, err := io.WriteString(terminal, msg.Data); err != nil {
-				return err
+			if err := session.writeInput(msg.Data); err != nil {
+				_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
+				return
 			}
 		case "exit":
 			_ = writer.writeJSON(ServerMessage{Type: "output", Data: "ending session\r\n"})
-			return nil
+			session.terminate()
+			return
 		case "resize":
 			if msg.Cols > 0 && msg.Rows > 0 {
-				if err := terminal.Resize(msg.Cols, msg.Rows); err != nil {
-					return err
+				if err := session.resize(msg.Cols, msg.Rows); err != nil {
+					_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
+					return
 				}
 			}
 		case "ping":
 			if err := writer.writeJSON(ServerMessage{Type: "pong"}); err != nil {
-				return err
+				return
 			}
 		default:
 			if err := writer.writeJSON(ServerMessage{Type: "error", Data: "unsupported message type"}); err != nil {
-				return err
+				return
 			}
 		}
+	}
+}
+
+type ptySession struct {
+	command  []string
+	terminal pty.Pty
+	cancel   context.CancelFunc
+	done     chan struct{}
+	onDone   func(*ptySession)
+
+	mu          sync.Mutex
+	client      *websocketWriter
+	buffer      []string
+	ended       bool
+	detachTimer *time.Timer
+}
+
+func newPTYSession(command []string, onDone func(*ptySession)) (*ptySession, error) {
+	terminal, err := pty.New()
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := terminal.CommandContext(ctx, command[0], command[1:]...)
+	cmd.Env = os.Environ()
+
+	if err := cmd.Start(); err != nil {
+		cancel()
+		_ = terminal.Close()
+		return nil, err
+	}
+
+	session := &ptySession{
+		command:  command,
+		terminal: terminal,
+		cancel:   cancel,
+		done:     make(chan struct{}),
+		onDone:   onDone,
+		buffer:   []string{"started PTY shell: " + strings.Join(command, " ") + "\r\n"},
+	}
+
+	go session.streamOutput()
+	go session.waitForExit(cmd)
+
+	return session, nil
+}
+
+func (s *ptySession) attach(writer *websocketWriter) bool {
+	s.mu.Lock()
+	if s.ended || s.client != nil {
+		s.mu.Unlock()
+		return false
+	}
+
+	if s.detachTimer != nil {
+		s.detachTimer.Stop()
+		s.detachTimer = nil
+	}
+
+	s.client = writer
+	buffered := append([]string(nil), s.buffer...)
+	s.buffer = nil
+	s.mu.Unlock()
+
+	for _, chunk := range buffered {
+		if err := writer.writeJSON(ServerMessage{Type: "output", Data: chunk}); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *ptySession) detach(writer *websocketWriter, timeout time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.client != writer {
+		return
+	}
+	s.client = nil
+
+	if s.ended {
+		return
+	}
+	if timeout <= 0 {
+		go s.terminate()
+		return
+	}
+
+	if s.detachTimer != nil {
+		s.detachTimer.Stop()
+	}
+	s.detachTimer = time.AfterFunc(timeout, s.terminate)
+}
+
+func (s *ptySession) isEnded() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ended
+}
+
+func (s *ptySession) writeInput(input string) error {
+	_, err := io.WriteString(s.terminal, input)
+	return err
+}
+
+func (s *ptySession) resize(cols int, rows int) error {
+	return s.terminal.Resize(cols, rows)
+}
+
+func (s *ptySession) terminate() {
+	s.cancel()
+	_ = s.terminal.Close()
+	select {
+	case <-s.done:
+	case <-time.After(2 * time.Second):
+	}
+}
+
+func (s *ptySession) streamOutput() {
+	buffer := make([]byte, 4096)
+	for {
+		n, err := s.terminal.Read(buffer)
+		if n > 0 {
+			s.deliverOutput(string(buffer[:n]))
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (s *ptySession) deliverOutput(chunk string) {
+	s.mu.Lock()
+	if s.ended {
+		s.mu.Unlock()
+		return
+	}
+
+	client := s.client
+	if client == nil {
+		s.buffer = append(s.buffer, chunk)
+		if len(s.buffer) > maxBufferedOutputChunks {
+			s.buffer = s.buffer[len(s.buffer)-maxBufferedOutputChunks:]
+		}
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+
+	_ = client.writeJSON(ServerMessage{Type: "output", Data: chunk})
+}
+
+func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
+	err := cmd.Wait()
+
+	s.mu.Lock()
+	if s.ended {
+		s.mu.Unlock()
+		return
+	}
+	s.ended = true
+	if s.detachTimer != nil {
+		s.detachTimer.Stop()
+		s.detachTimer = nil
+	}
+	client := s.client
+	s.client = nil
+	s.mu.Unlock()
+
+	if client != nil {
+		if err != nil {
+			_ = client.writeJSON(ServerMessage{Type: "exit", Data: err.Error()})
+		} else {
+			_ = client.writeJSON(ServerMessage{Type: "exit", Data: "process exited"})
+		}
+	}
+
+	_ = s.terminal.Close()
+	close(s.done)
+	if s.onDone != nil {
+		s.onDone(s)
 	}
 }
 
@@ -195,19 +377,12 @@ func (w *websocketWriter) writeJSON(value ServerMessage) error {
 	return w.conn.WriteJSON(value)
 }
 
-func streamOutput(writer *websocketWriter, reader io.Reader) {
-	buffer := make([]byte, 4096)
-	for {
-		n, err := reader.Read(buffer)
-		if n > 0 {
-			if writeErr := writer.writeJSON(ServerMessage{Type: "output", Data: string(buffer[:n])}); writeErr != nil {
-				return
-			}
-		}
-		if err != nil {
-			return
-		}
-	}
+func writeClose(conn *websocket.Conn) {
+	_ = conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "session ended"),
+		time.Now().Add(time.Second),
+	)
 }
 
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
