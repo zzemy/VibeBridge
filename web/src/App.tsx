@@ -35,6 +35,15 @@ export function App() {
         setTerminalChunks((chunks) => [...chunks, message.data ?? ""]);
         break;
       case "error":
+        if (message.data === "session already active") {
+          stopReconnectRef.current = true;
+          setConnectionState("error");
+          setTerminalChunks((chunks) => [
+            ...chunks,
+            "error: another browser is already controlling this session\r\n",
+          ]);
+          break;
+        }
         setTerminalChunks((chunks) => [...chunks, `error: ${message.data ?? "unknown"}\r\n`]);
         break;
       case "exit":
