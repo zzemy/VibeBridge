@@ -170,8 +170,8 @@ export function App() {
   const canSend = connectionState === "connected";
 
   return (
-    <main className="min-h-dvh bg-zinc-950 text-zinc-100">
-      <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-3 py-3 sm:px-5 sm:py-5">
+    <main className="h-dvh overflow-hidden bg-zinc-950 text-zinc-100">
+      <div className="mx-auto flex h-dvh w-full max-w-5xl flex-col px-3 py-3 sm:px-5 sm:py-5">
         <header className="flex items-center justify-between gap-3 pb-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -197,7 +197,7 @@ export function App() {
         </header>
 
         <section className="min-h-0 flex-1 overflow-hidden rounded-md border border-zinc-800 bg-black shadow-2xl shadow-black/30">
-          <Suspense fallback={<div className="grid h-full min-h-[22rem] place-items-center text-sm text-zinc-500">Loading terminal...</div>}>
+          <Suspense fallback={<div className="grid h-full min-h-0 place-items-center text-sm text-zinc-500">Loading terminal...</div>}>
             <TerminalView chunks={terminalChunks} onResize={sendResize} />
           </Suspense>
         </section>

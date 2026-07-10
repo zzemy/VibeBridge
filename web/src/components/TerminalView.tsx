@@ -77,5 +77,5 @@ export function TerminalView({ chunks, onResize }: Props) {
     writtenChunksRef.current = chunks.length;
   }, [chunks]);
 
-  return <div ref={containerRef} className="h-full min-h-[22rem] w-full p-2" />;
+  return <div ref={containerRef} className="h-full min-h-0 w-full p-2" />;
 }
