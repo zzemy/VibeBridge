@@ -41,6 +41,7 @@ func main() {
 	app := server.New(server.Config{
 		SessionToken:     token,
 		WebDir:           *webDir,
+		StaticFS:         embeddedWebFS(),
 		Command:          command,
 		ReconnectTimeout: *reconnectTimeout,
 		IdleTimeout:      *idleTimeout,

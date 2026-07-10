@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ const maxBufferedOutputChunks = 256
 type Config struct {
 	SessionToken     string
 	WebDir           string
+	StaticFS         fs.FS
 	Command          []string
 	ReconnectTimeout time.Duration
 	IdleTimeout      time.Duration
@@ -438,17 +440,27 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.config.WebDir == "" {
-		writeFallback(w)
+		s.handleEmbeddedStatic(w, r)
 		return
 	}
 
 	indexPath := filepath.Join(s.config.WebDir, "index.html")
 	if _, err := os.Stat(indexPath); errors.Is(err, os.ErrNotExist) {
-		writeFallback(w)
+		s.handleEmbeddedStatic(w, r)
 		return
 	}
 
 	fileServer := http.FileServer(http.Dir(s.config.WebDir))
+	fileServer.ServeHTTP(w, r)
+}
+
+func (s *Server) handleEmbeddedStatic(w http.ResponseWriter, r *http.Request) {
+	if s.config.StaticFS == nil {
+		writeFallback(w)
+		return
+	}
+
+	fileServer := http.FileServer(http.FS(s.config.StaticFS))
 	fileServer.ServeHTTP(w, r)
 }
 
