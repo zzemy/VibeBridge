@@ -1,4 +1,4 @@
-import { SendHorizontal } from "lucide-react";
+import { ClipboardPaste, SendHorizontal } from "lucide-react";
 import { useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
@@ -20,6 +20,23 @@ export function PromptComposer({ disabled, onSend }: Props) {
 
     onSend(trimmed);
     setValue("");
+  }
+
+  async function pasteFromClipboard() {
+    if (!navigator.clipboard?.readText) {
+      return;
+    }
+
+    const text = await navigator.clipboard.readText();
+    if (!text) {
+      return;
+    }
+
+    if (text.length > 8000 && !window.confirm("Paste more than 8,000 characters into the prompt composer?")) {
+      return;
+    }
+
+    setValue((current) => `${current}${current ? "\n" : ""}${text}`);
   }
 
   return (
@@ -44,10 +61,16 @@ export function PromptComposer({ disabled, onSend }: Props) {
           }
         }}
       />
-      <Button type="button" disabled={disabled || value.trim() === ""} className="h-12 px-3" onClick={submit}>
-        <SendHorizontal className="size-4" aria-hidden="true" />
-        <span className="sr-only">Send prompt</span>
-      </Button>
+      <div className="flex shrink-0 flex-col gap-2">
+        <Button type="button" variant="secondary" size="icon" className="size-10" onClick={pasteFromClipboard}>
+          <ClipboardPaste className="size-4" aria-hidden="true" />
+          <span className="sr-only">Paste from clipboard</span>
+        </Button>
+        <Button type="button" disabled={disabled || value.trim() === ""} size="icon" className="size-10" onClick={submit}>
+          <SendHorizontal className="size-4" aria-hidden="true" />
+          <span className="sr-only">Send prompt</span>
+        </Button>
+      </div>
     </div>
   );
 }
