@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	pty "github.com/aymanbagabas/go-pty"
@@ -25,6 +26,7 @@ type Config struct {
 type Server struct {
 	config   Config
 	upgrader websocket.Upgrader
+	active   atomic.Bool
 }
 
 type ClientMessage struct {
@@ -69,6 +71,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid session token"})
 		return
 	}
+	if !s.active.CompareAndSwap(false, true) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "session already active"})
+		return
+	}
+	defer s.active.Store(false)
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -85,8 +92,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	writer := websocketWriter{conn: conn}
 	if err := s.bridgeCommand(r.Context(), &writer, conn); err != nil {
 		_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
-		return
 	}
+	_ = conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "session ended"),
+		time.Now().Add(time.Second),
+	)
 }
 
 func (s *Server) bridgeCommand(ctx context.Context, writer *websocketWriter, conn *websocket.Conn) error {
@@ -152,6 +163,9 @@ func (s *Server) bridgeCommand(ctx context.Context, writer *websocketWriter, con
 			if _, err := io.WriteString(terminal, msg.Data); err != nil {
 				return err
 			}
+		case "exit":
+			_ = writer.writeJSON(ServerMessage{Type: "output", Data: "ending session\r\n"})
+			return nil
 		case "resize":
 			if msg.Cols > 0 && msg.Rows > 0 {
 				if err := terminal.Resize(msg.Cols, msg.Rows); err != nil {

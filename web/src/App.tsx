@@ -113,6 +113,20 @@ export function App() {
     socket.send(JSON.stringify({ type: "resize", cols, rows }));
   }, []);
 
+  const endSession = useCallback(() => {
+    const socket = socketRef.current;
+    if (!socket) {
+      return;
+    }
+
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "exit" }));
+      return;
+    }
+
+    socket.close();
+  }, []);
+
   const canSend = connectionState === "connected";
 
   return (
@@ -162,7 +176,7 @@ export function App() {
               variant="ghost"
               size="sm"
               className="h-8 shrink-0 text-zinc-400 hover:text-red-300"
-              onClick={() => socketRef.current?.close()}
+              onClick={endSession}
             >
               <Power className="mr-1 size-3" aria-hidden="true" />
               End

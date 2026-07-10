@@ -1,5 +1,6 @@
 export type ClientMessage =
   | { type: "input"; data: string }
+  | { type: "exit" }
   | { type: "ping" }
   | { type: "resize"; cols: number; rows: number };
 
