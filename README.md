@@ -22,6 +22,7 @@ The server prints local and LAN URLs plus a QR code. Scan the LAN URL from a pho
 ## Common Options
 
 ```powershell
+go run ./cmd/vibebridge --cmd "pwsh -NoLogo -NoExit -NoProfile"
 go run ./cmd/vibebridge --cmd "powershell.exe -NoLogo -NoExit"
 go run ./cmd/vibebridge --cmd "codex"
 go run ./cmd/vibebridge --addr "0.0.0.0:8787"

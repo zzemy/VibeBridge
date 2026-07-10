@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
 	"strings"
@@ -89,7 +90,10 @@ func newSessionToken() (string, error) {
 
 func defaultCommandLine() string {
 	if runtime.GOOS == "windows" {
-		return "powershell.exe -NoLogo -NoExit"
+		if _, err := exec.LookPath("pwsh"); err == nil {
+			return "pwsh -NoLogo -NoExit -NoProfile"
+		}
+		return "powershell.exe -NoLogo -NoExit -NoProfile"
 	}
 	return "/bin/sh"
 }
