@@ -2,7 +2,7 @@
 
 VibeBridge maps a local PTY session to a phone browser. It is designed for controlling local AI CLI tools such as Codex or Claude Code from a mobile device without streaming the desktop screen.
 
-Long-term product boundaries, lifecycle rules, and security invariants are documented in [docs/product-spec.md](docs/product-spec.md). The open-source product V1 direction is defined in [docs/product-v1-prd.md](docs/product-v1-prd.md).
+Product, architecture, security, ADR, and roadmap documentation is organized in [docs/index.md](docs/index.md).
 
 ## Development
 
