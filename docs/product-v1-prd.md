@@ -339,3 +339,5 @@ These decisions require prototypes or threat-model work before implementation is
 - Whether Capacitor packaging ships in V1 or immediately after the PWA beta.
 
 No open decision may introduce payment tiers or closed-source dependencies into the V1 core requirements without a separate product decision.
+
+Detailed target architecture, security design, ADRs, and delivery gates are indexed in [index.md](index.md).
