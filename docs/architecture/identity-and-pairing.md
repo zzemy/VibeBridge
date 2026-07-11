@@ -1,0 +1,107 @@
+# Identity and Pairing
+
+## Identity Layers
+
+VibeBridge separates three concepts:
+
+- User discovery identity: optional account or self-hosted identity used to find devices.
+- Device identity: cryptographic identity of one Agent or client installation.
+- Session authorization: short-lived permission to start or attach to one session.
+
+An account never replaces device-key authentication. This separation keeps self-hosting possible and limits control-plane compromise.
+
+## Device Keys
+
+Each device generates:
+
+- An Ed25519 signing key for device statements, revocations, and key rotation.
+- An X25519 static key for authenticated key agreement.
+- A random opaque device identifier independent of hardware serial numbers.
+
+The signed device descriptor contains public keys, device identifier, display metadata, creation time, key version, and supported protocol range.
+
+Private keys are non-exportable where platform APIs allow it:
+
+- iOS: Keychain/Secure Enclave-backed storage where compatible.
+- Android: Keystore-backed storage.
+- Windows: DPAPI or CNG-backed protected storage.
+- macOS: Keychain.
+- Linux: Secret Service when available, with an explicit file-permission fallback.
+- PWA: non-extractable Web Crypto keys in browser storage, documented as lower assurance than native secure storage.
+
+## Pairing Bootstrap
+
+The Agent creates an expiring, single-use pairing record and QR payload containing:
+
+- Pairing version.
+- Agent opaque device identifier.
+- Agent public key fingerprint or descriptor.
+- At least 128 bits of random bootstrap secret.
+- Relay or direct-discovery hints.
+- Expiry timestamp.
+- Human-readable verification code derived from the transcript.
+
+The QR code is a bootstrap capability, not a permanent credential.
+
+## Pairing Flow
+
+1. Phone scans and validates QR structure and expiry.
+2. Phone connects directly or through a pairing relay route.
+3. Peers establish an encrypted channel authenticated by the Agent key and bootstrap secret.
+4. Phone sends its signed device descriptor.
+5. Both screens show device names and a short verification code.
+6. User confirms on at least the Agent side; higher-assurance mode confirms both.
+7. Agent atomically consumes the pairing record and stores the phone descriptor.
+8. Phone stores the Agent descriptor.
+9. Both sides derive no permanent secret solely from the QR token; future sessions use device keys.
+
+Exact handshake construction is defined in the E2EE document and validated through published test vectors.
+
+## Device Graph
+
+For an individual user, every Agent stores its authorized client descriptors and revocation epochs locally. Optional account discovery may mirror public descriptors and signed revocation events.
+
+No central service is the sole source of authority for an Agent. The Agent can continue local-only operation using its local device graph.
+
+## Revocation
+
+- Each authorized client has a monotonically increasing authorization version.
+- Agent local revocation is immediately authoritative.
+- Signed revocation events may synchronize through the Control API.
+- New handshakes include the latest known revocation epoch.
+- Relay tickets expire quickly so revoked devices lose routing access without long cache windows.
+- Established sessions terminate when an applicable newer revocation event is accepted.
+
+## Key Rotation
+
+- Devices rotate X25519 transport keys without changing user-visible identity when the Ed25519 identity key signs the transition.
+- Identity-key rotation requires approval from an already trusted device or a new pairing ceremony.
+- Lost-all-devices recovery is intentionally separate from normal rotation and may require re-pairing each Agent.
+- Old keys have explicit not-after times and remain only for a bounded overlap window.
+
+## Optional Accounts
+
+Accounts may improve device discovery and recovery but are not required for cryptographic trust.
+
+If introduced:
+
+- Prefer passkeys and OIDC over password-only authentication.
+- Account records store public device descriptors and encrypted discovery metadata.
+- Account sessions cannot directly authorize terminal access without a paired device key.
+- Self-hosted deployments can disable accounts or use configured OIDC.
+- Account deletion does not silently delete local repositories or transcripts because those remain local.
+
+## Privacy
+
+- Device identifiers are random and scoped to VibeBridge.
+- Hardware serial numbers, usernames, and full hostnames are not uploaded by default.
+- Display names are user-controlled and encrypted where relay routing does not require them.
+- Pairing logs record opaque identifiers, outcome, and timestamp, not bootstrap secrets.
+
+## Verification
+
+- Deterministic pairing transcript test vectors.
+- Expiry, replay, race, and atomic-consume tests.
+- Revocation propagation and stale-ticket tests.
+- Platform secure-storage integration tests.
+- Lost-phone and lost-Agent recovery drills.
