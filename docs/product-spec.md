@@ -103,3 +103,5 @@ A release is acceptable when:
 - Go tests, frontend tests, production frontend build, and embedded binary build pass.
 
 Operational commands and the current manual device checklist live in the repository [README](../README.md).
+
+The current local product is the foundation for the broader open-source V1 described in [product-v1-prd.md](product-v1-prd.md).
