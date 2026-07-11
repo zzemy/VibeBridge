@@ -10,6 +10,9 @@ export default defineConfig({
         target: "ws://127.0.0.1:8787",
         ws: true,
       },
+      "/status": {
+        target: "http://127.0.0.1:8787",
+      },
     },
   },
 });
