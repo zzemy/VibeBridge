@@ -1,14 +1,21 @@
-import { ClipboardPaste, CornerDownLeft, SendHorizontal } from "lucide-react";
+import { ChevronUp, ClipboardPaste, CornerDownLeft, History, SendHorizontal, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 
 const maxPromptLength = 8_000;
+const quickPrompts = [
+  "Review the current changes and identify the highest-risk issue.",
+  "Run the relevant tests and fix any failures.",
+  "Explain the current blocker and the next concrete step.",
+  "Summarize progress, remaining work, and verification status.",
+] as const;
 
 type InputMode = "send" | "insert";
 
 type Props = {
   disabled: boolean;
+  historyStorageKey: string;
   storageKey: string;
   onSubmit: (value: string, appendEnter: boolean) => void;
 };
@@ -21,16 +28,31 @@ function readDraft(storageKey: string) {
   }
 }
 
-export function PromptComposer({ disabled, storageKey, onSubmit }: Props) {
+function readHistory(storageKey: string) {
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? "[]");
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubmit }: Props) {
   const [value, setValue] = useState(() => readDraft(storageKey));
   const [mode, setMode] = useState<InputMode>("send");
   const [notice, setNotice] = useState("");
+  const [history, setHistory] = useState(() => readHistory(historyStorageKey));
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const isComposingRef = useRef(false);
 
   useEffect(() => {
     setValue(readDraft(storageKey));
     setNotice("");
   }, [storageKey]);
+
+  useEffect(() => {
+    setHistory(readHistory(historyStorageKey));
+  }, [historyStorageKey]);
 
   useEffect(() => {
     try {
@@ -61,12 +83,32 @@ export function PromptComposer({ disabled, storageKey, onSubmit }: Props) {
     }
 
     onSubmit(value, mode === "send");
+    const nextHistory = [value, ...history.filter((item) => item !== value)].slice(0, 8);
+    setHistory(nextHistory);
+    let historyStored = true;
+    try {
+      sessionStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
+    } catch {
+      historyStored = false;
+      setNotice("Prompt history is unavailable in this browser.");
+    }
     setValue("");
-    setNotice("");
+    if (historyStored) {
+      setNotice("");
+    }
+  }
+
+  function appendPrompt(prompt: string) {
+    const nextValue = value ? `${value}\n${prompt}` : prompt;
+    updateValue(nextValue);
   }
 
   async function pasteFromClipboard() {
-    if (disabled || !navigator.clipboard?.readText) {
+    if (disabled) {
+      return;
+    }
+    if (!navigator.clipboard?.readText) {
+      setNotice("Clipboard access is unavailable on this LAN page. Paste directly into the editor.");
       return;
     }
 
@@ -118,6 +160,42 @@ export function PromptComposer({ disabled, storageKey, onSubmit }: Props) {
           {value.length.toLocaleString()} / {maxPromptLength.toLocaleString()}
         </span>
       </div>
+
+      <div className="mb-2 flex items-center gap-1 overflow-x-auto">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 shrink-0 px-2 text-xs text-zinc-400"
+          aria-expanded={quickActionsOpen}
+          onClick={() => setQuickActionsOpen((open) => !open)}
+        >
+          {quickActionsOpen ? <ChevronUp className="size-3.5" aria-hidden="true" /> : <Sparkles className="size-3.5" aria-hidden="true" />}
+          Quick prompts
+        </Button>
+        {history.length > 0 ? (
+          <span className="flex items-center gap-1 text-xs text-zinc-600">
+            <History className="size-3.5" aria-hidden="true" />
+            {history.length} recent
+          </span>
+        ) : null}
+      </div>
+
+      {quickActionsOpen ? (
+        <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1" aria-label="Quick prompts and recent history">
+          {quickPrompts.map((prompt) => (
+            <Button key={prompt} type="button" size="sm" variant="secondary" className="h-8 shrink-0 px-2 text-xs" onClick={() => appendPrompt(prompt)}>
+              {prompt.split(" ").slice(0, 3).join(" ")}
+            </Button>
+          ))}
+          {history.map((prompt) => (
+            <Button key={`history-${prompt}`} type="button" size="sm" variant="ghost" className="h-8 max-w-48 shrink-0 truncate px-2 text-xs text-zinc-400" title={prompt} onClick={() => appendPrompt(prompt)}>
+              <History className="size-3.5" aria-hidden="true" />
+              <span className="truncate">{prompt}</span>
+            </Button>
+          ))}
+        </div>
+      ) : null}
 
       <div className="flex items-end gap-2">
         <Textarea

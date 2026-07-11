@@ -2,12 +2,16 @@ package server
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	pty "github.com/aymanbagabas/go-pty"
 	"github.com/gorilla/websocket"
 )
 
@@ -39,6 +43,43 @@ func TestHandlerHealthAndRejectsInvalidToken(t *testing.T) {
 			status = response.StatusCode
 		}
 		t.Fatalf("invalid token status = %d, want %d", status, http.StatusUnauthorized)
+	}
+}
+
+func TestStatusRequiresTokenAndReportsSessionState(t *testing.T) {
+	app := New(Config{
+		SessionToken:     "expected-token",
+		ReconnectTimeout: 45 * time.Second,
+		IdleTimeout:      10 * time.Minute,
+	})
+	now := time.Date(2026, time.July, 12, 8, 30, 0, 0, time.UTC)
+	app.session = &ptySession{startedAt: now, lastActivityAt: now.Add(time.Minute)}
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	unauthorized, err := http.Get(testServer.URL + "/status")
+	if err != nil {
+		t.Fatalf("request unauthorized status: %v", err)
+	}
+	unauthorized.Body.Close()
+	if unauthorized.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want %d", unauthorized.StatusCode, http.StatusUnauthorized)
+	}
+
+	response, err := http.Get(testServer.URL + "/status?token=expected-token")
+	if err != nil {
+		t.Fatalf("request session status: %v", err)
+	}
+	defer response.Body.Close()
+	var status SessionStatus
+	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
+		t.Fatalf("decode session status: %v", err)
+	}
+	if status.State != "detached" {
+		t.Fatalf("session state = %q, want detached", status.State)
+	}
+	if status.ReconnectTimeoutSeconds != 45 || status.IdleTimeoutSeconds != 600 {
+		t.Fatalf("timeouts = %d/%d, want 45/600", status.ReconnectTimeoutSeconds, status.IdleTimeoutSeconds)
 	}
 }
 
@@ -168,3 +209,31 @@ func TestKeepConnectionAliveSendsPing(t *testing.T) {
 		t.Fatal("did not receive a WebSocket Ping control frame")
 	}
 }
+
+func TestCloseTerminalIsIdempotent(t *testing.T) {
+	terminal := &countingPTY{}
+	session := &ptySession{terminal: terminal}
+
+	if err := session.closeTerminal(); err != nil {
+		t.Fatalf("first close: %v", err)
+	}
+	if err := session.closeTerminal(); err != nil {
+		t.Fatalf("second close: %v", err)
+	}
+	if terminal.closeCalls != 1 {
+		t.Fatalf("terminal close calls = %d, want 1", terminal.closeCalls)
+	}
+}
+
+type countingPTY struct {
+	closeCalls int
+}
+
+func (p *countingPTY) Close() error                                               { p.closeCalls++; return nil }
+func (p *countingPTY) Command(string, ...string) *pty.Cmd                         { return nil }
+func (p *countingPTY) CommandContext(context.Context, string, ...string) *pty.Cmd { return nil }
+func (p *countingPTY) Fd() uintptr                                                { return 0 }
+func (p *countingPTY) Name() string                                               { return "counting" }
+func (p *countingPTY) Read([]byte) (int, error)                                   { return 0, io.EOF }
+func (p *countingPTY) Resize(int, int) error                                      { return nil }
+func (p *countingPTY) Write(data []byte) (int, error)                             { return len(data), nil }

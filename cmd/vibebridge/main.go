@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -27,11 +28,22 @@ func main() {
 	commandLine := flag.String("cmd", defaultCommandLine(), "command to run for each WebSocket session")
 	reconnectTimeout := flag.Duration("reconnect-timeout", 90*time.Second, "how long to keep a detached PTY session alive")
 	idleTimeout := flag.Duration("idle-timeout", 30*time.Minute, "how long to keep a PTY session alive without input; set 0 to disable")
+	diagnose := flag.Bool("diagnose", false, "check command, network listener, and frontend assets without starting a session")
 	flag.Parse()
 
 	command := strings.Fields(*commandLine)
 	if len(command) == 0 {
 		log.Fatal("cmd must not be empty")
+	}
+	if err := validateCommand(command); err != nil {
+		log.Fatal(err)
+	}
+	staticFS := embeddedWebFS()
+	if *diagnose {
+		if err := runDiagnostics(*addr, *webDir, staticFS != nil); err != nil {
+			log.Fatal(err)
+		}
+		return
 	}
 
 	token, err := newSessionToken()
@@ -42,7 +54,7 @@ func main() {
 	app := server.New(server.Config{
 		SessionToken:     token,
 		WebDir:           *webDir,
-		StaticFS:         embeddedWebFS(),
+		StaticFS:         staticFS,
 		Command:          command,
 		ReconnectTimeout: *reconnectTimeout,
 		IdleTimeout:      *idleTimeout,
@@ -89,6 +101,45 @@ func isWildcardAddress(addr string) bool {
 	return err == nil && (host == "0.0.0.0" || host == "::")
 }
 
+func validateCommand(command []string) error {
+	if len(command) == 0 {
+		return fmt.Errorf("cmd must not be empty")
+	}
+	if _, err := exec.LookPath(command[0]); err != nil {
+		return fmt.Errorf("command %q was not found in PATH", command[0])
+	}
+	return nil
+}
+
+func runDiagnostics(addr string, webDir string, hasEmbeddedAssets bool) error {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen check for %s failed: %w", addr, err)
+	}
+	_ = listener.Close()
+
+	fmt.Println("[ok] configured command is available")
+	fmt.Printf("[ok] %s is available for the HTTP listener\n", addr)
+	if hasEmbeddedAssets {
+		fmt.Println("[ok] frontend assets are embedded in this binary")
+	} else if _, err := os.Stat(filepath.Join(webDir, "index.html")); err == nil {
+		fmt.Printf("[ok] frontend build found in %s\n", webDir)
+	} else {
+		fmt.Printf("[warn] frontend build not found in %s; run pnpm --dir web build\n", webDir)
+	}
+
+	hosts := lanIPv4Hosts()
+	if len(hosts) == 0 {
+		fmt.Println("[warn] no private LAN IPv4 address was detected")
+	} else {
+		for _, host := range hosts {
+			fmt.Printf("[ok] private LAN address detected: %s\n", host)
+		}
+	}
+	fmt.Println("[check] Windows Firewall must allow private-network access to the selected executable")
+	return nil
+}
+
 func newSessionToken() (string, error) {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -116,6 +167,7 @@ func printStartup(addr string, token string) {
 	}
 
 	fmt.Printf("VibeBridge listening on %s\n", addr)
+	fmt.Println("Preflight: command found, session token created, HTTP listener starting")
 	for _, url := range urls {
 		fmt.Printf("Open: %s\n", url)
 	}
@@ -125,6 +177,7 @@ func printStartup(addr string, token string) {
 
 	fmt.Println("Scan this QR code from your phone:")
 	qrterminal.GenerateHalfBlock(urls[0], qrterminal.L, os.Stdout)
+	fmt.Println("If the phone cannot connect, allow vibebridge.exe through Windows Firewall for private networks only.")
 }
 
 func accessURLs(addr string, token string) ([]string, error) {
