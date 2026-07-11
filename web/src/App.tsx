@@ -5,15 +5,26 @@ import { Button } from "./components/ui/button";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { PromptComposer } from "./components/PromptComposer";
 import { ShortcutBar } from "./components/ShortcutBar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
 import { type ServerMessage, isServerMessage } from "./lib/protocol";
 import { terminalKeys } from "./lib/terminalKeys";
 
 type ConnectionState = "missing-token" | "connecting" | "connected" | "closed" | "error";
+type TerminalChunk = string | Uint8Array;
 const TerminalView = lazy(() => import("./components/TerminalView").then((module) => ({ default: module.TerminalView })));
 
 export function App() {
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
-  const [terminalChunks, setTerminalChunks] = useState<string[]>([]);
+  const [terminalChunks, setTerminalChunks] = useState<TerminalChunk[]>([]);
+  const [endDialogOpen, setEndDialogOpen] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const stopReconnectRef = useRef(false);
 
@@ -31,9 +42,6 @@ export function App() {
 
   const handleServerMessage = useCallback((message: ServerMessage) => {
     switch (message.type) {
-      case "output":
-        setTerminalChunks((chunks) => [...chunks, message.data ?? ""]);
-        break;
       case "error":
         if (message.data === "session already active") {
           stopReconnectRef.current = true;
@@ -73,18 +81,25 @@ export function App() {
 
       setConnectionState("connecting");
       const socket = new WebSocket(wsUrl);
+      socket.binaryType = "arraybuffer";
       socketRef.current = socket;
 
       socket.addEventListener("open", () => {
         setConnectionState("connected");
       });
 
-      socket.addEventListener("message", (event: MessageEvent<string>) => {
+      socket.addEventListener("message", (event: MessageEvent<string | ArrayBuffer>) => {
+        const payload = event.data;
+        if (typeof payload !== "string") {
+          setTerminalChunks((chunks) => [...chunks, new Uint8Array(payload)]);
+          return;
+        }
+
         let parsed: unknown;
         try {
-          parsed = JSON.parse(event.data);
+          parsed = JSON.parse(payload);
         } catch {
-          setTerminalChunks((chunks) => [...chunks, event.data]);
+          setTerminalChunks((chunks) => [...chunks, payload]);
           return;
         }
 
@@ -204,7 +219,11 @@ export function App() {
 
         <section className="shrink-0 space-y-2 pt-3">
           <ShortcutBar disabled={!canSend} onInput={sendInput} />
-          <PromptComposer disabled={!canSend} onSend={(value) => sendInput(`${value}${terminalKeys.enter}`)} />
+          <PromptComposer
+            disabled={!canSend}
+            storageKey={token ? `vibebridge:draft:${token}` : "vibebridge:draft"}
+            onSubmit={(value, appendEnter) => sendInput(`${value}${appendEnter ? terminalKeys.enter : ""}`)}
+          />
 
           <div className="flex items-center justify-between gap-3 text-xs text-zinc-500">
             <span className="flex min-w-0 items-center gap-1 truncate">
@@ -216,7 +235,7 @@ export function App() {
               variant="ghost"
               size="sm"
               className="h-8 shrink-0 text-zinc-400 hover:text-red-300"
-              onClick={endSession}
+              onClick={() => setEndDialogOpen(true)}
             >
               <Power className="mr-1 size-3" aria-hidden="true" />
               End
@@ -224,6 +243,18 @@ export function App() {
           </div>
         </section>
       </div>
+      <AlertDialog open={endDialogOpen} onOpenChange={setEndDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogTitle className="text-base font-semibold text-zinc-50">End this terminal session?</AlertDialogTitle>
+          <AlertDialogDescription className="mt-2 text-sm leading-6 text-zinc-400">
+            The local AI CLI and its PTY will be stopped. This cannot be undone.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep session</AlertDialogCancel>
+            <AlertDialogAction onClick={endSession}>End session</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }

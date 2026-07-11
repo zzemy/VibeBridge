@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const maxBufferedOutputChunks = 256
+const (
+	maxBufferedOutputChunks = 256
+	pongWait                = 5 * time.Minute
+	pingPeriod              = 4 * time.Minute
+)
 
 type Config struct {
 	SessionToken     string
@@ -53,16 +58,15 @@ func New(config Config) *Server {
 		config.ReconnectTimeout = 90 * time.Second
 	}
 
-	return &Server{
+	server := &Server{
 		config: config,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
-			CheckOrigin: func(r *http.Request) bool {
-				return true
-			},
 		},
 	}
+	server.upgrader.CheckOrigin = server.sameOrigin
+	return server
 }
 
 func (s *Server) Handler() http.Handler {
@@ -90,9 +94,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	conn.SetReadLimit(64 * 1024)
-	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
+	_ = conn.SetReadDeadline(time.Now().Add(pongWait))
 	conn.SetPongHandler(func(string) error {
-		return conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
+		return conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
 	writer := &websocketWriter{conn: conn}
@@ -109,9 +113,55 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer session.detach(writer, s.config.ReconnectTimeout)
+	defer s.keepConnectionAlive(writer)()
 
 	s.readClientMessages(session, writer, conn)
 	writeClose(conn)
+}
+
+func (s *Server) sameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// Non-browser WebSocket clients do not send Origin headers.
+		return true
+	}
+
+	parsed, err := url.Parse(origin)
+	return err == nil && parsed.Host == r.Host
+}
+
+func (s *Server) keepConnectionAlive(writer *websocketWriter) func() {
+	return keepConnectionAlive(writer, pingPeriod)
+}
+
+func keepConnectionAlive(writer *websocketWriter, interval time.Duration) func() {
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if err := writer.writePing(); err != nil {
+					return
+				}
+			}
+		}
+	}()
+
+	return func() { close(done) }
+}
+
+// Close ends the active PTY before the HTTP server shuts down.
+func (s *Server) Close() {
+	s.mu.Lock()
+	session := s.session
+	s.mu.Unlock()
+	if session != nil {
+		session.terminate()
+	}
 }
 
 func (s *Server) getOrCreateSession() (*ptySession, error) {
@@ -164,7 +214,7 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 				return
 			}
 		case "exit":
-			_ = writer.writeJSON(ServerMessage{Type: "output", Data: "ending session\r\n"})
+			_ = writer.writeBinary([]byte("ending session\r\n"))
 			session.terminate()
 			return
 		case "resize":
@@ -195,7 +245,7 @@ type ptySession struct {
 
 	mu          sync.Mutex
 	client      *websocketWriter
-	buffer      []string
+	buffer      [][]byte
 	ended       bool
 	detachTimer *time.Timer
 	idleTimeout time.Duration
@@ -224,7 +274,7 @@ func newPTYSession(command []string, idleTimeout time.Duration, onDone func(*pty
 		cancel:      cancel,
 		done:        make(chan struct{}),
 		onDone:      onDone,
-		buffer:      []string{"started PTY shell: " + strings.Join(command, " ") + "\r\n"},
+		buffer:      [][]byte{[]byte("started PTY shell: " + strings.Join(command, " ") + "\r\n")},
 		idleTimeout: idleTimeout,
 	}
 	session.resetIdleTimer()
@@ -249,12 +299,12 @@ func (s *ptySession) attach(writer *websocketWriter) bool {
 
 	s.client = writer
 	s.resetIdleTimerLocked()
-	buffered := append([]string(nil), s.buffer...)
+	buffered := append([][]byte(nil), s.buffer...)
 	s.buffer = nil
 	s.mu.Unlock()
 
 	for _, chunk := range buffered {
-		if err := writer.writeJSON(ServerMessage{Type: "output", Data: chunk}); err != nil {
+		if err := writer.writeBinary(chunk); err != nil {
 			return false
 		}
 	}
@@ -320,7 +370,7 @@ func (s *ptySession) streamOutput() {
 	for {
 		n, err := s.terminal.Read(buffer)
 		if n > 0 {
-			s.deliverOutput(string(buffer[:n]))
+			s.deliverOutput(append([]byte(nil), buffer[:n]...))
 		}
 		if err != nil {
 			return
@@ -328,7 +378,7 @@ func (s *ptySession) streamOutput() {
 	}
 }
 
-func (s *ptySession) deliverOutput(chunk string) {
+func (s *ptySession) deliverOutput(chunk []byte) {
 	s.mu.Lock()
 	if s.ended {
 		s.mu.Unlock()
@@ -346,7 +396,7 @@ func (s *ptySession) deliverOutput(chunk string) {
 	}
 	s.mu.Unlock()
 
-	_ = client.writeJSON(ServerMessage{Type: "output", Data: chunk})
+	_ = client.writeBinary(chunk)
 }
 
 func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
@@ -404,7 +454,7 @@ func (s *ptySession) resetIdleTimerLocked() {
 }
 
 func (s *ptySession) expireIdle() {
-	s.deliverOutput("idle timeout reached; ending session\r\n")
+	s.deliverOutput([]byte("idle timeout reached; ending session\r\n"))
 	s.terminate()
 }
 
@@ -417,6 +467,18 @@ func (w *websocketWriter) writeJSON(value ServerMessage) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.conn.WriteJSON(value)
+}
+
+func (w *websocketWriter) writeBinary(value []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.conn.WriteMessage(websocket.BinaryMessage, value)
+}
+
+func (w *websocketWriter) writePing() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second))
 }
 
 func (w *websocketWriter) close() {

@@ -53,6 +53,9 @@ func main() {
 		Handler:           app.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	if isWildcardAddress(*addr) {
+		fmt.Fprintln(os.Stderr, "Warning: this server listens on all network interfaces. Only use it on a trusted private network.")
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -74,10 +77,16 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	app.Close()
 
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Fatalf("shutdown server: %v", err)
 	}
+}
+
+func isWildcardAddress(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	return err == nil && (host == "0.0.0.0" || host == "::")
 }
 
 func newSessionToken() (string, error) {

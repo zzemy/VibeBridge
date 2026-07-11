@@ -4,14 +4,13 @@ import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef } from "react";
 
 type Props = {
-  chunks: string[];
+  chunks: Array<string | Uint8Array>;
   onResize: (cols: number, rows: number) => void;
 };
 
 export function TerminalView({ chunks, onResize }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
   const writtenChunksRef = useRef(0);
 
   useEffect(() => {
@@ -36,12 +35,7 @@ export function TerminalView({ chunks, onResize }: Props) {
 
     terminal.loadAddon(fitAddon);
     terminal.open(containerRef.current);
-    terminal.writeln("VibeBridge terminal preview");
-    terminal.writeln("PTY bridge mode is active.");
-    terminal.writeln("");
-
     terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
 
     const fit = () => {
       try {
@@ -60,7 +54,6 @@ export function TerminalView({ chunks, onResize }: Props) {
       resizeObserver.disconnect();
       terminal.dispose();
       terminalRef.current = null;
-      fitAddonRef.current = null;
     };
   }, [onResize]);
 
