@@ -21,10 +21,12 @@ import (
 
 	"github.com/mdp/qrterminal/v3"
 	"github.com/zzemy/VibeBridge/internal/agentconfig"
+	"github.com/zzemy/VibeBridge/internal/agentlog"
 	"github.com/zzemy/VibeBridge/internal/server"
 )
 
 func main() {
+	eventLogger := agentlog.NewJSON(os.Stderr)
 	addr := flag.String("addr", "0.0.0.0:8787", "HTTP listen address")
 	webDir := flag.String("web-dir", "web/dist", "frontend static build directory")
 	commandLine := flag.String("cmd", defaultCommandLine(), "command to run for each WebSocket session")
@@ -75,6 +77,7 @@ func main() {
 		Environment:      options.environment,
 		ReconnectTimeout: options.reconnectTimeout,
 		IdleTimeout:      options.idleTimeout,
+		Logger:           eventLogger,
 	})
 
 	httpServer := &http.Server{
@@ -86,6 +89,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Warning: this server listens on all network interfaces. Only use it on a trusted private network.")
 	}
 
+	eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStarting})
 	errCh := make(chan error, 1)
 	go func() {
 		printStartup(options.addr, token)
@@ -95,22 +99,28 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
+	stopReason := agentlog.ReasonListenerClosed
 	select {
 	case sig := <-stop:
+		stopReason = agentlog.ReasonSignal
 		fmt.Printf("\nreceived %s, shutting down\n", sig)
 	case err := <-errCh:
 		if err != nil && err != http.ErrServerClosed {
+			eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopping, Reason: agentlog.ReasonListenerError})
 			log.Fatalf("server error: %v", err)
 		}
 	}
+	eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopping, Reason: stopReason})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	app.Close()
 
 	if err := httpServer.Shutdown(ctx); err != nil {
+		eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopped, Outcome: agentlog.OutcomeFailure})
 		log.Fatalf("shutdown server: %v", err)
 	}
+	eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopped, Outcome: agentlog.OutcomeSuccess})
 }
 
 type startupOptions struct {
