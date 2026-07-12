@@ -101,3 +101,7 @@ The resulting binary contains the React frontend and does not require `web/dist`
 - Explicit End closes the PTY session.
 - Idle timeout cleans up abandoned sessions.
 - Access is protected by a per-run session token in the QR URL.
+
+## License
+
+VibeBridge is licensed under the [Apache License 2.0](LICENSE).

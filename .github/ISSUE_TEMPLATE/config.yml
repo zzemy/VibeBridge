@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/zzemy/VibeBridge/security
-    about: Follow SECURITY.md and do not disclose vulnerability details in a public issue.
+    url: https://github.com/zzemy/VibeBridge/security/advisories/new
+    about: Report vulnerabilities privately; do not disclose vulnerability details in a public issue.
   - name: Product and architecture documents
     url: https://github.com/zzemy/VibeBridge/tree/main/docs
     about: Review the current scope, V1 PRD, architecture, and roadmap before proposing a change.

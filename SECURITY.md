@@ -10,9 +10,9 @@ VibeBridge has no stable release yet. Security fixes are applied to the latest c
 
 Do not open a public issue or discussion with vulnerability details.
 
-1. Check the repository Security page for the **Report a vulnerability** button and use GitHub private vulnerability reporting when available.
-2. If private reporting is not enabled, open a public issue containing only a request for a private security contact. Do not include affected endpoints, reproduction steps, logs, tokens, terminal content, source code, or exploit details. A maintainer will create a private GitHub Security Advisory and invite you.
-3. Include affected commit/version, impact, prerequisites, a minimal reproduction, and suggested mitigations only in the private report.
+1. Open the repository's [private vulnerability reporting form](https://github.com/zzemy/VibeBridge/security/advisories/new) and select **Report a vulnerability**.
+2. Include the affected commit/version, impact, prerequisites, a minimal reproduction, and suggested mitigations only in the private report.
+3. If the private form is unavailable, open a public issue containing only a request for a private security contact. Do not include affected endpoints, reproduction steps, logs, tokens, terminal content, source code, or exploit details. A maintainer will create a private GitHub Security Advisory and invite you.
 
 Maintainers will acknowledge a private report within 3 business days, provide an initial assessment within 7 business days when possible, and coordinate disclosure after a fix is available. These are response targets, not guarantees.
 
