@@ -102,6 +102,10 @@ Use SQLite only when structured migrations, concurrent reads, or durable device/
 
 ## Diagnostics
 
+The current local-only `--diagnose` preflight checks the host PTY support status, launch executable, working directory, HTTP listener, frontend assets, LAN exposure, and platform firewall guidance. It reports all independent failures in one run without creating a session token or starting a PTY.
+
+As later phases add identity, workspaces, updates, and relay transport, diagnostics expand with those boundaries. The target command form is:
+
 `vibebridge doctor` should check:
 
 - Supported OS and PTY capability.

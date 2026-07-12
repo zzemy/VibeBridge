@@ -37,7 +37,7 @@ go run ./cmd/vibebridge --diagnose
 
 Set `--idle-timeout 0` to disable idle cleanup.
 
-`--diagnose` checks the configured command or launch profile, HTTP listen port, frontend build, private LAN addresses, and Windows Firewall guidance without starting a PTY or generating a session token.
+`--diagnose` reports the host PTY support status, configured command or launch profile, working directory, HTTP listen port, frontend build, listener exposure, private LAN addresses, and platform-appropriate firewall guidance without starting a PTY or generating a session token. It runs all independent checks before returning a failure summary, so one run can reveal multiple configuration problems.
 
 ## Local Configuration and Launch Profiles
 

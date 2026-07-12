@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -49,18 +48,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	staticFS := embeddedWebFS()
+	if *diagnose {
+		if err := runDiagnostics(options, staticFS != nil, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if err := validateCommand(options.command); err != nil {
 		log.Fatal(err)
 	}
 	if err := validateWorkingDirectory(options.workingDirectory); err != nil {
 		log.Fatal(err)
-	}
-	staticFS := embeddedWebFS()
-	if *diagnose {
-		if err := runDiagnostics(options.addr, options.webDir, staticFS != nil, options.profileID); err != nil {
-			log.Fatal(err)
-		}
-		return
 	}
 
 	token, err := newSessionToken()
@@ -202,68 +201,6 @@ func resolveEnvironment(allowlist []string, lookupEnv func(string) (string, bool
 		}
 	}
 	return environment
-}
-
-func validateWorkingDirectory(path string) error {
-	if path == "" {
-		return nil
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("working directory %q is not available: %w", path, err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("working directory %q is not a directory", path)
-	}
-	return nil
-}
-
-func isWildcardAddress(addr string) bool {
-	host, _, err := net.SplitHostPort(addr)
-	return err == nil && (host == "0.0.0.0" || host == "::")
-}
-
-func validateCommand(command []string) error {
-	if len(command) == 0 {
-		return fmt.Errorf("cmd must not be empty")
-	}
-	if _, err := exec.LookPath(command[0]); err != nil {
-		return fmt.Errorf("command %q was not found in PATH", command[0])
-	}
-	return nil
-}
-
-func runDiagnostics(addr string, webDir string, hasEmbeddedAssets bool, profileID string) error {
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("listen check for %s failed: %w", addr, err)
-	}
-	_ = listener.Close()
-
-	if profileID == "" {
-		fmt.Println("[ok] configured command is available")
-	} else {
-		fmt.Printf("[ok] launch profile %q executable is available\n", profileID)
-	}
-	fmt.Printf("[ok] %s is available for the HTTP listener\n", addr)
-	if hasEmbeddedAssets {
-		fmt.Println("[ok] frontend assets are embedded in this binary")
-	} else if _, err := os.Stat(filepath.Join(webDir, "index.html")); err == nil {
-		fmt.Printf("[ok] frontend build found in %s\n", webDir)
-	} else {
-		fmt.Printf("[warn] frontend build not found in %s; run pnpm --dir web build\n", webDir)
-	}
-
-	hosts := lanIPv4Hosts()
-	if len(hosts) == 0 {
-		fmt.Println("[warn] no private LAN IPv4 address was detected")
-	} else {
-		for _, host := range hosts {
-			fmt.Printf("[ok] private LAN address detected: %s\n", host)
-		}
-	}
-	fmt.Println("[check] Windows Firewall must allow private-network access to the selected executable")
-	return nil
 }
 
 func newSessionToken() (string, error) {
