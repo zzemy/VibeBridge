@@ -3,16 +3,37 @@
 package agentservice
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 type fakeExitError int
 
 func (err fakeExitError) Error() string { return "task command failed" }
 func (err fakeExitError) ExitCode() int { return int(err) }
+
+func decodeTaskDefinition(t *testing.T, content []byte) string {
+	t.Helper()
+	if len(content) < 2 || content[0] != 0xff || content[1] != 0xfe {
+		t.Fatalf("task definition does not start with a UTF-16LE BOM: % x", content[:min(len(content), 4)])
+	}
+	if (len(content)-2)%2 != 0 {
+		t.Fatalf("UTF-16LE task definition has odd byte length: %d", len(content))
+	}
+	codeUnits := make([]uint16, (len(content)-2)/2)
+	for index := range codeUnits {
+		codeUnits[index] = binary.LittleEndian.Uint16(content[2+index*2:])
+	}
+	definition := string(utf16.Decode(codeUnits))
+	if !strings.HasPrefix(definition, `<?xml version="1.0" encoding="UTF-16"?>`) {
+		t.Fatalf("task definition has an unexpected XML declaration: %q", definition[:min(len(definition), 80)])
+	}
+	return definition
+}
 
 func TestInstallWindowsCreatesLeastPrivilegeHiddenLogonTask(t *testing.T) {
 	root := t.TempDir()
@@ -35,7 +56,7 @@ func TestInstallWindowsCreatesLeastPrivilegeHiddenLogonTask(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read temporary task definition: %v", err)
 			}
-			definition = string(content)
+			definition = decodeTaskDefinition(t, content)
 		}
 		return nil, nil
 	}
