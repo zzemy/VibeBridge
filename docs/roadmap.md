@@ -26,6 +26,12 @@ Exit gate:
 - Documentation has no unresolved contradiction about trust, data ownership, or deployment modes.
 - Existing local mode passes automated and real ConPTY smoke tests.
 
+Current status (2026-07-12):
+
+- Planning/architecture documents, project policies/templates, CI, dependency/license review, and a real Windows ConPTY process-tree cleanup regression are in place.
+- The repository owner still needs to select a root project license before Phase 0 can be declared complete or a release can be represented as licensed open source.
+- GitHub private vulnerability reporting should be enabled after the security policy lands; changing that repository setting requires an explicit owner action.
+
 ## Phase 1: Local Agent Modularization
 
 Goal: turn the current executable into a maintainable Local Agent without changing the user workflow.

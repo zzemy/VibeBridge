@@ -2,7 +2,7 @@
 
 VibeBridge maps a local PTY session to a phone browser. It is designed for controlling local AI CLI tools such as Codex or Claude Code from a mobile device without streaming the desktop screen.
 
-Product, architecture, security, ADR, and roadmap documentation is organized in [docs/index.md](docs/index.md).
+Product, architecture, security, ADR, roadmap, dependency, and release documentation is organized in [docs/index.md](docs/index.md). See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes and [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Development
 
