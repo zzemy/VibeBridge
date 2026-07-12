@@ -53,7 +53,7 @@ func TestStatusRequiresTokenAndReportsSessionState(t *testing.T) {
 		IdleTimeout:      10 * time.Minute,
 	})
 	now := time.Date(2026, time.July, 12, 8, 30, 0, 0, time.UTC)
-	app.session = &ptySession{startedAt: now, lastActivityAt: now.Add(time.Minute)}
+	app.session = &ptySession{startedAt: now, lastActivityAt: now.Add(time.Minute), lifecycle: sessionLifecycle{state: sessionStateDetached}}
 	testServer := httptest.NewServer(app.Handler())
 	defer testServer.Close()
 
@@ -207,6 +207,30 @@ func TestKeepConnectionAliveSendsPing(t *testing.T) {
 	case <-pingReceived:
 	case <-time.After(time.Second):
 		t.Fatal("did not receive a WebSocket Ping control frame")
+	}
+}
+
+func TestTerminateUsesSingleLifecycleAndCleanupPath(t *testing.T) {
+	terminal := &countingPTY{}
+	processTree := &countingProcessTree{}
+	done := make(chan struct{})
+	close(done)
+	session := &ptySession{
+		terminal:    terminal,
+		processTree: processTree,
+		cancel:      func() {},
+		done:        done,
+		lifecycle:   sessionLifecycle{state: sessionStateDetached},
+	}
+
+	session.terminate()
+	session.terminate()
+
+	if session.lifecycle.state != sessionStateEnding {
+		t.Fatalf("state = %q, want ending until process exit is observed", session.lifecycle.state)
+	}
+	if terminal.closeCalls != 1 || processTree.closeCalls != 1 {
+		t.Fatalf("cleanup calls = terminal %d, process tree %d; want 1 each", terminal.closeCalls, processTree.closeCalls)
 	}
 }
 

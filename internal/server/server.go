@@ -117,14 +117,7 @@ func (s *Server) sessionStatus() SessionStatus {
 	defer session.mu.Unlock()
 	status.StartedAt = session.startedAt.UTC().Format(time.RFC3339)
 	status.LastActivityAt = session.lastActivityAt.UTC().Format(time.RFC3339)
-	switch {
-	case session.ended:
-		status.State = "ended"
-	case session.client != nil:
-		status.State = "connected"
-	default:
-		status.State = "detached"
-	}
+	status.State = session.lifecycle.publicState()
 	return status
 }
 
@@ -294,7 +287,7 @@ type ptySession struct {
 	mu                 sync.Mutex
 	client             *websocketWriter
 	replay             replayBuffer
-	ended              bool
+	lifecycle          sessionLifecycle
 	detachTimer        *time.Timer
 	idleTimeout        time.Duration
 	idleTimer          *time.Timer
@@ -341,10 +334,12 @@ func newPTYSession(command []string, idleTimeout time.Duration, onDone func(*pty
 		done:           make(chan struct{}),
 		onDone:         onDone,
 		replay:         newReplayBuffer(maxBufferedOutputBytes, bufferedOutputMaxAge, time.Now),
+		lifecycle:      newSessionLifecycle(),
 		idleTimeout:    idleTimeout,
 		startedAt:      now,
 		lastActivityAt: now,
 	}
+	session.lifecycle.started()
 	session.replay.append([]byte("started PTY shell: " + strings.Join(command, " ") + "\r\n"))
 	session.resetIdleTimer()
 
@@ -356,7 +351,7 @@ func newPTYSession(command []string, idleTimeout time.Duration, onDone func(*pty
 
 func (s *ptySession) attach(writer *websocketWriter) bool {
 	s.mu.Lock()
-	if s.ended || s.client != nil {
+	if s.client != nil || !s.lifecycle.attach() {
 		s.mu.Unlock()
 		return false
 	}
@@ -388,8 +383,7 @@ func (s *ptySession) detach(writer *websocketWriter, timeout time.Duration) {
 		return
 	}
 	s.client = nil
-
-	if s.ended {
+	if !s.lifecycle.detach() {
 		return
 	}
 	if timeout <= 0 {
@@ -406,7 +400,7 @@ func (s *ptySession) detach(writer *websocketWriter, timeout time.Duration) {
 func (s *ptySession) isEnded() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.ended
+	return s.lifecycle.done()
 }
 
 func (s *ptySession) writeInput(input string) error {
@@ -428,6 +422,21 @@ func (s *ptySession) resize(cols int, rows int) error {
 }
 
 func (s *ptySession) terminate() {
+	s.mu.Lock()
+	if !s.lifecycle.beginEnding() {
+		s.mu.Unlock()
+		return
+	}
+	if s.detachTimer != nil {
+		s.detachTimer.Stop()
+		s.detachTimer = nil
+	}
+	if s.idleTimer != nil {
+		s.idleTimer.Stop()
+		s.idleTimer = nil
+	}
+	s.mu.Unlock()
+
 	s.cancel()
 	_ = s.closeResources()
 	select {
@@ -462,7 +471,7 @@ func (s *ptySession) streamOutput() {
 
 func (s *ptySession) deliverOutput(chunk []byte) {
 	s.mu.Lock()
-	if s.ended {
+	if !s.lifecycle.acceptsOutput() {
 		s.mu.Unlock()
 		return
 	}
@@ -489,11 +498,10 @@ func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 	err := cmd.Wait()
 
 	s.mu.Lock()
-	if s.ended {
+	if !s.lifecycle.finish(err) {
 		s.mu.Unlock()
 		return
 	}
-	s.ended = true
 	if s.detachTimer != nil {
 		s.detachTimer.Stop()
 		s.detachTimer = nil
@@ -529,7 +537,7 @@ func (s *ptySession) resetIdleTimer() {
 }
 
 func (s *ptySession) resetIdleTimerLocked() {
-	if s.idleTimeout <= 0 || s.ended {
+	if s.idleTimeout <= 0 || s.lifecycle.done() || s.lifecycle.state == sessionStateEnding {
 		return
 	}
 	if s.idleTimer == nil {
