@@ -3,6 +3,7 @@
 package agentservice
 
 import (
+	"encoding/binary"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"os/user"
 	"strings"
+	"unicode/utf16"
 )
 
 type taskCommandRunner func(args ...string) ([]byte, error)
@@ -186,7 +188,14 @@ func buildTaskDefinition(options InstallOptions) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode task definition: %w", err)
 	}
-	return append([]byte(xml.Header), content...), nil
+	header := `<?xml version="1.0" encoding="UTF-16"?>` + "\r\n"
+	codeUnits := utf16.Encode([]rune(header + string(content)))
+	encoded := make([]byte, 2+len(codeUnits)*2)
+	encoded[0], encoded[1] = 0xff, 0xfe
+	for index, codeUnit := range codeUnits {
+		binary.LittleEndian.PutUint16(encoded[2+index*2:], codeUnit)
+	}
+	return encoded, nil
 }
 
 func quoteWindowsArgument(value string) string {
