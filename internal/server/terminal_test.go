@@ -8,13 +8,15 @@ import (
 )
 
 type fakeTerminalLauncher struct {
-	command []string
+	request terminalLaunchRequest
 	launch  terminalLaunch
 	err     error
 }
 
-func (l *fakeTerminalLauncher) Start(command []string) (terminalLaunch, error) {
-	l.command = append([]string(nil), command...)
+func (l *fakeTerminalLauncher) Start(request terminalLaunchRequest) (terminalLaunch, error) {
+	l.request = request
+	l.request.Command = append([]string(nil), request.Command...)
+	l.request.Environment = append([]string(nil), request.Environment...)
 	return l.launch, l.err
 }
 
@@ -38,12 +40,18 @@ func TestNewPTYSessionUsesTerminalLauncherContract(t *testing.T) {
 	}}
 	command := []string{"codex", "--help"}
 
-	session, err := newPTYSession(command, 0, systemClock{}, launcher, nil)
+	session, err := newPTYSession(terminalLaunchRequest{Command: command, WorkingDirectory: `C:\workspace`, Environment: []string{"PATH=test"}}, 0, systemClock{}, launcher, nil)
 	if err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	if !reflect.DeepEqual(launcher.command, command) {
-		t.Fatalf("launcher command = %q, want %q", launcher.command, command)
+	if !reflect.DeepEqual(launcher.request.Command, command) {
+		t.Fatalf("launcher command = %q, want %q", launcher.request.Command, command)
+	}
+	if launcher.request.WorkingDirectory != `C:\workspace` {
+		t.Fatalf("working directory = %q, want %q", launcher.request.WorkingDirectory, `C:\workspace`)
+	}
+	if !reflect.DeepEqual(launcher.request.Environment, []string{"PATH=test"}) {
+		t.Fatalf("environment = %q, want allowlisted values", launcher.request.Environment)
 	}
 	if session.lifecycle.state != sessionStateDetached {
 		t.Fatalf("state = %q, want detached", session.lifecycle.state)
@@ -61,7 +69,7 @@ func TestNewPTYSessionReturnsLauncherFailure(t *testing.T) {
 	wantErr := errors.New("launch failed")
 	launcher := &fakeTerminalLauncher{err: wantErr}
 
-	session, err := newPTYSession([]string{"codex"}, 0, systemClock{}, launcher, nil)
+	session, err := newPTYSession(terminalLaunchRequest{Command: []string{"codex"}}, 0, systemClock{}, launcher, nil)
 	if session != nil {
 		t.Fatal("session created after launcher failure")
 	}
