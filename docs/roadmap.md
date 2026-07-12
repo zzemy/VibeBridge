@@ -52,8 +52,8 @@ Exit gate:
 
 Current status (2026-07-12):
 
-- In progress. Session lifecycle transitions are explicit and serialized, and detached terminal output is bounded to the newest 1 MiB and two minutes instead of an unbounded number of bytes behind a chunk-count limit.
-- Session state extraction, deterministic lifecycle timers, configuration/profiles, service installation, diagnostics, and structured logging remain open.
+- In progress. Session lifecycle transitions are explicit and serialized, lifecycle timers have deterministic fake-clock coverage, and detached terminal output is bounded to the newest 1 MiB and two minutes instead of an unbounded number of bytes behind a chunk-count limit.
+- The internal PTY/platform boundary, configuration/profiles, service installation, diagnostics, and structured logging remain open.
 
 ## Phase 2: Protocol V1
 

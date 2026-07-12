@@ -29,7 +29,7 @@ func TestWindowsConPTYTerminateClosesProcessTree(t *testing.T) {
 		),
 	}
 
-	session, err := newPTYSession(command, 0, nil)
+	session, err := newPTYSession(command, 0, systemClock{}, nil)
 	if err != nil {
 		t.Fatalf("start Windows ConPTY session: %v", err)
 	}

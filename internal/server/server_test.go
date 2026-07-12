@@ -220,6 +220,7 @@ func TestTerminateUsesSingleLifecycleAndCleanupPath(t *testing.T) {
 		processTree: processTree,
 		cancel:      func() {},
 		done:        done,
+		clock:       systemClock{},
 		lifecycle:   sessionLifecycle{state: sessionStateDetached},
 	}
 
