@@ -283,23 +283,28 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 }
 
 type ptySession struct {
-	command  []string
-	terminal pty.Pty
-	cancel   context.CancelFunc
-	done     chan struct{}
-	onDone   func(*ptySession)
+	command     []string
+	terminal    pty.Pty
+	processTree processTree
+	cancel      context.CancelFunc
+	done        chan struct{}
+	onDone      func(*ptySession)
 
-	mu                sync.Mutex
-	client            *websocketWriter
-	buffer            [][]byte
-	ended             bool
-	detachTimer       *time.Timer
-	idleTimeout       time.Duration
-	idleTimer         *time.Timer
-	startedAt         time.Time
-	lastActivityAt    time.Time
-	terminalCloseOnce sync.Once
-	terminalCloseErr  error
+	mu                 sync.Mutex
+	client             *websocketWriter
+	buffer             [][]byte
+	ended              bool
+	detachTimer        *time.Timer
+	idleTimeout        time.Duration
+	idleTimer          *time.Timer
+	startedAt          time.Time
+	lastActivityAt     time.Time
+	resourcesCloseOnce sync.Once
+	resourcesCloseErr  error
+}
+
+type processTree interface {
+	Close() error
 }
 
 func newPTYSession(command []string, idleTimeout time.Duration, onDone func(*ptySession)) (*ptySession, error) {
@@ -318,10 +323,19 @@ func newPTYSession(command []string, idleTimeout time.Duration, onDone func(*pty
 		return nil, err
 	}
 
+	processTree, err := newProcessTree(cmd.Process)
+	if err != nil {
+		cancel()
+		_ = terminal.Close()
+		_ = cmd.Wait()
+		return nil, err
+	}
+
 	now := time.Now()
 	session := &ptySession{
 		command:        command,
 		terminal:       terminal,
+		processTree:    processTree,
 		cancel:         cancel,
 		done:           make(chan struct{}),
 		onDone:         onDone,
@@ -414,18 +428,22 @@ func (s *ptySession) resize(cols int, rows int) error {
 
 func (s *ptySession) terminate() {
 	s.cancel()
-	_ = s.closeTerminal()
+	_ = s.closeResources()
 	select {
 	case <-s.done:
 	case <-time.After(2 * time.Second):
 	}
 }
 
-func (s *ptySession) closeTerminal() error {
-	s.terminalCloseOnce.Do(func() {
-		s.terminalCloseErr = s.terminal.Close()
+func (s *ptySession) closeResources() error {
+	s.resourcesCloseOnce.Do(func() {
+		var processTreeErr error
+		if s.processTree != nil {
+			processTreeErr = s.processTree.Close()
+		}
+		s.resourcesCloseErr = errors.Join(processTreeErr, s.terminal.Close())
 	})
-	return s.terminalCloseErr
+	return s.resourcesCloseErr
 }
 
 func (s *ptySession) streamOutput() {
@@ -499,7 +517,7 @@ func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 		client.close()
 	}
 
-	_ = s.closeTerminal()
+	_ = s.closeResources()
 	close(s.done)
 	if s.onDone != nil {
 		s.onDone(s)
