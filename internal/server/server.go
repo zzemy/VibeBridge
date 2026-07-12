@@ -28,6 +28,8 @@ type Config struct {
 	WebDir           string
 	StaticFS         fs.FS
 	Command          []string
+	WorkingDirectory string
+	Environment      []string
 	ReconnectTimeout time.Duration
 	IdleTimeout      time.Duration
 }
@@ -219,7 +221,7 @@ func (s *Server) getOrCreateSession() (*ptySession, error) {
 		return current, nil
 	}
 
-	session, err := newPTYSession(s.config.Command, s.config.IdleTimeout, s.clock, s.launcher, s.clearSession)
+	session, err := newPTYSession(terminalLaunchRequest{Command: s.config.Command, WorkingDirectory: s.config.WorkingDirectory, Environment: s.config.Environment}, s.config.IdleTimeout, s.clock, s.launcher, s.clearSession)
 	if err != nil {
 		return nil, err
 	}
@@ -300,21 +302,21 @@ type ptySession struct {
 	resourcesCloseErr  error
 }
 
-func newPTYSession(command []string, idleTimeout time.Duration, sessionClock clock, launcher terminalLauncher, onDone func(*ptySession)) (*ptySession, error) {
+func newPTYSession(request terminalLaunchRequest, idleTimeout time.Duration, sessionClock clock, launcher terminalLauncher, onDone func(*ptySession)) (*ptySession, error) {
 	if sessionClock == nil {
 		sessionClock = systemClock{}
 	}
 	if launcher == nil {
 		launcher = ptyTerminalLauncher{}
 	}
-	launched, err := launcher.Start(command)
+	launched, err := launcher.Start(request)
 	if err != nil {
 		return nil, err
 	}
 
 	now := sessionClock.Now()
 	session := &ptySession{
-		command:        command,
+		command:        request.Command,
 		terminal:       launched.terminal,
 		processTree:    launched.processTree,
 		cancel:         launched.cancel,
@@ -328,7 +330,7 @@ func newPTYSession(command []string, idleTimeout time.Duration, sessionClock clo
 		clock:          sessionClock,
 	}
 	session.lifecycle.started()
-	session.replay.append([]byte("started PTY shell: " + strings.Join(command, " ") + "\r\n"))
+	session.replay.append([]byte("started PTY shell: " + strings.Join(request.Command, " ") + "\r\n"))
 	session.resetIdleTimer()
 
 	go session.streamOutput()

@@ -10,10 +10,11 @@ The product optimizes for low-latency text interaction, reliable session recover
 
 VibeBridge provides:
 
-- One local command running inside a PTY.
+- One local command running inside a PTY, selected from a validated local launch profile or the compatibility `--cmd` option.
 - One active browser controller at a time.
 - Terminal output, direct keyboard input, prompt composition, shortcuts, resize, reconnect, and explicit session termination.
 - A per-run pairing token delivered through the printed URL and QR code.
+- Versioned local configuration and structured launch profiles with explicit working-directory and environment inheritance policy.
 - Local diagnostics and session status without exposing terminal contents.
 
 VibeBridge does not provide:
