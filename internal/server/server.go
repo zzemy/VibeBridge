@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	maxBufferedOutputChunks = 256
-	pongWait                = 5 * time.Minute
-	pingPeriod              = 4 * time.Minute
+	maxBufferedOutputBytes = 1024 * 1024
+	bufferedOutputMaxAge   = 2 * time.Minute
+	pongWait               = 5 * time.Minute
+	pingPeriod             = 4 * time.Minute
 )
 
 type Config struct {
@@ -292,7 +293,7 @@ type ptySession struct {
 
 	mu                 sync.Mutex
 	client             *websocketWriter
-	buffer             [][]byte
+	replay             replayBuffer
 	ended              bool
 	detachTimer        *time.Timer
 	idleTimeout        time.Duration
@@ -339,11 +340,12 @@ func newPTYSession(command []string, idleTimeout time.Duration, onDone func(*pty
 		cancel:         cancel,
 		done:           make(chan struct{}),
 		onDone:         onDone,
-		buffer:         [][]byte{[]byte("started PTY shell: " + strings.Join(command, " ") + "\r\n")},
+		replay:         newReplayBuffer(maxBufferedOutputBytes, bufferedOutputMaxAge, time.Now),
 		idleTimeout:    idleTimeout,
 		startedAt:      now,
 		lastActivityAt: now,
 	}
+	session.replay.append([]byte("started PTY shell: " + strings.Join(command, " ") + "\r\n"))
 	session.resetIdleTimer()
 
 	go session.streamOutput()
@@ -367,8 +369,7 @@ func (s *ptySession) attach(writer *websocketWriter) bool {
 	s.client = writer
 	s.lastActivityAt = time.Now()
 	s.resetIdleTimerLocked()
-	buffered := append([][]byte(nil), s.buffer...)
-	s.buffer = nil
+	buffered := s.replay.drain()
 	s.mu.Unlock()
 
 	for _, chunk := range buffered {
@@ -469,10 +470,7 @@ func (s *ptySession) deliverOutput(chunk []byte) {
 	s.lastActivityAt = time.Now()
 	client := s.client
 	if client == nil {
-		s.buffer = append(s.buffer, chunk)
-		if len(s.buffer) > maxBufferedOutputChunks {
-			s.buffer = s.buffer[len(s.buffer)-maxBufferedOutputChunks:]
-		}
+		s.replay.append(chunk)
 		s.mu.Unlock()
 		return
 	}

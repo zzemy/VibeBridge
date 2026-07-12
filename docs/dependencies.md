@@ -55,4 +55,4 @@ On 2026-07-12, `govulncheck` reported zero reachable vulnerabilities (with findi
 - No dependency with a known strong-copyleft license is reachable in the current distributed Go executable or web runtime.
 - Current dependency licenses are permissive or file-level weak-copyleft build tooling and present no identified blocker for normal binary/web distribution.
 - PTY and Windows process cleanup remain high-risk dependencies and require real ConPTY regression coverage on Windows CI.
-- The repository itself has no root `LICENSE` yet. The project owner must select the project license before a release or external contribution can be represented as licensed open-source distribution; this review does not choose that policy.
+- The repository is distributed under the Apache License 2.0. Dependency notices and source-level obligations must continue to be reviewed when dependencies change.

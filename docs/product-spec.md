@@ -61,6 +61,7 @@ Only one browser may attach at a time. A reconnect must reuse the existing PTY r
 - Terminal output, prompt contents, full tokens, and private configuration must not be written to server logs.
 - Status responses may expose lifecycle timestamps and timeout configuration, but not terminal contents or the configured command.
 - A disconnected or abandoned session must be terminated after its configured timeout.
+- While detached, only the newest 1 MiB and two minutes of terminal output are retained in memory for reconnect replay; older output is discarded.
 - Public exposure must not be presented as supported without HTTPS/WSS and additional authentication.
 
 ## Interaction Principles

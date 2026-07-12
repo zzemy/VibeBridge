@@ -28,9 +28,8 @@ Exit gate:
 
 Current status (2026-07-12):
 
-- Planning/architecture documents, project policies/templates, CI, dependency/license review, and a real Windows ConPTY process-tree cleanup regression are in place.
-- The repository owner still needs to select a root project license before Phase 0 can be declared complete or a release can be represented as licensed open source.
-- GitHub private vulnerability reporting should be enabled after the security policy lands; changing that repository setting requires an explicit owner action.
+- Complete. Planning/architecture documents, project policies/templates, CI, dependency/license review, and a real Windows ConPTY process-tree cleanup regression are in place.
+- The project is licensed under Apache-2.0 and GitHub private vulnerability reporting is enabled.
 
 ## Phase 1: Local Agent Modularization
 
@@ -50,6 +49,11 @@ Exit gate:
 - Explicit end, process exit, idle expiry, reconnect expiry, and Agent shutdown use one idempotent cleanup path.
 - Windows process-tree tests prove no child remains.
 - Current browser client works through the new Agent boundary.
+
+Current status (2026-07-12):
+
+- In progress. Detached terminal output is bounded to the newest 1 MiB and two minutes instead of an unbounded number of bytes behind a chunk-count limit.
+- Session state extraction, deterministic lifecycle timers, configuration/profiles, service installation, diagnostics, and structured logging remain open.
 
 ## Phase 2: Protocol V1
 
