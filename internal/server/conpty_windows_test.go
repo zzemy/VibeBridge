@@ -76,7 +76,7 @@ func waitForChildPID(t *testing.T, session *ptySession, timeout time.Duration) i
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		session.mu.Lock()
-		output := string(bytes.Join(session.buffer, nil))
+		output := string(bytes.Join(session.replay.snapshot(), nil))
 		session.mu.Unlock()
 
 		match := childPIDPattern.FindStringSubmatch(output)
