@@ -210,19 +210,32 @@ func TestKeepConnectionAliveSendsPing(t *testing.T) {
 	}
 }
 
-func TestCloseTerminalIsIdempotent(t *testing.T) {
+func TestCloseResourcesIsIdempotent(t *testing.T) {
 	terminal := &countingPTY{}
-	session := &ptySession{terminal: terminal}
+	processTree := &countingProcessTree{}
+	session := &ptySession{terminal: terminal, processTree: processTree}
 
-	if err := session.closeTerminal(); err != nil {
+	if err := session.closeResources(); err != nil {
 		t.Fatalf("first close: %v", err)
 	}
-	if err := session.closeTerminal(); err != nil {
+	if err := session.closeResources(); err != nil {
 		t.Fatalf("second close: %v", err)
 	}
 	if terminal.closeCalls != 1 {
 		t.Fatalf("terminal close calls = %d, want 1", terminal.closeCalls)
 	}
+	if processTree.closeCalls != 1 {
+		t.Fatalf("process-tree close calls = %d, want 1", processTree.closeCalls)
+	}
+}
+
+type countingProcessTree struct {
+	closeCalls int
+}
+
+func (tree *countingProcessTree) Close() error {
+	tree.closeCalls++
+	return nil
 }
 
 type countingPTY struct {

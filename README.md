@@ -2,7 +2,7 @@
 
 VibeBridge maps a local PTY session to a phone browser. It is designed for controlling local AI CLI tools such as Codex or Claude Code from a mobile device without streaming the desktop screen.
 
-Product, architecture, security, ADR, and roadmap documentation is organized in [docs/index.md](docs/index.md).
+Product, architecture, security, ADR, roadmap, dependency, and release documentation is organized in [docs/index.md](docs/index.md). See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes and [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Development
 
@@ -101,3 +101,7 @@ The resulting binary contains the React frontend and does not require `web/dist`
 - Explicit End closes the PTY session.
 - Idle timeout cleans up abandoned sessions.
 - Access is protected by a per-run session token in the QR URL.
+
+## License
+
+VibeBridge is licensed under the [Apache License 2.0](LICENSE).
