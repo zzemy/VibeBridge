@@ -29,14 +29,20 @@ type terminalLaunch struct {
 	waiter      commandWaiter
 }
 
+type terminalLaunchRequest struct {
+	Command          []string
+	WorkingDirectory string
+	Environment      []string
+}
+
 type terminalLauncher interface {
-	Start(command []string) (terminalLaunch, error)
+	Start(terminalLaunchRequest) (terminalLaunch, error)
 }
 
 type ptyTerminalLauncher struct{}
 
-func (ptyTerminalLauncher) Start(command []string) (terminalLaunch, error) {
-	if len(command) == 0 {
+func (ptyTerminalLauncher) Start(request terminalLaunchRequest) (terminalLaunch, error) {
+	if len(request.Command) == 0 {
 		return terminalLaunch{}, errors.New("terminal command must not be empty")
 	}
 
@@ -46,8 +52,13 @@ func (ptyTerminalLauncher) Start(command []string) (terminalLaunch, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := instance.CommandContext(ctx, command[0], command[1:]...)
-	cmd.Env = os.Environ()
+	cmd := instance.CommandContext(ctx, request.Command[0], request.Command[1:]...)
+	cmd.Dir = request.WorkingDirectory
+	if request.Environment == nil {
+		cmd.Env = os.Environ()
+	} else {
+		cmd.Env = append([]string(nil), request.Environment...)
+	}
 	if err := cmd.Start(); err != nil {
 		cancel()
 		_ = instance.Close()

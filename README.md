@@ -37,7 +37,24 @@ go run ./cmd/vibebridge --diagnose
 
 Set `--idle-timeout 0` to disable idle cleanup.
 
-`--diagnose` checks the configured command, HTTP listen port, frontend build, private LAN addresses, and Windows Firewall guidance without starting a PTY or generating a session token.
+`--diagnose` checks the configured command or launch profile, HTTP listen port, frontend build, private LAN addresses, and Windows Firewall guidance without starting a PTY or generating a session token.
+
+## Local Configuration and Launch Profiles
+
+Copy [`config.example.json`](config.example.json) and start a configured profile:
+
+```powershell
+Copy-Item config.example.json config.local.json
+go run ./cmd/vibebridge --config config.local.json
+go run ./cmd/vibebridge --config config.local.json --profile codex
+go run ./cmd/vibebridge --config config.local.json --profile claude --diagnose
+```
+
+The configuration format is explicitly versioned. Version 1 supports listener/static-asset settings, reconnect and idle durations, a default profile, and structured launch profiles. Each profile declares an executable, an argument array, an optional working directory, and an environment-variable allowlist. Arguments are passed directly to the executable without shell interpolation. Relative working directories are resolved relative to the configuration file.
+
+Profile sessions inherit only environment variables named in `environment_allowlist`; missing variables are omitted. Include variables required by the selected tool, such as `PATH`, `PATHEXT`, `SYSTEMROOT`, `TEMP`, `TMP`, and `USERPROFILE` on Windows. The example is Windows-oriented; change the shell executable and environment names for another supported platform.
+
+Unknown fields, unsupported versions, duplicate profile IDs, invalid durations, missing default profiles, invalid environment names, and configuration files larger than 1 MiB are rejected. Command-line `--addr`, `--web-dir`, `--reconnect-timeout`, and `--idle-timeout` values override configured values. An explicit `--cmd` preserves the legacy flow and overrides the configured default profile; `--cmd` and `--profile` cannot be combined.
 
 ## Connection and Security
 

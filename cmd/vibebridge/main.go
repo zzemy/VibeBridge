@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
+	"github.com/zzemy/VibeBridge/internal/agentconfig"
 	"github.com/zzemy/VibeBridge/internal/server"
 )
 
@@ -28,19 +30,32 @@ func main() {
 	commandLine := flag.String("cmd", defaultCommandLine(), "command to run for each WebSocket session")
 	reconnectTimeout := flag.Duration("reconnect-timeout", 90*time.Second, "how long to keep a detached PTY session alive")
 	idleTimeout := flag.Duration("idle-timeout", 30*time.Minute, "how long to keep a PTY session alive without input; set 0 to disable")
+	configPath := flag.String("config", "", "path to a versioned local Agent configuration file")
+	profileID := flag.String("profile", "", "launch profile ID from --config")
 	diagnose := flag.Bool("diagnose", false, "check command, network listener, and frontend assets without starting a session")
 	flag.Parse()
 
-	command := strings.Fields(*commandLine)
-	if len(command) == 0 {
-		log.Fatal("cmd must not be empty")
+	explicitFlags := make(map[string]bool)
+	flag.Visit(func(value *flag.Flag) { explicitFlags[value.Name] = true })
+	options, err := resolveStartupOptions(startupOptions{
+		addr:             *addr,
+		webDir:           *webDir,
+		commandLine:      *commandLine,
+		reconnectTimeout: *reconnectTimeout,
+		idleTimeout:      *idleTimeout,
+	}, *configPath, *profileID, explicitFlags, os.LookupEnv)
+	if err != nil {
+		log.Fatal(err)
 	}
-	if err := validateCommand(command); err != nil {
+	if err := validateCommand(options.command); err != nil {
+		log.Fatal(err)
+	}
+	if err := validateWorkingDirectory(options.workingDirectory); err != nil {
 		log.Fatal(err)
 	}
 	staticFS := embeddedWebFS()
 	if *diagnose {
-		if err := runDiagnostics(*addr, *webDir, staticFS != nil); err != nil {
+		if err := runDiagnostics(options.addr, options.webDir, staticFS != nil, options.profileID); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -53,25 +68,27 @@ func main() {
 
 	app := server.New(server.Config{
 		SessionToken:     token,
-		WebDir:           *webDir,
+		WebDir:           options.webDir,
 		StaticFS:         staticFS,
-		Command:          command,
-		ReconnectTimeout: *reconnectTimeout,
-		IdleTimeout:      *idleTimeout,
+		Command:          options.command,
+		WorkingDirectory: options.workingDirectory,
+		Environment:      options.environment,
+		ReconnectTimeout: options.reconnectTimeout,
+		IdleTimeout:      options.idleTimeout,
 	})
 
 	httpServer := &http.Server{
-		Addr:              *addr,
+		Addr:              options.addr,
 		Handler:           app.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	if isWildcardAddress(*addr) {
+	if isWildcardAddress(options.addr) {
 		fmt.Fprintln(os.Stderr, "Warning: this server listens on all network interfaces. Only use it on a trusted private network.")
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		printStartup(*addr, token)
+		printStartup(options.addr, token)
 		errCh <- httpServer.ListenAndServe()
 	}()
 
@@ -96,6 +113,101 @@ func main() {
 	}
 }
 
+type startupOptions struct {
+	addr             string
+	webDir           string
+	commandLine      string
+	command          []string
+	workingDirectory string
+	environment      []string
+	reconnectTimeout time.Duration
+	idleTimeout      time.Duration
+	profileID        string
+}
+
+func resolveStartupOptions(options startupOptions, configPath string, requestedProfile string, explicitFlags map[string]bool, lookupEnv func(string) (string, bool)) (startupOptions, error) {
+	if configPath == "" {
+		if requestedProfile != "" {
+			return startupOptions{}, errors.New("--profile requires --config")
+		}
+		options.command = strings.Fields(options.commandLine)
+		if len(options.command) == 0 {
+			return startupOptions{}, errors.New("cmd must not be empty")
+		}
+		return options, nil
+	}
+
+	config, err := agentconfig.Load(configPath)
+	if err != nil {
+		return startupOptions{}, err
+	}
+	if !explicitFlags["addr"] && config.ListenAddress != "" {
+		options.addr = config.ListenAddress
+	}
+	if !explicitFlags["web-dir"] && config.WebDirectory != "" {
+		options.webDir = config.WebDirectory
+	}
+	if !explicitFlags["reconnect-timeout"] {
+		if duration, ok := config.ParsedReconnectTimeout(); ok {
+			options.reconnectTimeout = duration
+		}
+	}
+	if !explicitFlags["idle-timeout"] {
+		if duration, ok := config.ParsedIdleTimeout(); ok {
+			options.idleTimeout = duration
+		}
+	}
+
+	if explicitFlags["cmd"] {
+		if requestedProfile != "" {
+			return startupOptions{}, errors.New("--cmd and --profile cannot be used together")
+		}
+		options.command = strings.Fields(options.commandLine)
+		if len(options.command) == 0 {
+			return startupOptions{}, errors.New("cmd must not be empty")
+		}
+		return options, nil
+	}
+
+	selectedID := requestedProfile
+	if selectedID == "" {
+		selectedID = config.DefaultProfile
+	}
+	profile, ok := config.Profile(selectedID)
+	if !ok {
+		return startupOptions{}, fmt.Errorf("launch profile %q was not found", selectedID)
+	}
+	options.profileID = profile.ID
+	options.command = append([]string{profile.Executable}, profile.Args...)
+	options.workingDirectory = profile.WorkingDirectory
+	options.environment = resolveEnvironment(profile.EnvironmentAllowlist, lookupEnv)
+	return options, nil
+}
+
+func resolveEnvironment(allowlist []string, lookupEnv func(string) (string, bool)) []string {
+	environment := make([]string, 0, len(allowlist))
+	for _, name := range allowlist {
+		if value, ok := lookupEnv(name); ok {
+			environment = append(environment, name+"="+value)
+		}
+	}
+	return environment
+}
+
+func validateWorkingDirectory(path string) error {
+	if path == "" {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("working directory %q is not available: %w", path, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("working directory %q is not a directory", path)
+	}
+	return nil
+}
+
 func isWildcardAddress(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	return err == nil && (host == "0.0.0.0" || host == "::")
@@ -111,14 +223,18 @@ func validateCommand(command []string) error {
 	return nil
 }
 
-func runDiagnostics(addr string, webDir string, hasEmbeddedAssets bool) error {
+func runDiagnostics(addr string, webDir string, hasEmbeddedAssets bool, profileID string) error {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("listen check for %s failed: %w", addr, err)
 	}
 	_ = listener.Close()
 
-	fmt.Println("[ok] configured command is available")
+	if profileID == "" {
+		fmt.Println("[ok] configured command is available")
+	} else {
+		fmt.Printf("[ok] launch profile %q executable is available\n", profileID)
+	}
 	fmt.Printf("[ok] %s is available for the HTTP listener\n", addr)
 	if hasEmbeddedAssets {
 		fmt.Println("[ok] frontend assets are embedded in this binary")
