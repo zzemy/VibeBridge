@@ -37,7 +37,7 @@ go run ./cmd/vibebridge --diagnose
 
 Set `--idle-timeout 0` to disable idle cleanup.
 
-`--diagnose` reports the host PTY support status, configured command or launch profile, working directory, HTTP listen port, frontend build, listener exposure, private LAN addresses, and platform-appropriate firewall guidance without starting a PTY or generating a session token. It runs all independent checks before returning a failure summary, so one run can reveal multiple configuration problems.
+`--diagnose` reports the host PTY support status, user-scoped background Agent installation, configured command or launch profile, working directory, HTTP listen port, frontend build, listener exposure, private LAN addresses, and platform-appropriate firewall guidance without starting a PTY or generating a session token. It runs all independent checks before returning a failure summary, so one run can reveal multiple configuration problems.
 
 ## Local Configuration and Launch Profiles
 
@@ -55,6 +55,35 @@ The configuration format is explicitly versioned. Version 1 supports listener/st
 Profile sessions inherit only environment variables named in `environment_allowlist`; missing variables are omitted. Include variables required by the selected tool, such as `PATH`, `PATHEXT`, `SYSTEMROOT`, `TEMP`, `TMP`, and `USERPROFILE` on Windows. The example is Windows-oriented; change the shell executable and environment names for another supported platform.
 
 Unknown fields, unsupported versions, duplicate profile IDs, invalid durations, missing default profiles, invalid environment names, and configuration files larger than 1 MiB are rejected. Command-line `--addr`, `--web-dir`, `--reconnect-timeout`, and `--idle-timeout` values override configured values. An explicit `--cmd` preserves the legacy flow and overrides the configured default profile; `--cmd` and `--profile` cannot be combined.
+
+## Windows Background Agent
+
+Windows can install the built VibeBridge executable as a hidden, user-scoped Task Scheduler task. The task uses the current user's interactive token with `LeastPrivilege`, starts at sign-in, prevents duplicate instances, and retries a failed process up to three times. It is not a privileged system service. macOS and Linux background installation remain explicitly unsupported until their packaging gates are complete.
+
+First build or download a durable executable and keep both that executable and its configuration at stable paths. `go run` output is temporary and is rejected by the installer.
+
+```powershell
+pnpm --dir web build
+go build -tags embed -trimpath -o bin/vibebridge.exe ./cmd/vibebridge
+Copy-Item config.example.json config.local.json
+
+$agent = (Resolve-Path .\bin\vibebridge.exe).Path
+$config = (Resolve-Path .\config.local.json).Path
+& $agent service install --config $config
+& $agent service status --qr
+```
+
+Use `--profile <id>` during installation to select a non-default launch profile. Replacing an existing task requires an explicit `--force`; the old instance is stopped before the new definition starts.
+
+```powershell
+& $agent service install --config $config --profile codex --force
+& $agent service status
+& $agent service uninstall
+```
+
+The installer starts the Agent immediately and at future sign-ins. `service status` probes the local authenticated status endpoint, distinguishes installed/stopped/stale/running states, and prints the current connection URLs only when the Agent responds. `service uninstall` stops and removes the task but does not delete the executable or configuration.
+
+The background Agent stores its current PID, start time, listener, and random per-run token in `%LOCALAPPDATA%\VibeBridge\runtime.json`. The file is written atomically under the current user's local application-data directory and removed on graceful shutdown. It is sensitive runtime state: do not copy, publish, or commit it. Structured lifecycle logs still exclude the token, command, paths, terminal content, and environment values.
 
 ## Connection and Security
 

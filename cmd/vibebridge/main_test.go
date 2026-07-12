@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zzemy/VibeBridge/internal/agentservice"
 )
 
 func TestIsWildcardAddress(t *testing.T) {
@@ -107,6 +110,29 @@ func TestRunDiagnosticsReportsAllHardFailures(t *testing.T) {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("diagnostic output did not contain %q:\n%s", expected, output.String())
 		}
+	}
+}
+
+func TestBackgroundServiceDiagnosticClassifiesInstallationState(t *testing.T) {
+	cases := []struct {
+		name       string
+		status     agentservice.InstallationStatus
+		err        error
+		wantStatus string
+		wantText   string
+	}{
+		{name: "installed", status: agentservice.InstallationStatus{Installed: true}, wantStatus: "ok", wantText: "is installed"},
+		{name: "not installed", wantStatus: "check", wantText: "is not installed"},
+		{name: "unsupported", err: agentservice.ErrUnsupported, wantStatus: "check", wantText: "not supported"},
+		{name: "query error", err: errors.New("query failed"), wantStatus: "warn", wantText: "could not be inspected"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			check := backgroundServiceDiagnosticFor(testCase.status, testCase.err)
+			if check.status != testCase.wantStatus || !strings.Contains(check.message, testCase.wantText) || check.err != nil {
+				t.Fatalf("background service diagnostic = %#v", check)
+			}
+		})
 	}
 }
 
