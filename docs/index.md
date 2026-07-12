@@ -7,6 +7,13 @@
 - [Long-term product vision](vision.md)
 - [Delivery roadmap](roadmap.md)
 
+## Project operations
+
+- [Dependency inventory and license review](dependencies.md)
+- [Release checklist](release-checklist.md)
+- [Security policy](../SECURITY.md)
+- [Contribution guide](../CONTRIBUTING.md)
+
 ## Architecture
 
 - [System design](architecture/system-design.md)
