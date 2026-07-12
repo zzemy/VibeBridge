@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	pty "github.com/aymanbagabas/go-pty"
 	"github.com/gorilla/websocket"
 )
 
@@ -267,11 +265,7 @@ type countingPTY struct {
 	closeCalls int
 }
 
-func (p *countingPTY) Close() error                                               { p.closeCalls++; return nil }
-func (p *countingPTY) Command(string, ...string) *pty.Cmd                         { return nil }
-func (p *countingPTY) CommandContext(context.Context, string, ...string) *pty.Cmd { return nil }
-func (p *countingPTY) Fd() uintptr                                                { return 0 }
-func (p *countingPTY) Name() string                                               { return "counting" }
-func (p *countingPTY) Read([]byte) (int, error)                                   { return 0, io.EOF }
-func (p *countingPTY) Resize(int, int) error                                      { return nil }
-func (p *countingPTY) Write(data []byte) (int, error)                             { return len(data), nil }
+func (p *countingPTY) Close() error                   { p.closeCalls++; return nil }
+func (p *countingPTY) Read([]byte) (int, error)       { return 0, io.EOF }
+func (p *countingPTY) Resize(int, int) error          { return nil }
+func (p *countingPTY) Write(data []byte) (int, error) { return len(data), nil }

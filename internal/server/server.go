@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	pty "github.com/aymanbagabas/go-pty"
 	"github.com/gorilla/websocket"
 )
 
@@ -38,9 +36,10 @@ type Server struct {
 	config   Config
 	upgrader websocket.Upgrader
 
-	mu      sync.Mutex
-	session *ptySession
-	clock   clock
+	mu       sync.Mutex
+	session  *ptySession
+	clock    clock
+	launcher terminalLauncher
 }
 
 type ClientMessage struct {
@@ -69,8 +68,9 @@ func New(config Config) *Server {
 	}
 
 	server := &Server{
-		config: config,
-		clock:  systemClock{},
+		config:   config,
+		clock:    systemClock{},
+		launcher: ptyTerminalLauncher{},
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -219,7 +219,7 @@ func (s *Server) getOrCreateSession() (*ptySession, error) {
 		return current, nil
 	}
 
-	session, err := newPTYSession(s.config.Command, s.config.IdleTimeout, s.clock, s.clearSession)
+	session, err := newPTYSession(s.config.Command, s.config.IdleTimeout, s.clock, s.launcher, s.clearSession)
 	if err != nil {
 		return nil, err
 	}
@@ -280,9 +280,9 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 
 type ptySession struct {
 	command     []string
-	terminal    pty.Pty
+	terminal    terminal
 	processTree processTree
-	cancel      context.CancelFunc
+	cancel      func()
 	done        chan struct{}
 	onDone      func(*ptySession)
 
@@ -300,43 +300,24 @@ type ptySession struct {
 	resourcesCloseErr  error
 }
 
-type processTree interface {
-	Close() error
-}
-
-func newPTYSession(command []string, idleTimeout time.Duration, sessionClock clock, onDone func(*ptySession)) (*ptySession, error) {
+func newPTYSession(command []string, idleTimeout time.Duration, sessionClock clock, launcher terminalLauncher, onDone func(*ptySession)) (*ptySession, error) {
 	if sessionClock == nil {
 		sessionClock = systemClock{}
 	}
-	terminal, err := pty.New()
-	if err != nil {
-		return nil, err
+	if launcher == nil {
+		launcher = ptyTerminalLauncher{}
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd := terminal.CommandContext(ctx, command[0], command[1:]...)
-	cmd.Env = os.Environ()
-
-	if err := cmd.Start(); err != nil {
-		cancel()
-		_ = terminal.Close()
-		return nil, err
-	}
-
-	processTree, err := newProcessTree(cmd.Process)
+	launched, err := launcher.Start(command)
 	if err != nil {
-		cancel()
-		_ = terminal.Close()
-		_ = cmd.Wait()
 		return nil, err
 	}
 
 	now := sessionClock.Now()
 	session := &ptySession{
 		command:        command,
-		terminal:       terminal,
-		processTree:    processTree,
-		cancel:         cancel,
+		terminal:       launched.terminal,
+		processTree:    launched.processTree,
+		cancel:         launched.cancel,
 		done:           make(chan struct{}),
 		onDone:         onDone,
 		replay:         newReplayBuffer(maxBufferedOutputBytes, bufferedOutputMaxAge, sessionClock.Now),
@@ -351,7 +332,7 @@ func newPTYSession(command []string, idleTimeout time.Duration, sessionClock clo
 	session.resetIdleTimer()
 
 	go session.streamOutput()
-	go session.waitForExit(cmd)
+	go session.waitForExit(launched.waiter)
 
 	return session, nil
 }
