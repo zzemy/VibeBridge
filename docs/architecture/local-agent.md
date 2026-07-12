@@ -63,7 +63,7 @@ type Terminal interface {
 }
 ```
 
-Platform adapters must define process-tree semantics. Windows uses ConPTY plus Job Objects where supported; Unix uses process groups and PTY primitives. Dependency replacement remains possible because session code depends on the internal interface.
+Platform adapters must define process-tree semantics. Windows uses ConPTY plus a kill-on-close Job Object. The Unix targets supported by the PTY dependency start each PTY command in a new session and kill its process group during cleanup. Other targets fail session startup rather than silently running without descendant cleanup. Dependency replacement remains possible because session code depends on the internal interface.
 
 ## Workspaces and Launch Profiles
 
@@ -130,8 +130,8 @@ Support bundles contain versions, opaque error codes, state transitions, and san
 ## Platform Roadmap
 
 - Windows is the reference platform until ConPTY and process-tree tests are stable.
-- macOS follows with Unix PTY/process-group adapter tests.
-- Linux follows with distribution packaging and desktop secure-storage variance documented.
+- The Unix process-group adapter has real child-process cleanup coverage; macOS support still requires target-version PTY and lifecycle validation.
+- Linux support still requires distribution packaging and desktop secure-storage variance to be documented and tested.
 - Platform support is declared by tested versions, not assumed from compilation success.
 
 ## Testing
