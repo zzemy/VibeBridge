@@ -15,7 +15,7 @@ VibeBridge provides:
 - Terminal output, direct keyboard input, prompt composition, shortcuts, resize, reconnect, and explicit session termination.
 - A per-run pairing token delivered through the printed URL and QR code.
 - Versioned local configuration and structured launch profiles with explicit working-directory and environment inheritance policy.
-- Local diagnostics and session status without exposing terminal contents.
+- Local diagnostics, privacy-safe structured lifecycle logs, and session status without exposing terminal contents.
 
 VibeBridge does not provide:
 
@@ -59,7 +59,7 @@ Only one browser may attach at a time. A reconnect must reuse the existing PTY r
 - WebSocket and status requests require the per-run session token.
 - Browser WebSocket upgrades must be same-origin.
 - The default listener is suitable only for a trusted private network.
-- Terminal output, prompt contents, full tokens, and private configuration must not be written to server logs.
+- Terminal output, prompt contents, full tokens, commands, paths, environment values, client addresses, browser origins, and private configuration must not be written to server logs. Lifecycle logs use an allowlisted JSON schema and opaque random session correlation IDs.
 - Status responses may expose lifecycle timestamps and timeout configuration, but not terminal contents or the configured command.
 - A disconnected or abandoned session must be terminated after its configured timeout.
 - While detached, only the newest 1 MiB and two minutes of terminal output are retained in memory for reconnect replay; older output is discarded.

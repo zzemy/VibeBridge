@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/zzemy/VibeBridge/internal/agentlog"
 )
 
 func TestHandlerHealthAndRejectsInvalidToken(t *testing.T) {
@@ -222,8 +223,8 @@ func TestTerminateUsesSingleLifecycleAndCleanupPath(t *testing.T) {
 		lifecycle:   sessionLifecycle{state: sessionStateDetached},
 	}
 
-	session.terminate()
-	session.terminate()
+	session.terminateWithReason(agentlog.ReasonAgentShutdown)
+	session.terminateWithReason(agentlog.ReasonAgentShutdown)
 
 	if session.lifecycle.state != sessionStateEnding {
 		t.Fatalf("state = %q, want ending until process exit is observed", session.lifecycle.state)

@@ -52,8 +52,8 @@ Exit gate:
 
 Current status (2026-07-12):
 
-- In progress. Session lifecycle transitions are explicit and serialized, lifecycle timers have deterministic fake-clock coverage, the session depends on an internal terminal launcher contract, detached output is byte/time bounded, and versioned local configuration provides structured launch profiles with working-directory and environment policies.
-- Additional platform-adapter hardening, service installation, expanded diagnostics, and structured logging remain open.
+- In progress. Session lifecycle transitions are explicit and serialized, lifecycle timers have deterministic fake-clock coverage, the session depends on an internal terminal launcher contract, detached output is byte/time bounded, versioned local configuration provides structured launch profiles with working-directory and environment policies, and allowlisted JSON lifecycle logs use opaque session correlation IDs without terminal, command, path, token, or environment content.
+- Additional platform-adapter hardening, user-scoped service installation, and expanded diagnostics remain open.
 
 ## Phase 2: Protocol V1
 
