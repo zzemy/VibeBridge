@@ -73,6 +73,16 @@ Platform adapters must define process-tree semantics. Windows uses ConPTY plus a
 - User-created profiles are stored locally and validated before launch.
 - Sensitive environment values remain local and are never returned to clients.
 
+## User-Scoped Background Installation
+
+Windows is the Phase 1 reference implementation. A hidden Task Scheduler logon task runs with the current user's `InteractiveToken` and `LeastPrivilege`; it does not request elevation or install a system-wide Windows Service. The task ignores duplicate starts and applies a bounded restart-on-failure policy.
+
+Installation references a durable executable and an explicit versioned configuration file. The Agent working directory is the configuration directory so relative frontend paths retain their normal meaning. Replacing an installation is explicit and stops the previous task before applying the new definition.
+
+A background process publishes an atomic user-local runtime state containing its PID, start time, listener, and ephemeral session token. Only the local `service status` command reads that token to probe the authenticated status endpoint and present connection URLs. Normal shutdown removes state only when the stored PID still belongs to that process, preventing an older process from deleting a newer instance's state. Runtime state is sensitive, is never added to structured logs, and is not durable identity or configuration.
+
+Task creation, replacement, querying, startup, and removal are isolated behind the Local Agent service adapter. Unsupported platforms return an explicit error. macOS and Linux implementations remain gated on their packaging and lifecycle validation requirements.
+
 ## Local Storage
 
 Recommended data layout:
@@ -102,7 +112,7 @@ Use SQLite only when structured migrations, concurrent reads, or durable device/
 
 ## Diagnostics
 
-The current local-only `--diagnose` preflight checks the host PTY support status, launch executable, working directory, HTTP listener, frontend assets, LAN exposure, and platform firewall guidance. It reports all independent failures in one run without creating a session token or starting a PTY.
+The current local-only `--diagnose` preflight checks the host PTY support status, user-scoped background Agent installation, launch executable, working directory, HTTP listener, frontend assets, LAN exposure, and platform firewall guidance. It reports all independent failures in one run without creating a session token or starting a PTY.
 
 As later phases add identity, workspaces, updates, and relay transport, diagnostics expand with those boundaries. The target command form is:
 

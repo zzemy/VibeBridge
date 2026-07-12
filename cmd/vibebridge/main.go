@@ -21,23 +21,52 @@ import (
 	"github.com/mdp/qrterminal/v3"
 	"github.com/zzemy/VibeBridge/internal/agentconfig"
 	"github.com/zzemy/VibeBridge/internal/agentlog"
+	"github.com/zzemy/VibeBridge/internal/agentservice"
 	"github.com/zzemy/VibeBridge/internal/server"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "service" {
+		executable, err := os.Executable()
+		if err != nil {
+			log.Fatalf("resolve current executable: %v", err)
+		}
+		if err := runServiceCommand(os.Args[2:], os.Stdout, os.Stderr, platformServiceManager{}, executable); err != nil && !errors.Is(err, flag.ErrHelp) {
+			log.Fatal(err)
+		}
+		return
+	}
+	if err := runAgent(os.Args[1:]); err != nil && !errors.Is(err, flag.ErrHelp) {
+		log.Fatal(err)
+	}
+}
+
+func runAgent(args []string) error {
 	eventLogger := agentlog.NewJSON(os.Stderr)
-	addr := flag.String("addr", "0.0.0.0:8787", "HTTP listen address")
-	webDir := flag.String("web-dir", "web/dist", "frontend static build directory")
-	commandLine := flag.String("cmd", defaultCommandLine(), "command to run for each WebSocket session")
-	reconnectTimeout := flag.Duration("reconnect-timeout", 90*time.Second, "how long to keep a detached PTY session alive")
-	idleTimeout := flag.Duration("idle-timeout", 30*time.Minute, "how long to keep a PTY session alive without input; set 0 to disable")
-	configPath := flag.String("config", "", "path to a versioned local Agent configuration file")
-	profileID := flag.String("profile", "", "launch profile ID from --config")
-	diagnose := flag.Bool("diagnose", false, "check command, network listener, and frontend assets without starting a session")
-	flag.Parse()
+	flags := flag.NewFlagSet("vibebridge", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	addr := flags.String("addr", "0.0.0.0:8787", "HTTP listen address")
+	webDir := flags.String("web-dir", "web/dist", "frontend static build directory")
+	commandLine := flags.String("cmd", defaultCommandLine(), "command to run for each WebSocket session")
+	reconnectTimeout := flags.Duration("reconnect-timeout", 90*time.Second, "how long to keep a detached PTY session alive")
+	idleTimeout := flags.Duration("idle-timeout", 30*time.Minute, "how long to keep a PTY session alive without input; set 0 to disable")
+	configPath := flags.String("config", "", "path to a versioned local Agent configuration file")
+	profileID := flags.String("profile", "", "launch profile ID from --config")
+	diagnose := flags.Bool("diagnose", false, "check command, network listener, and frontend assets without starting a session")
+	background := flags.Bool("background", false, "hide the Agent console window")
+	serviceStatePath := flags.String("service-state", "", "runtime state path used by the background Agent")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected positional arguments: %v", flags.Args())
+	}
+	if *background {
+		hideBackgroundWindow()
+	}
 
 	explicitFlags := make(map[string]bool)
-	flag.Visit(func(value *flag.Flag) { explicitFlags[value.Name] = true })
+	flags.Visit(func(value *flag.Flag) { explicitFlags[value.Name] = true })
 	options, err := resolveStartupOptions(startupOptions{
 		addr:             *addr,
 		webDir:           *webDir,
@@ -46,25 +75,22 @@ func main() {
 		idleTimeout:      *idleTimeout,
 	}, *configPath, *profileID, explicitFlags, os.LookupEnv)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	staticFS := embeddedWebFS()
 	if *diagnose {
-		if err := runDiagnostics(options, staticFS != nil, os.Stdout); err != nil {
-			log.Fatal(err)
-		}
-		return
+		return runDiagnostics(options, staticFS != nil, os.Stdout)
 	}
 	if err := validateCommand(options.command); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if err := validateWorkingDirectory(options.workingDirectory); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	token, err := newSessionToken()
 	if err != nil {
-		log.Fatalf("create session token: %v", err)
+		return fmt.Errorf("create session token: %w", err)
 	}
 
 	app := server.New(server.Config{
@@ -79,34 +105,62 @@ func main() {
 		Logger:           eventLogger,
 	})
 
+	listener, err := net.Listen("tcp", options.addr)
+	if err != nil {
+		app.Close()
+		return fmt.Errorf("start HTTP listener on %s: %w", options.addr, err)
+	}
+	listenAddress := options.addr
+	if _, port, splitErr := net.SplitHostPort(options.addr); splitErr == nil && port == "0" {
+		listenAddress = listener.Addr().String()
+	}
 	httpServer := &http.Server{
-		Addr:              options.addr,
+		Addr:              listenAddress,
 		Handler:           app.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	if isWildcardAddress(options.addr) {
+	if isWildcardAddress(listenAddress) {
 		fmt.Fprintln(os.Stderr, "Warning: this server listens on all network interfaces. Only use it on a trusted private network.")
+	}
+
+	if *serviceStatePath != "" {
+		state := agentservice.RuntimeState{
+			Version:       agentservice.CurrentRuntimeStateVersion,
+			PID:           os.Getpid(),
+			StartedAt:     time.Now().UTC(),
+			ListenAddress: listenAddress,
+			SessionToken:  token,
+		}
+		if err := agentservice.WriteRuntimeState(*serviceStatePath, state); err != nil {
+			_ = listener.Close()
+			app.Close()
+			return fmt.Errorf("write background Agent runtime state: %w", err)
+		}
 	}
 
 	eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStarting})
 	errCh := make(chan error, 1)
 	go func() {
-		printStartup(options.addr, token)
-		errCh <- httpServer.ListenAndServe()
+		errCh <- httpServer.Serve(listener)
 	}()
+	if *serviceStatePath == "" {
+		printStartup(listenAddress, token)
+	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
 
 	stopReason := agentlog.ReasonListenerClosed
+	var serveErr error
 	select {
 	case sig := <-stop:
 		stopReason = agentlog.ReasonSignal
 		fmt.Printf("\nreceived %s, shutting down\n", sig)
 	case err := <-errCh:
-		if err != nil && err != http.ErrServerClosed {
-			eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopping, Reason: agentlog.ReasonListenerError})
-			log.Fatalf("server error: %v", err)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			stopReason = agentlog.ReasonListenerError
+			serveErr = fmt.Errorf("server error: %w", err)
 		}
 	}
 	eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopping, Reason: stopReason})
@@ -114,12 +168,25 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	app.Close()
+	shutdownErr := httpServer.Shutdown(ctx)
+	clearErr := error(nil)
+	if *serviceStatePath != "" {
+		clearErr = agentservice.ClearRuntimeState(*serviceStatePath, os.Getpid())
+	}
 
-	if err := httpServer.Shutdown(ctx); err != nil {
+	if shutdownErr != nil || serveErr != nil || clearErr != nil {
 		eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopped, Outcome: agentlog.OutcomeFailure})
-		log.Fatalf("shutdown server: %v", err)
+		switch {
+		case shutdownErr != nil:
+			return fmt.Errorf("shutdown server: %w", shutdownErr)
+		case serveErr != nil:
+			return serveErr
+		default:
+			return fmt.Errorf("clear background Agent runtime state: %w", clearErr)
+		}
 	}
 	eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopped, Outcome: agentlog.OutcomeSuccess})
+	return nil
 }
 
 type startupOptions struct {

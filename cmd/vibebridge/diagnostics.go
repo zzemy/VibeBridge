@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -8,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+
+	"github.com/zzemy/VibeBridge/internal/agentservice"
 )
 
 type diagnosticCheck struct {
@@ -34,7 +37,7 @@ func runDiagnostics(options startupOptions, hasEmbeddedAssets bool, output io.Wr
 }
 
 func collectDiagnostics(options startupOptions, hasEmbeddedAssets bool) []diagnosticCheck {
-	checks := []diagnosticCheck{platformDiagnostic()}
+	checks := []diagnosticCheck{platformDiagnostic(), backgroundServiceDiagnostic()}
 
 	commandMessage := "configured command is available"
 	if options.profileID != "" {
@@ -85,6 +88,24 @@ func platformDiagnostic() diagnosticCheck {
 		return diagnosticCheck{status: "ok", message: fmt.Sprintf("host platform %s uses the supported Windows PTY process-tree adapter", platform)}
 	}
 	return diagnosticCheck{status: "warn", message: fmt.Sprintf("host platform %s is not yet a declared supported PTY platform", platform)}
+}
+
+func backgroundServiceDiagnostic() diagnosticCheck {
+	status, err := agentservice.QueryInstallation()
+	return backgroundServiceDiagnosticFor(status, err)
+}
+
+func backgroundServiceDiagnosticFor(status agentservice.InstallationStatus, err error) diagnosticCheck {
+	switch {
+	case errors.Is(err, agentservice.ErrUnsupported):
+		return diagnosticCheck{status: "check", message: "user-scoped background Agent installation is not supported on this platform"}
+	case err != nil:
+		return diagnosticCheck{status: "warn", message: fmt.Sprintf("background Agent installation could not be inspected: %v", err)}
+	case status.Installed:
+		return diagnosticCheck{status: "ok", message: "user-scoped background Agent task is installed"}
+	default:
+		return diagnosticCheck{status: "check", message: "user-scoped background Agent is not installed; run vibebridge service install --config <path>"}
+	}
 }
 
 func networkDiagnostics(addr string) []diagnosticCheck {
