@@ -40,6 +40,7 @@ type Server struct {
 
 	mu      sync.Mutex
 	session *ptySession
+	clock   clock
 }
 
 type ClientMessage struct {
@@ -69,6 +70,7 @@ func New(config Config) *Server {
 
 	server := &Server{
 		config: config,
+		clock:  systemClock{},
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -217,7 +219,7 @@ func (s *Server) getOrCreateSession() (*ptySession, error) {
 		return current, nil
 	}
 
-	session, err := newPTYSession(s.config.Command, s.config.IdleTimeout, s.clearSession)
+	session, err := newPTYSession(s.config.Command, s.config.IdleTimeout, s.clock, s.clearSession)
 	if err != nil {
 		return nil, err
 	}
@@ -288,11 +290,12 @@ type ptySession struct {
 	client             *websocketWriter
 	replay             replayBuffer
 	lifecycle          sessionLifecycle
-	detachTimer        *time.Timer
+	detachTimer        timer
 	idleTimeout        time.Duration
-	idleTimer          *time.Timer
+	idleTimer          timer
 	startedAt          time.Time
 	lastActivityAt     time.Time
+	clock              clock
 	resourcesCloseOnce sync.Once
 	resourcesCloseErr  error
 }
@@ -301,7 +304,10 @@ type processTree interface {
 	Close() error
 }
 
-func newPTYSession(command []string, idleTimeout time.Duration, onDone func(*ptySession)) (*ptySession, error) {
+func newPTYSession(command []string, idleTimeout time.Duration, sessionClock clock, onDone func(*ptySession)) (*ptySession, error) {
+	if sessionClock == nil {
+		sessionClock = systemClock{}
+	}
 	terminal, err := pty.New()
 	if err != nil {
 		return nil, err
@@ -325,7 +331,7 @@ func newPTYSession(command []string, idleTimeout time.Duration, onDone func(*pty
 		return nil, err
 	}
 
-	now := time.Now()
+	now := sessionClock.Now()
 	session := &ptySession{
 		command:        command,
 		terminal:       terminal,
@@ -333,11 +339,12 @@ func newPTYSession(command []string, idleTimeout time.Duration, onDone func(*pty
 		cancel:         cancel,
 		done:           make(chan struct{}),
 		onDone:         onDone,
-		replay:         newReplayBuffer(maxBufferedOutputBytes, bufferedOutputMaxAge, time.Now),
+		replay:         newReplayBuffer(maxBufferedOutputBytes, bufferedOutputMaxAge, sessionClock.Now),
 		lifecycle:      newSessionLifecycle(),
 		idleTimeout:    idleTimeout,
 		startedAt:      now,
 		lastActivityAt: now,
+		clock:          sessionClock,
 	}
 	session.lifecycle.started()
 	session.replay.append([]byte("started PTY shell: " + strings.Join(command, " ") + "\r\n"))
@@ -362,7 +369,7 @@ func (s *ptySession) attach(writer *websocketWriter) bool {
 	}
 
 	s.client = writer
-	s.lastActivityAt = time.Now()
+	s.lastActivityAt = s.clock.Now()
 	s.resetIdleTimerLocked()
 	buffered := s.replay.drain()
 	s.mu.Unlock()
@@ -394,7 +401,7 @@ func (s *ptySession) detach(writer *websocketWriter, timeout time.Duration) {
 	if s.detachTimer != nil {
 		s.detachTimer.Stop()
 	}
-	s.detachTimer = time.AfterFunc(timeout, s.terminate)
+	s.detachTimer = s.clock.AfterFunc(timeout, s.terminate)
 }
 
 func (s *ptySession) isEnded() bool {
@@ -441,7 +448,7 @@ func (s *ptySession) terminate() {
 	_ = s.closeResources()
 	select {
 	case <-s.done:
-	case <-time.After(2 * time.Second):
+	case <-s.clock.After(2 * time.Second):
 	}
 }
 
@@ -476,7 +483,7 @@ func (s *ptySession) deliverOutput(chunk []byte) {
 		return
 	}
 
-	s.lastActivityAt = time.Now()
+	s.lastActivityAt = s.clock.Now()
 	client := s.client
 	if client == nil {
 		s.replay.append(chunk)
@@ -490,7 +497,7 @@ func (s *ptySession) deliverOutput(chunk []byte) {
 
 func (s *ptySession) touchActivity() {
 	s.mu.Lock()
-	s.lastActivityAt = time.Now()
+	s.lastActivityAt = s.clock.Now()
 	s.mu.Unlock()
 }
 
@@ -541,7 +548,7 @@ func (s *ptySession) resetIdleTimerLocked() {
 		return
 	}
 	if s.idleTimer == nil {
-		s.idleTimer = time.AfterFunc(s.idleTimeout, s.expireIdle)
+		s.idleTimer = s.clock.AfterFunc(s.idleTimeout, s.expireIdle)
 		return
 	}
 	s.idleTimer.Reset(s.idleTimeout)
