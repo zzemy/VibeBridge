@@ -67,6 +67,12 @@ Unknown fields, unsupported versions, duplicate profile IDs, invalid durations, 
 
 Terminal output is sent as WebSocket binary frames so ANSI sequences and raw PTY bytes are preserved. Structured input, resize, exit, error, and status messages use JSON text frames.
 
+## Privacy-Safe Lifecycle Logs
+
+The Agent writes JSON lifecycle events to stderr for local diagnostics. The logging schema is allowlisted to `event`, an opaque random `session_id`, `state`, `reason`, and `outcome`; standard timestamp, level, and message fields are added by Go's structured logger. Empty fields are omitted.
+
+Events cover Agent startup/shutdown and session start, attach, detach, ending, and completion. Logs deliberately exclude the session token, command and arguments, terminal or prompt content, paths, environment values, client addresses, and browser origins. Process failures are represented only by the safe `failure` outcome; the raw process error is not added to structured events.
+
 ## Mobile Input
 
 - The prompt editor stores its draft in `sessionStorage`, scoped to the active pairing URL. The draft survives refreshes and backgrounding in the same browser tab, and is removed when the tab session ends.

@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/zzemy/VibeBridge/internal/agentlog"
 )
 
 const (
@@ -32,6 +34,7 @@ type Config struct {
 	Environment      []string
 	ReconnectTimeout time.Duration
 	IdleTimeout      time.Duration
+	Logger           agentlog.Logger
 }
 
 type Server struct {
@@ -42,6 +45,7 @@ type Server struct {
 	session  *ptySession
 	clock    clock
 	launcher terminalLauncher
+	logger   agentlog.Logger
 }
 
 type ClientMessage struct {
@@ -69,10 +73,16 @@ func New(config Config) *Server {
 		config.ReconnectTimeout = 90 * time.Second
 	}
 
+	logger := config.Logger
+	if logger == nil {
+		logger = agentlog.Discard()
+	}
+
 	server := &Server{
 		config:   config,
 		clock:    systemClock{},
 		launcher: ptyTerminalLauncher{},
+		logger:   logger,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -204,7 +214,7 @@ func (s *Server) Close() {
 	session := s.session
 	s.mu.Unlock()
 	if session != nil {
-		session.terminate()
+		session.terminateWithReason(agentlog.ReasonAgentShutdown)
 	}
 }
 
@@ -221,7 +231,18 @@ func (s *Server) getOrCreateSession() (*ptySession, error) {
 		return current, nil
 	}
 
-	session, err := newPTYSession(terminalLaunchRequest{Command: s.config.Command, WorkingDirectory: s.config.WorkingDirectory, Environment: s.config.Environment}, s.config.IdleTimeout, s.clock, s.launcher, s.clearSession)
+	correlationID, err := newSessionCorrelationID()
+	if err != nil {
+		return nil, fmt.Errorf("create session correlation ID: %w", err)
+	}
+	session, err := newPTYSession(
+		terminalLaunchRequest{Command: s.config.Command, WorkingDirectory: s.config.WorkingDirectory, Environment: s.config.Environment},
+		s.config.IdleTimeout,
+		s.clock,
+		s.launcher,
+		s.clearSession,
+		sessionTelemetry{correlationID: correlationID, logger: s.logger},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +250,7 @@ func (s *Server) getOrCreateSession() (*ptySession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.session != nil && !s.session.isEnded() {
-		session.terminate()
+		session.terminateWithReason(agentlog.ReasonSuperseded)
 		return s.session, nil
 	}
 	s.session = session
@@ -259,7 +280,7 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 			}
 		case "exit":
 			_ = writer.writeBinary([]byte("ending session\r\n"))
-			session.terminate()
+			session.terminateWithReason(agentlog.ReasonExplicitEnd)
 			return
 		case "resize":
 			if msg.Cols > 0 && msg.Rows > 0 {
@@ -300,9 +321,11 @@ type ptySession struct {
 	clock              clock
 	resourcesCloseOnce sync.Once
 	resourcesCloseErr  error
+	telemetry          sessionTelemetry
+	endReason          agentlog.Reason
 }
 
-func newPTYSession(request terminalLaunchRequest, idleTimeout time.Duration, sessionClock clock, launcher terminalLauncher, onDone func(*ptySession)) (*ptySession, error) {
+func newPTYSession(request terminalLaunchRequest, idleTimeout time.Duration, sessionClock clock, launcher terminalLauncher, onDone func(*ptySession), telemetry sessionTelemetry) (*ptySession, error) {
 	if sessionClock == nil {
 		sessionClock = systemClock{}
 	}
@@ -328,8 +351,10 @@ func newPTYSession(request terminalLaunchRequest, idleTimeout time.Duration, ses
 		startedAt:      now,
 		lastActivityAt: now,
 		clock:          sessionClock,
+		telemetry:      telemetry,
 	}
 	session.lifecycle.started()
+	session.logEvent(agentlog.EventSessionStarted, agentlog.State(session.lifecycle.state), "", "")
 	session.replay.append([]byte("started PTY shell: " + strings.Join(request.Command, " ") + "\r\n"))
 	session.resetIdleTimer()
 
@@ -355,6 +380,7 @@ func (s *ptySession) attach(writer *websocketWriter) bool {
 	s.lastActivityAt = s.clock.Now()
 	s.resetIdleTimerLocked()
 	buffered := s.replay.drain()
+	s.logEvent(agentlog.EventSessionAttached, agentlog.State(s.lifecycle.state), "", "")
 	s.mu.Unlock()
 
 	for _, chunk := range buffered {
@@ -367,24 +393,29 @@ func (s *ptySession) attach(writer *websocketWriter) bool {
 
 func (s *ptySession) detach(writer *websocketWriter, timeout time.Duration) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.client != writer {
+		s.mu.Unlock()
 		return
 	}
 	s.client = nil
 	if !s.lifecycle.detach() {
+		s.mu.Unlock()
 		return
 	}
+	s.logEvent(agentlog.EventSessionDetached, agentlog.State(s.lifecycle.state), "", "")
 	if timeout <= 0 {
-		go s.terminate()
+		s.mu.Unlock()
+		go s.terminateWithReason(agentlog.ReasonReconnectExpired)
 		return
 	}
 
 	if s.detachTimer != nil {
 		s.detachTimer.Stop()
 	}
-	s.detachTimer = s.clock.AfterFunc(timeout, s.terminate)
+	s.detachTimer = s.clock.AfterFunc(timeout, func() {
+		s.terminateWithReason(agentlog.ReasonReconnectExpired)
+	})
+	s.mu.Unlock()
 }
 
 func (s *ptySession) isEnded() bool {
@@ -411,7 +442,7 @@ func (s *ptySession) resize(cols int, rows int) error {
 	return err
 }
 
-func (s *ptySession) terminate() {
+func (s *ptySession) terminateWithReason(reason agentlog.Reason) {
 	s.mu.Lock()
 	if !s.lifecycle.beginEnding() {
 		s.mu.Unlock()
@@ -425,6 +456,8 @@ func (s *ptySession) terminate() {
 		s.idleTimer.Stop()
 		s.idleTimer = nil
 	}
+	s.endReason = reason
+	s.logEvent(agentlog.EventSessionEnding, agentlog.State(s.lifecycle.state), reason, "")
 	s.mu.Unlock()
 
 	s.cancel()
@@ -502,6 +535,15 @@ func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 	}
 	client := s.client
 	s.client = nil
+	reason := s.endReason
+	if reason == "" {
+		reason = agentlog.ReasonProcessExit
+	}
+	outcome := agentlog.OutcomeSuccess
+	if s.lifecycle.state == sessionStateFailed {
+		outcome = agentlog.OutcomeFailure
+	}
+	s.logEvent(agentlog.EventSessionEnded, agentlog.State(s.lifecycle.state), reason, outcome)
 	s.mu.Unlock()
 
 	if client != nil {
@@ -539,7 +581,7 @@ func (s *ptySession) resetIdleTimerLocked() {
 
 func (s *ptySession) expireIdle() {
 	s.deliverOutput([]byte("idle timeout reached; ending session\r\n"))
-	s.terminate()
+	s.terminateWithReason(agentlog.ReasonIdleTimeout)
 }
 
 type websocketWriter struct {
