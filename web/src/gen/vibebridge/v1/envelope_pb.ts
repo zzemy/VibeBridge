@@ -13,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file vibebridge/v1/envelope.proto.
  */
 export const file_vibebridge_v1_envelope: GenFile = /*@__PURE__*/
-  fileDesc("Chx2aWJlYnJpZGdlL3YxL2VudmVsb3BlLnByb3RvEg12aWJlYnJpZGdlLnYxIi8KD1Byb3RvY29sVmVyc2lvbhINCgVtYWpvchgBIAEoDRINCgVtaW5vchgCIAEoDSJ4ChRQcm90b2NvbFZlcnNpb25SYW5nZRIvCgdtaW5pbXVtGAEgASgLMh4udmliZWJyaWRnZS52MS5Qcm90b2NvbFZlcnNpb24SLwoHbWF4aW11bRgCIAEoCzIeLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uIqYBCgVIZWxsbxIqCglwZWVyX3JvbGUYASABKA4yFy52aWJlYnJpZGdlLnYxLlBlZXJSb2xlEj8KEnN1cHBvcnRlZF92ZXJzaW9ucxgCIAEoCzIjLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uUmFuZ2USFAoMY2FwYWJpbGl0aWVzGAMgAygJEhoKEm1heF9lbnZlbG9wZV9ieXRlcxgEIAEoDSKHAgoIRW52ZWxvcGUSFgoOcHJvdG9jb2xfbWFqb3IYASABKA0SFgoOcHJvdG9jb2xfbWlub3IYAiABKA0SFQoNY29ubmVjdGlvbl9pZBgDIAEoDBISCgpzZXNzaW9uX2lkGAQgASgMEhoKEnNlc3Npb25fZ2VuZXJhdGlvbhgFIAEoBBIQCghzZXF1ZW5jZRgGIAEoBBITCgthY2tub3dsZWRnZRgHIAEoBBIrCgdzZW50X2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIlCgVoZWxsbxgUIAEoCzIULnZpYmVicmlkZ2UudjEuSGVsbG9IAEIJCgdwYXlsb2FkKmUKCFBlZXJSb2xlEhkKFVBFRVJfUk9MRV9VTlNQRUNJRklFRBAAEhMKD1BFRVJfUk9MRV9BR0VOVBABEhQKEFBFRVJfUk9MRV9DTElFTlQQAhITCg9QRUVSX1JPTEVfUkVMQVkQA0I/Wj1naXRodWIuY29tL3p6ZW15L1ZpYmVCcmlkZ2UvZ2VuL2dvL3ZpYmVicmlkZ2UvdjE7dmliZWJyaWRnZXYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Chx2aWJlYnJpZGdlL3YxL2VudmVsb3BlLnByb3RvEg12aWJlYnJpZGdlLnYxIi8KD1Byb3RvY29sVmVyc2lvbhINCgVtYWpvchgBIAEoDRINCgVtaW5vchgCIAEoDSJ4ChRQcm90b2NvbFZlcnNpb25SYW5nZRIvCgdtaW5pbXVtGAEgASgLMh4udmliZWJyaWRnZS52MS5Qcm90b2NvbFZlcnNpb24SLwoHbWF4aW11bRgCIAEoCzIeLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uIqYBCgVIZWxsbxIqCglwZWVyX3JvbGUYASABKA4yFy52aWJlYnJpZGdlLnYxLlBlZXJSb2xlEj8KEnN1cHBvcnRlZF92ZXJzaW9ucxgCIAEoCzIjLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uUmFuZ2USFAoMY2FwYWJpbGl0aWVzGAMgAygJEhoKEm1heF9lbnZlbG9wZV9ieXRlcxgEIAEoDSIdCg1UZXJtaW5hbElucHV0EgwKBGRhdGEYASABKAwiHgoOVGVybWluYWxPdXRwdXQSDAoEZGF0YRgBIAEoDCIRCg9BY2tub3dsZWRnZW1lbnQitAMKCEVudmVsb3BlEhYKDnByb3RvY29sX21ham9yGAEgASgNEhYKDnByb3RvY29sX21pbm9yGAIgASgNEhUKDWNvbm5lY3Rpb25faWQYAyABKAwSEgoKc2Vzc2lvbl9pZBgEIAEoDBIaChJzZXNzaW9uX2dlbmVyYXRpb24YBSABKAQSEAoIc2VxdWVuY2UYBiABKAQSEwoLYWNrbm93bGVkZ2UYByABKAQSKwoHc2VudF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJQoFaGVsbG8YFCABKAsyFC52aWJlYnJpZGdlLnYxLkhlbGxvSAASNgoOdGVybWluYWxfaW5wdXQYFyABKAsyHC52aWJlYnJpZGdlLnYxLlRlcm1pbmFsSW5wdXRIABI4Cg90ZXJtaW5hbF9vdXRwdXQYGCABKAsyHS52aWJlYnJpZGdlLnYxLlRlcm1pbmFsT3V0cHV0SAASOQoPYWNrbm93bGVkZ2VtZW50GCEgASgLMh4udmliZWJyaWRnZS52MS5BY2tub3dsZWRnZW1lbnRIAEIJCgdwYXlsb2FkKmUKCFBlZXJSb2xlEhkKFVBFRVJfUk9MRV9VTlNQRUNJRklFRBAAEhMKD1BFRVJfUk9MRV9BR0VOVBABEhQKEFBFRVJfUk9MRV9DTElFTlQQAhITCg9QRUVSX1JPTEVfUkVMQVkQA0I/Wj1naXRodWIuY29tL3p6ZW15L1ZpYmVCcmlkZ2UvZ2VuL2dvL3ZpYmVicmlkZ2UvdjE7dmliZWJyaWRnZXYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * ProtocolVersion identifies one application-protocol revision.
@@ -100,6 +100,60 @@ export const HelloSchema: GenMessage<Hello> = /*@__PURE__*/
   messageDesc(file_vibebridge_v1_envelope, 2);
 
 /**
+ * TerminalInput carries bytes written to the local PTY.
+ *
+ * @generated from message vibebridge.v1.TerminalInput
+ */
+export type TerminalInput = Message<"vibebridge.v1.TerminalInput"> & {
+  /**
+   * @generated from field: bytes data = 1;
+   */
+  data: Uint8Array;
+};
+
+/**
+ * Describes the message vibebridge.v1.TerminalInput.
+ * Use `create(TerminalInputSchema)` to create a new message.
+ */
+export const TerminalInputSchema: GenMessage<TerminalInput> = /*@__PURE__*/
+  messageDesc(file_vibebridge_v1_envelope, 3);
+
+/**
+ * TerminalOutput carries bytes read from the local PTY.
+ *
+ * @generated from message vibebridge.v1.TerminalOutput
+ */
+export type TerminalOutput = Message<"vibebridge.v1.TerminalOutput"> & {
+  /**
+   * @generated from field: bytes data = 1;
+   */
+  data: Uint8Array;
+};
+
+/**
+ * Describes the message vibebridge.v1.TerminalOutput.
+ * Use `create(TerminalOutputSchema)` to create a new message.
+ */
+export const TerminalOutputSchema: GenMessage<TerminalOutput> = /*@__PURE__*/
+  messageDesc(file_vibebridge_v1_envelope, 4);
+
+/**
+ * Acknowledgement advances the peer acknowledgement when there is no other
+ * outbound payload on which it can be piggybacked.
+ *
+ * @generated from message vibebridge.v1.Acknowledgement
+ */
+export type Acknowledgement = Message<"vibebridge.v1.Acknowledgement"> & {
+};
+
+/**
+ * Describes the message vibebridge.v1.Acknowledgement.
+ * Use `create(AcknowledgementSchema)` to create a new message.
+ */
+export const AcknowledgementSchema: GenMessage<Acknowledgement> = /*@__PURE__*/
+  messageDesc(file_vibebridge_v1_envelope, 5);
+
+/**
  * Envelope carries one typed V1 application message. Sequence and acknowledge
  * are direction-local counters; zero acknowledge means no message is confirmed.
  *
@@ -155,6 +209,24 @@ export type Envelope = Message<"vibebridge.v1.Envelope"> & {
      */
     value: Hello;
     case: "hello";
+  } | {
+    /**
+     * @generated from field: vibebridge.v1.TerminalInput terminal_input = 23;
+     */
+    value: TerminalInput;
+    case: "terminalInput";
+  } | {
+    /**
+     * @generated from field: vibebridge.v1.TerminalOutput terminal_output = 24;
+     */
+    value: TerminalOutput;
+    case: "terminalOutput";
+  } | {
+    /**
+     * @generated from field: vibebridge.v1.Acknowledgement acknowledgement = 33;
+     */
+    value: Acknowledgement;
+    case: "acknowledgement";
   } | { case: undefined; value?: undefined };
 };
 
@@ -163,7 +235,7 @@ export type Envelope = Message<"vibebridge.v1.Envelope"> & {
  * Use `create(EnvelopeSchema)` to create a new message.
  */
 export const EnvelopeSchema: GenMessage<Envelope> = /*@__PURE__*/
-  messageDesc(file_vibebridge_v1_envelope, 3);
+  messageDesc(file_vibebridge_v1_envelope, 6);
 
 /**
  * PeerRole identifies the protocol responsibility of a peer. It does not grant

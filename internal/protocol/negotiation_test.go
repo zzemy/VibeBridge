@@ -95,6 +95,15 @@ func TestNewAgentHelloUsesNegotiatedVersion(t *testing.T) {
 	if envelope.Sequence != 1 {
 		t.Fatalf("sequence = %d, want 1", envelope.Sequence)
 	}
+	foundSequencedIO := false
+	for _, capability := range envelope.GetHello().GetCapabilities() {
+		if capability == CapabilityTerminalSequencedIO {
+			foundSequencedIO = true
+		}
+	}
+	if !foundSequencedIO {
+		t.Fatalf("Agent Hello capabilities = %v, missing %q", envelope.GetHello().GetCapabilities(), CapabilityTerminalSequencedIO)
+	}
 }
 
 func clientHello(minimum, maximum *vibebridgev1.ProtocolVersion) *vibebridgev1.Envelope {
