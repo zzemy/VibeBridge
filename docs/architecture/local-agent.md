@@ -68,9 +68,9 @@ Platform adapters must define process-tree semantics. Windows uses ConPTY plus a
 ## Workspaces and Launch Profiles
 
 - Version 1 configuration remains supported for legacy launch profiles. Version 2 registers workspaces by a stable local ID, display label, and existing directory root; relative roots are resolved from the configuration directory.
-- Registry construction resolves symlinks and Windows junctions to canonical absolute paths, rejects duplicate IDs and canonical roots, and uses case-insensitive root identity on Windows.
-- A launch profile may bind to a workspace. Its working directory defaults to that root or resolves beneath it; traversal and link escapes are rejected before PTY creation. Profiles without a workspace binding retain the compatibility working-directory behavior.
-- This startup validation is a registry snapshot, not authorization for later writes. Attachment storage must re-check canonical containment before every file operation and use no-follow creation/cleanup behavior to address path replacement races.
+- Registry construction resolves symlinks and Windows junctions to canonical absolute paths and rejects duplicate IDs and canonical roots. Windows identity uses the case-preserving final path returned by the filesystem, so aliases on ordinary case-insensitive volumes converge while directory-level case-sensitive paths remain distinct.
+- A launch profile may bind to a workspace. Its working directory defaults to that root or resolves beneath it; traversal and link escapes are rejected during configuration and re-checked immediately before each PTY launch. A replaced root or a working directory that now resolves outside the root fails session startup. Profiles without a workspace binding retain the compatibility working-directory behavior.
+- Launch-time revalidation narrows but cannot eliminate local filesystem replacement races and is not authorization for later writes. Attachment storage must re-check canonical containment before every file operation and use no-follow creation/cleanup behavior.
 - Launch profiles define executable, argument templates, working-directory policy, environment allowlist, and tool adapter. No remote client supplies an unchecked executable path or environment.
 - User-created profiles are stored locally and validated before launch. Sensitive environment values remain local and are never returned to clients.
 

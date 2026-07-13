@@ -102,7 +102,7 @@ func runServiceInstall(args []string, output io.Writer, errorOutput io.Writer, m
 	if err := validateCommand(launchOptions.command); err != nil {
 		return err
 	}
-	if err := validateWorkingDirectory(launchOptions.workingDirectory); err != nil {
+	if err := validateStartupWorkingDirectory(launchOptions); err != nil {
 		return err
 	}
 	absoluteExecutable, err := filepath.Abs(executable)

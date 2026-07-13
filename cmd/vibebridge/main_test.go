@@ -91,6 +91,24 @@ func TestRunDiagnosticsReportsWorkspaceWithoutExposingItsPath(t *testing.T) {
 	}
 }
 
+func TestRunDiagnosticsDoesNotExposeUnavailableWorkspacePath(t *testing.T) {
+	workingDirectory := filepath.Join(t.TempDir(), "private-working-directory")
+	var output bytes.Buffer
+	err := runDiagnostics(startupOptions{
+		addr:             "127.0.0.1:0",
+		webDir:           t.TempDir(),
+		command:          []string{os.Args[0]},
+		workspaceID:      "private-repo",
+		workingDirectory: workingDirectory,
+	}, false, &output)
+	if err == nil {
+		t.Fatal("diagnostics accepted an unavailable workspace path")
+	}
+	if strings.Contains(output.String(), workingDirectory) || strings.Contains(output.String(), "private-working-directory") {
+		t.Fatalf("workspace path was exposed in diagnostic output:\n%s", output.String())
+	}
+}
+
 func TestNetworkDiagnosticsUsesPlatformFirewallGuidance(t *testing.T) {
 	checks := networkDiagnostics("192.168.1.10:8787")
 	if len(checks) != 2 {
@@ -204,6 +222,9 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 	}
 	if options.workingDirectory != workspace {
 		t.Fatalf("working directory = %q, want %q", options.workingDirectory, workspace)
+	}
+	if options.workspaceRoot != options.workingDirectory {
+		t.Fatalf("workspace root = %q, want canonical root %q", options.workspaceRoot, options.workingDirectory)
 	}
 	if options.addr != "127.0.0.1:9000" || options.webDir != "custom-web" {
 		t.Fatalf("configured address/web = %q/%q", options.addr, options.webDir)

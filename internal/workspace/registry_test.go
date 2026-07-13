@@ -93,6 +93,31 @@ func TestRegistryRejectsInvalidDefinitions(t *testing.T) {
 	}
 }
 
+func TestRegistryPathErrorsDoNotExposeLocalPaths(t *testing.T) {
+	secretRoot := filepath.Join(t.TempDir(), "private-workspace-root")
+	_, err := workspace.NewRegistry([]workspace.Definition{{ID: "repo", Label: "Repo", Root: secretRoot}}, "")
+	if err == nil {
+		t.Fatal("missing workspace root was accepted")
+	}
+	if strings.Contains(err.Error(), secretRoot) || strings.Contains(err.Error(), "private-workspace-root") {
+		t.Fatalf("workspace root leaked in error: %v", err)
+	}
+
+	root := t.TempDir()
+	registry, err := workspace.NewRegistry([]workspace.Definition{{ID: "repo", Label: "Repo", Root: root}}, "")
+	if err != nil {
+		t.Fatalf("create registry: %v", err)
+	}
+	secretCandidate := filepath.Join(root, "private-working-directory")
+	_, err = registry.ResolveDirectory("repo", secretCandidate)
+	if err == nil {
+		t.Fatal("missing workspace directory was accepted")
+	}
+	if strings.Contains(err.Error(), secretCandidate) || strings.Contains(err.Error(), "private-working-directory") {
+		t.Fatalf("workspace candidate leaked in error: %v", err)
+	}
+}
+
 func TestRegistryRejectsTraversalOutsideWorkspace(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "workspace")
