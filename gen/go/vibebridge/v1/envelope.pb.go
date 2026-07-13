@@ -76,6 +76,57 @@ func (PeerRole) EnumDescriptor() ([]byte, []int) {
 	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{0}
 }
 
+// ProcessExitOutcome reports the final PTY lifecycle result without exposing
+// host process errors.
+type ProcessExitOutcome int32
+
+const (
+	ProcessExitOutcome_PROCESS_EXIT_OUTCOME_UNSPECIFIED ProcessExitOutcome = 0
+	ProcessExitOutcome_PROCESS_EXIT_OUTCOME_SUCCESS     ProcessExitOutcome = 1
+	ProcessExitOutcome_PROCESS_EXIT_OUTCOME_FAILURE     ProcessExitOutcome = 2
+)
+
+// Enum value maps for ProcessExitOutcome.
+var (
+	ProcessExitOutcome_name = map[int32]string{
+		0: "PROCESS_EXIT_OUTCOME_UNSPECIFIED",
+		1: "PROCESS_EXIT_OUTCOME_SUCCESS",
+		2: "PROCESS_EXIT_OUTCOME_FAILURE",
+	}
+	ProcessExitOutcome_value = map[string]int32{
+		"PROCESS_EXIT_OUTCOME_UNSPECIFIED": 0,
+		"PROCESS_EXIT_OUTCOME_SUCCESS":     1,
+		"PROCESS_EXIT_OUTCOME_FAILURE":     2,
+	}
+)
+
+func (x ProcessExitOutcome) Enum() *ProcessExitOutcome {
+	p := new(ProcessExitOutcome)
+	*p = x
+	return p
+}
+
+func (x ProcessExitOutcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ProcessExitOutcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_vibebridge_v1_envelope_proto_enumTypes[1].Descriptor()
+}
+
+func (ProcessExitOutcome) Type() protoreflect.EnumType {
+	return &file_vibebridge_v1_envelope_proto_enumTypes[1]
+}
+
+func (x ProcessExitOutcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ProcessExitOutcome.Descriptor instead.
+func (ProcessExitOutcome) EnumDescriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{1}
+}
+
 // ResumeDisposition reports whether the Agent could preserve terminal history.
 type ResumeDisposition int32
 
@@ -113,11 +164,11 @@ func (x ResumeDisposition) String() string {
 }
 
 func (ResumeDisposition) Descriptor() protoreflect.EnumDescriptor {
-	return file_vibebridge_v1_envelope_proto_enumTypes[1].Descriptor()
+	return file_vibebridge_v1_envelope_proto_enumTypes[2].Descriptor()
 }
 
 func (ResumeDisposition) Type() protoreflect.EnumType {
-	return &file_vibebridge_v1_envelope_proto_enumTypes[1]
+	return &file_vibebridge_v1_envelope_proto_enumTypes[2]
 }
 
 func (x ResumeDisposition) Number() protoreflect.EnumNumber {
@@ -126,7 +177,7 @@ func (x ResumeDisposition) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ResumeDisposition.Descriptor instead.
 func (ResumeDisposition) EnumDescriptor() ([]byte, []int) {
-	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{1}
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{2}
 }
 
 // ProtocolVersion identifies one application-protocol revision.
@@ -487,6 +538,51 @@ func (*EndSession) Descriptor() ([]byte, []int) {
 	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{6}
 }
 
+// ProcessExit reports that the PTY process and session have ended.
+type ProcessExit struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Outcome       ProcessExitOutcome     `protobuf:"varint,1,opt,name=outcome,proto3,enum=vibebridge.v1.ProcessExitOutcome" json:"outcome,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProcessExit) Reset() {
+	*x = ProcessExit{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessExit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessExit) ProtoMessage() {}
+
+func (x *ProcessExit) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessExit.ProtoReflect.Descriptor instead.
+func (*ProcessExit) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ProcessExit) GetOutcome() ProcessExitOutcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return ProcessExitOutcome_PROCESS_EXIT_OUTCOME_UNSPECIFIED
+}
+
 // AttachSession starts a fresh attachment or resumes a previously attached
 // session. The cursor refers to the highest Agent sequence processed on the
 // previous physical connection.
@@ -499,7 +595,7 @@ type AttachSession struct {
 
 func (x *AttachSession) Reset() {
 	*x = AttachSession{}
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[7]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -511,7 +607,7 @@ func (x *AttachSession) String() string {
 func (*AttachSession) ProtoMessage() {}
 
 func (x *AttachSession) ProtoReflect() protoreflect.Message {
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[7]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -524,7 +620,7 @@ func (x *AttachSession) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachSession.ProtoReflect.Descriptor instead.
 func (*AttachSession) Descriptor() ([]byte, []int) {
-	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{7}
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *AttachSession) GetLastAcknowledgedSequence() uint64 {
@@ -545,7 +641,7 @@ type SessionStatus struct {
 
 func (x *SessionStatus) Reset() {
 	*x = SessionStatus{}
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[8]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -557,7 +653,7 @@ func (x *SessionStatus) String() string {
 func (*SessionStatus) ProtoMessage() {}
 
 func (x *SessionStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[8]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -570,7 +666,7 @@ func (x *SessionStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionStatus.ProtoReflect.Descriptor instead.
 func (*SessionStatus) Descriptor() ([]byte, []int) {
-	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{8}
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SessionStatus) GetResumeDisposition() ResumeDisposition {
@@ -590,7 +686,7 @@ type Acknowledgement struct {
 
 func (x *Acknowledgement) Reset() {
 	*x = Acknowledgement{}
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[9]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -602,7 +698,7 @@ func (x *Acknowledgement) String() string {
 func (*Acknowledgement) ProtoMessage() {}
 
 func (x *Acknowledgement) ProtoReflect() protoreflect.Message {
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[9]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -615,7 +711,7 @@ func (x *Acknowledgement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Acknowledgement.ProtoReflect.Descriptor instead.
 func (*Acknowledgement) Descriptor() ([]byte, []int) {
-	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{9}
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{10}
 }
 
 // Envelope carries one typed V1 application message. Sequence and acknowledge
@@ -640,6 +736,7 @@ type Envelope struct {
 	//	*Envelope_SessionStatus
 	//	*Envelope_EndSession
 	//	*Envelope_Acknowledgement
+	//	*Envelope_ProcessExit
 	Payload       isEnvelope_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -647,7 +744,7 @@ type Envelope struct {
 
 func (x *Envelope) Reset() {
 	*x = Envelope{}
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[10]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -659,7 +756,7 @@ func (x *Envelope) String() string {
 func (*Envelope) ProtoMessage() {}
 
 func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[10]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -672,7 +769,7 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
 func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{10}
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Envelope) GetProtocolMajor() uint32 {
@@ -810,6 +907,15 @@ func (x *Envelope) GetAcknowledgement() *Acknowledgement {
 	return nil
 }
 
+func (x *Envelope) GetProcessExit() *ProcessExit {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_ProcessExit); ok {
+			return x.ProcessExit
+		}
+	}
+	return nil
+}
+
 type isEnvelope_Payload interface {
 	isEnvelope_Payload()
 }
@@ -846,6 +952,10 @@ type Envelope_Acknowledgement struct {
 	Acknowledgement *Acknowledgement `protobuf:"bytes,33,opt,name=acknowledgement,proto3,oneof"`
 }
 
+type Envelope_ProcessExit struct {
+	ProcessExit *ProcessExit `protobuf:"bytes,34,opt,name=process_exit,json=processExit,proto3,oneof"`
+}
+
 func (*Envelope_Hello) isEnvelope_Payload() {}
 
 func (*Envelope_AttachSession) isEnvelope_Payload() {}
@@ -861,6 +971,8 @@ func (*Envelope_SessionStatus) isEnvelope_Payload() {}
 func (*Envelope_EndSession) isEnvelope_Payload() {}
 
 func (*Envelope_Acknowledgement) isEnvelope_Payload() {}
+
+func (*Envelope_ProcessExit) isEnvelope_Payload() {}
 
 var File_vibebridge_v1_envelope_proto protoreflect.FileDescriptor
 
@@ -886,12 +998,14 @@ const file_vibebridge_v1_envelope_proto_rawDesc = "" +
 	"\acolumns\x18\x01 \x01(\rR\acolumns\x12\x12\n" +
 	"\x04rows\x18\x02 \x01(\rR\x04rows\"\f\n" +
 	"\n" +
-	"EndSession\"M\n" +
+	"EndSession\"J\n" +
+	"\vProcessExit\x12;\n" +
+	"\aoutcome\x18\x01 \x01(\x0e2!.vibebridge.v1.ProcessExitOutcomeR\aoutcome\"M\n" +
 	"\rAttachSession\x12<\n" +
 	"\x1alast_acknowledged_sequence\x18\x01 \x01(\x04R\x18lastAcknowledgedSequence\"`\n" +
 	"\rSessionStatus\x12O\n" +
 	"\x12resume_disposition\x18\x01 \x01(\x0e2 .vibebridge.v1.ResumeDispositionR\x11resumeDisposition\"\x11\n" +
-	"\x0fAcknowledgement\"\xea\x06\n" +
+	"\x0fAcknowledgement\"\xab\a\n" +
 	"\bEnvelope\x12%\n" +
 	"\x0eprotocol_major\x18\x01 \x01(\rR\rprotocolMajor\x12%\n" +
 	"\x0eprotocol_minor\x18\x02 \x01(\rR\rprotocolMinor\x12#\n" +
@@ -910,13 +1024,18 @@ const file_vibebridge_v1_envelope_proto_rawDesc = "" +
 	"\x0esession_status\x18\x1a \x01(\v2\x1c.vibebridge.v1.SessionStatusH\x00R\rsessionStatus\x12<\n" +
 	"\vend_session\x18\x1b \x01(\v2\x19.vibebridge.v1.EndSessionH\x00R\n" +
 	"endSession\x12J\n" +
-	"\x0facknowledgement\x18! \x01(\v2\x1e.vibebridge.v1.AcknowledgementH\x00R\x0facknowledgementB\t\n" +
+	"\x0facknowledgement\x18! \x01(\v2\x1e.vibebridge.v1.AcknowledgementH\x00R\x0facknowledgement\x12?\n" +
+	"\fprocess_exit\x18\" \x01(\v2\x1a.vibebridge.v1.ProcessExitH\x00R\vprocessExitB\t\n" +
 	"\apayload*e\n" +
 	"\bPeerRole\x12\x19\n" +
 	"\x15PEER_ROLE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fPEER_ROLE_AGENT\x10\x01\x12\x14\n" +
 	"\x10PEER_ROLE_CLIENT\x10\x02\x12\x13\n" +
-	"\x0fPEER_ROLE_RELAY\x10\x03*\x9d\x01\n" +
+	"\x0fPEER_ROLE_RELAY\x10\x03*~\n" +
+	"\x12ProcessExitOutcome\x12$\n" +
+	" PROCESS_EXIT_OUTCOME_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cPROCESS_EXIT_OUTCOME_SUCCESS\x10\x01\x12 \n" +
+	"\x1cPROCESS_EXIT_OUTCOME_FAILURE\x10\x02*\x9d\x01\n" +
 	"\x11ResumeDisposition\x12\"\n" +
 	"\x1eRESUME_DISPOSITION_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18RESUME_DISPOSITION_FRESH\x10\x01\x12\x1e\n" +
@@ -935,44 +1054,48 @@ func file_vibebridge_v1_envelope_proto_rawDescGZIP() []byte {
 	return file_vibebridge_v1_envelope_proto_rawDescData
 }
 
-var file_vibebridge_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_vibebridge_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_vibebridge_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_vibebridge_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_vibebridge_v1_envelope_proto_goTypes = []any{
 	(PeerRole)(0),                 // 0: vibebridge.v1.PeerRole
-	(ResumeDisposition)(0),        // 1: vibebridge.v1.ResumeDisposition
-	(*ProtocolVersion)(nil),       // 2: vibebridge.v1.ProtocolVersion
-	(*ProtocolVersionRange)(nil),  // 3: vibebridge.v1.ProtocolVersionRange
-	(*Hello)(nil),                 // 4: vibebridge.v1.Hello
-	(*TerminalInput)(nil),         // 5: vibebridge.v1.TerminalInput
-	(*TerminalOutput)(nil),        // 6: vibebridge.v1.TerminalOutput
-	(*TerminalResize)(nil),        // 7: vibebridge.v1.TerminalResize
-	(*EndSession)(nil),            // 8: vibebridge.v1.EndSession
-	(*AttachSession)(nil),         // 9: vibebridge.v1.AttachSession
-	(*SessionStatus)(nil),         // 10: vibebridge.v1.SessionStatus
-	(*Acknowledgement)(nil),       // 11: vibebridge.v1.Acknowledgement
-	(*Envelope)(nil),              // 12: vibebridge.v1.Envelope
-	(*timestamppb.Timestamp)(nil), // 13: google.protobuf.Timestamp
+	(ProcessExitOutcome)(0),       // 1: vibebridge.v1.ProcessExitOutcome
+	(ResumeDisposition)(0),        // 2: vibebridge.v1.ResumeDisposition
+	(*ProtocolVersion)(nil),       // 3: vibebridge.v1.ProtocolVersion
+	(*ProtocolVersionRange)(nil),  // 4: vibebridge.v1.ProtocolVersionRange
+	(*Hello)(nil),                 // 5: vibebridge.v1.Hello
+	(*TerminalInput)(nil),         // 6: vibebridge.v1.TerminalInput
+	(*TerminalOutput)(nil),        // 7: vibebridge.v1.TerminalOutput
+	(*TerminalResize)(nil),        // 8: vibebridge.v1.TerminalResize
+	(*EndSession)(nil),            // 9: vibebridge.v1.EndSession
+	(*ProcessExit)(nil),           // 10: vibebridge.v1.ProcessExit
+	(*AttachSession)(nil),         // 11: vibebridge.v1.AttachSession
+	(*SessionStatus)(nil),         // 12: vibebridge.v1.SessionStatus
+	(*Acknowledgement)(nil),       // 13: vibebridge.v1.Acknowledgement
+	(*Envelope)(nil),              // 14: vibebridge.v1.Envelope
+	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
 }
 var file_vibebridge_v1_envelope_proto_depIdxs = []int32{
-	2,  // 0: vibebridge.v1.ProtocolVersionRange.minimum:type_name -> vibebridge.v1.ProtocolVersion
-	2,  // 1: vibebridge.v1.ProtocolVersionRange.maximum:type_name -> vibebridge.v1.ProtocolVersion
+	3,  // 0: vibebridge.v1.ProtocolVersionRange.minimum:type_name -> vibebridge.v1.ProtocolVersion
+	3,  // 1: vibebridge.v1.ProtocolVersionRange.maximum:type_name -> vibebridge.v1.ProtocolVersion
 	0,  // 2: vibebridge.v1.Hello.peer_role:type_name -> vibebridge.v1.PeerRole
-	3,  // 3: vibebridge.v1.Hello.supported_versions:type_name -> vibebridge.v1.ProtocolVersionRange
-	1,  // 4: vibebridge.v1.SessionStatus.resume_disposition:type_name -> vibebridge.v1.ResumeDisposition
-	13, // 5: vibebridge.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
-	4,  // 6: vibebridge.v1.Envelope.hello:type_name -> vibebridge.v1.Hello
-	9,  // 7: vibebridge.v1.Envelope.attach_session:type_name -> vibebridge.v1.AttachSession
-	5,  // 8: vibebridge.v1.Envelope.terminal_input:type_name -> vibebridge.v1.TerminalInput
-	6,  // 9: vibebridge.v1.Envelope.terminal_output:type_name -> vibebridge.v1.TerminalOutput
-	7,  // 10: vibebridge.v1.Envelope.terminal_resize:type_name -> vibebridge.v1.TerminalResize
-	10, // 11: vibebridge.v1.Envelope.session_status:type_name -> vibebridge.v1.SessionStatus
-	8,  // 12: vibebridge.v1.Envelope.end_session:type_name -> vibebridge.v1.EndSession
-	11, // 13: vibebridge.v1.Envelope.acknowledgement:type_name -> vibebridge.v1.Acknowledgement
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	4,  // 3: vibebridge.v1.Hello.supported_versions:type_name -> vibebridge.v1.ProtocolVersionRange
+	1,  // 4: vibebridge.v1.ProcessExit.outcome:type_name -> vibebridge.v1.ProcessExitOutcome
+	2,  // 5: vibebridge.v1.SessionStatus.resume_disposition:type_name -> vibebridge.v1.ResumeDisposition
+	15, // 6: vibebridge.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
+	5,  // 7: vibebridge.v1.Envelope.hello:type_name -> vibebridge.v1.Hello
+	11, // 8: vibebridge.v1.Envelope.attach_session:type_name -> vibebridge.v1.AttachSession
+	6,  // 9: vibebridge.v1.Envelope.terminal_input:type_name -> vibebridge.v1.TerminalInput
+	7,  // 10: vibebridge.v1.Envelope.terminal_output:type_name -> vibebridge.v1.TerminalOutput
+	8,  // 11: vibebridge.v1.Envelope.terminal_resize:type_name -> vibebridge.v1.TerminalResize
+	12, // 12: vibebridge.v1.Envelope.session_status:type_name -> vibebridge.v1.SessionStatus
+	9,  // 13: vibebridge.v1.Envelope.end_session:type_name -> vibebridge.v1.EndSession
+	13, // 14: vibebridge.v1.Envelope.acknowledgement:type_name -> vibebridge.v1.Acknowledgement
+	10, // 15: vibebridge.v1.Envelope.process_exit:type_name -> vibebridge.v1.ProcessExit
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_vibebridge_v1_envelope_proto_init() }
@@ -980,7 +1103,7 @@ func file_vibebridge_v1_envelope_proto_init() {
 	if File_vibebridge_v1_envelope_proto != nil {
 		return
 	}
-	file_vibebridge_v1_envelope_proto_msgTypes[10].OneofWrappers = []any{
+	file_vibebridge_v1_envelope_proto_msgTypes[11].OneofWrappers = []any{
 		(*Envelope_Hello)(nil),
 		(*Envelope_AttachSession)(nil),
 		(*Envelope_TerminalInput)(nil),
@@ -989,14 +1112,15 @@ func file_vibebridge_v1_envelope_proto_init() {
 		(*Envelope_SessionStatus)(nil),
 		(*Envelope_EndSession)(nil),
 		(*Envelope_Acknowledgement)(nil),
+		(*Envelope_ProcessExit)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vibebridge_v1_envelope_proto_rawDesc), len(file_vibebridge_v1_envelope_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   11,
+			NumEnums:      3,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

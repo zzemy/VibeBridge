@@ -87,6 +87,25 @@ func TestAgentStreamRejectsUnnegotiatedOrInvalidTerminalResize(t *testing.T) {
 	}
 }
 
+func TestAgentStreamEncodesNegotiatedProcessExit(t *testing.T) {
+	stream := newTestAgentProcessExitStream(t, MaxEnvelopeBytes)
+	encoded, err := stream.EncodeProcessExit(vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_SUCCESS, time.Now())
+	if err != nil {
+		t.Fatalf("encode ProcessExit: %v", err)
+	}
+	envelope := unmarshalStreamEnvelope(t, encoded)
+	if envelope.Sequence != 2 || envelope.Acknowledge != 1 || envelope.GetProcessExit().GetOutcome() != vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_SUCCESS {
+		t.Fatalf("ProcessExit sequence/ack/outcome = %d/%d/%v", envelope.Sequence, envelope.Acknowledge, envelope.GetProcessExit().GetOutcome())
+	}
+
+	if _, err := newTestAgentStream(t, MaxEnvelopeBytes).EncodeProcessExit(vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_SUCCESS, time.Now()); err == nil {
+		t.Fatal("unnegotiated ProcessExit was encoded")
+	}
+	if _, err := stream.EncodeProcessExit(vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_UNSPECIFIED, time.Now()); err == nil {
+		t.Fatal("unspecified ProcessExit outcome was encoded")
+	}
+}
+
 func TestAgentStreamBindsSessionAndSequencesResumeTraffic(t *testing.T) {
 	stream := newTestAgentResumeStream(t, MaxEnvelopeBytes)
 	sessionID := []byte("fedcba9876543210")
@@ -259,6 +278,21 @@ func newTestAgentControlStream(t *testing.T, peerLimit uint32) *AgentStream {
 	})
 	if err != nil {
 		t.Fatalf("create terminal-control Agent stream: %v", err)
+	}
+	return stream
+}
+
+func newTestAgentProcessExitStream(t *testing.T, peerLimit uint32) *AgentStream {
+	t.Helper()
+	stream, err := NewAgentStream(NegotiatedHello{
+		Major:                CurrentMajor,
+		Minor:                CurrentMinor,
+		PeerMaxEnvelopeBytes: peerLimit,
+		ConnectionID:         []byte("0123456789abcdef"),
+		capabilities:         map[string]struct{}{CapabilitySessionProcessExit: {}},
+	})
+	if err != nil {
+		t.Fatalf("create process-exit Agent stream: %v", err)
 	}
 	return stream
 }

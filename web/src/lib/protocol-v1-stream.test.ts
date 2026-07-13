@@ -5,6 +5,8 @@ import { describe, expect, test } from "vitest";
 import {
   AcknowledgementSchema,
   EnvelopeSchema,
+  ProcessExitOutcome,
+  ProcessExitSchema,
   ResumeDisposition,
   SessionStatusSchema,
   TerminalOutputSchema,
@@ -58,7 +60,6 @@ describe("Protocol V1 sequenced terminal stream", () => {
     expect(acknowledgement.payload.case).toBe("acknowledgement");
   });
 
-
   test("sequences negotiated terminal resize and end controls", () => {
     const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { terminalResizeEnd: true });
 
@@ -84,6 +85,23 @@ describe("Protocol V1 sequenced terminal stream", () => {
       const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { terminalResizeEnd: true });
       expect(() => stream.createTerminalResize(columns, rows, sentAt)).toThrow("dimensions");
     }
+  });
+
+  test("accepts only negotiated process-exit outcomes", () => {
+    const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { sessionProcessExit: true });
+    const processExit = agentEnvelope(2n, 1n, {
+      case: "processExit",
+      value: create(ProcessExitSchema, { outcome: ProcessExitOutcome.SUCCESS }),
+    });
+    expect(stream.acceptAgentMessage(processExit)).toEqual({ type: "process-exit", outcome: ProcessExitOutcome.SUCCESS });
+
+    const unnegotiated = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes);
+    expect(() => unnegotiated.acceptAgentMessage(processExit)).toThrow("ProcessExit");
+    const unspecified = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { sessionProcessExit: true });
+    expect(() => unspecified.acceptAgentMessage(agentEnvelope(2n, 1n, {
+      case: "processExit",
+      value: create(ProcessExitSchema, { outcome: ProcessExitOutcome.UNSPECIFIED }),
+    }))).toThrow("ProcessExit");
   });
 
   test("attaches and carries a resumable session identity", () => {

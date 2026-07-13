@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -484,6 +485,126 @@ func TestProtocolV1UsesSequencedResizeAndEndControls(t *testing.T) {
 	}
 	if exit.Type != "exit" {
 		t.Fatalf("process exit message = %#v", exit)
+	}
+}
+
+func TestProcessExitWaitsForInFlightOutput(t *testing.T) {
+	waitReturned := make(chan struct{})
+	session := &ptySession{
+		terminal:    &countingPTY{},
+		processTree: &countingProcessTree{},
+		done:        make(chan struct{}),
+		clock:       systemClock{},
+		lifecycle:   sessionLifecycle{state: sessionStateConnected},
+	}
+
+	session.outputMu.Lock()
+	go session.waitForExit(notifyingWaiter{returned: waitReturned})
+	<-waitReturned
+
+	select {
+	case <-session.done:
+		t.Fatal("process exit overtook in-flight terminal output")
+	case <-time.After(100 * time.Millisecond):
+	}
+	session.mu.Lock()
+	state := session.lifecycle.state
+	session.mu.Unlock()
+	if state != sessionStateConnected {
+		t.Fatalf("state while output is in flight = %q, want connected", state)
+	}
+
+	session.outputMu.Unlock()
+	select {
+	case <-session.done:
+	case <-time.After(time.Second):
+		t.Fatal("process exit did not complete after terminal output")
+	}
+}
+
+type notifyingWaiter struct {
+	returned chan<- struct{}
+}
+
+func (w notifyingWaiter) Wait() error {
+	close(w.returned)
+	return nil
+}
+
+func TestProtocolV1UsesSequencedProcessExit(t *testing.T) {
+	tests := []struct {
+		name        string
+		explicitEnd bool
+		waitError   error
+		wantOutcome vibebridgev1.ProcessExitOutcome
+	}{
+		{name: "success", wantOutcome: vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_SUCCESS},
+		{name: "failure", waitError: errors.New("private host process failure"), wantOutcome: vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_FAILURE},
+		{name: "explicit end with host kill error", explicitEnd: true, waitError: errors.New("private host process failure"), wantOutcome: vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_SUCCESS},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			wait := make(chan struct{})
+			var cancelOnce sync.Once
+			cancel := func() {}
+			if testCase.explicitEnd {
+				cancel = func() { cancelOnce.Do(func() { close(wait) }) }
+			}
+			terminal := &recordingPTY{writes: make(chan []byte, 1)}
+			launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+				terminal:    terminal,
+				processTree: &countingProcessTree{},
+				cancel:      cancel,
+				waiter:      blockingWaiter{done: wait, err: testCase.waitError},
+			}}
+			app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+			app.launcher = launcher
+			testServer := httptest.NewServer(app.Handler())
+			defer testServer.Close()
+
+			connection := dialProtocolV1(t, testServer.URL)
+			defer connection.Close()
+			capabilities := []string{
+				protocolv1.CapabilityTerminalBinaryOutput,
+				protocolv1.CapabilityTerminalSequencedIO,
+				protocolv1.CapabilitySessionProcessExit,
+			}
+			if testCase.explicitEnd {
+				capabilities = append(capabilities, protocolv1.CapabilityTerminalResizeEnd)
+			}
+			if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+				t.Fatalf("send client Hello: %v", err)
+			}
+			_ = readProtocolEnvelope(t, connection) // Agent Hello.
+			initialOutput := readProtocolEnvelope(t, connection)
+			if initialOutput.Sequence != 2 || initialOutput.GetTerminalOutput() == nil {
+				t.Fatalf("initial output sequence/payload = %d/%T", initialOutput.Sequence, initialOutput.Payload)
+			}
+
+			wantSequence := uint64(3)
+			wantAcknowledgement := uint64(1)
+			if testCase.explicitEnd {
+				if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientEnd(t, nil, 0, 2, 2)); err != nil {
+					t.Fatalf("send EndSession: %v", err)
+				}
+				endingOutput := readProtocolEnvelope(t, connection)
+				if endingOutput.Sequence != 3 || endingOutput.Acknowledge != 2 || !strings.Contains(string(endingOutput.GetTerminalOutput().GetData()), "ending session") {
+					t.Fatalf("ending output sequence/ack/data = %d/%d/%q", endingOutput.Sequence, endingOutput.Acknowledge, endingOutput.GetTerminalOutput().GetData())
+				}
+				wantSequence = 4
+				wantAcknowledgement = 2
+			} else {
+				close(wait)
+			}
+			processExit := readProtocolEnvelope(t, connection)
+			if processExit.Sequence != wantSequence || processExit.Acknowledge != wantAcknowledgement || processExit.GetProcessExit().GetOutcome() != testCase.wantOutcome {
+				t.Fatalf("ProcessExit sequence/ack/outcome = %d/%d/%v", processExit.Sequence, processExit.Acknowledge, processExit.GetProcessExit().GetOutcome())
+			}
+			if encoded, err := proto.Marshal(processExit); err != nil || bytes.Contains(encoded, []byte("private host process failure")) {
+				t.Fatalf("ProcessExit exposed host error: marshal err = %v, bytes = %q", err, encoded)
+			}
+		})
 	}
 }
 

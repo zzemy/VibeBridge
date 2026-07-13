@@ -13,6 +13,7 @@ import {
   acceptAgentHello,
   createClientHello,
   protocolV1MaxEnvelopeBytes,
+  sessionProcessExitCapability,
   sessionResumeCapability,
   terminalBinaryOutputCapability,
   terminalResizeEndCapability,
@@ -57,6 +58,7 @@ describe("Protocol V1 Hello negotiation", () => {
     if (clientHello.payload.case !== "hello") throw new Error("expected client Hello");
     expect(clientHello.payload.value.capabilities).toContain(terminalSequencedIoCapability);
     expect(clientHello.payload.value.capabilities).toContain(terminalResizeEndCapability);
+    expect(clientHello.payload.value.capabilities).toContain(sessionProcessExitCapability);
     expect(clientHello.payload.value.capabilities).toContain(sessionResumeCapability);
   });
 
@@ -65,6 +67,7 @@ describe("Protocol V1 Hello negotiation", () => {
     ["connection ID mismatch", agentHello({ connectionId: Uint8Array.from({ length: 16 }, () => 255) })],
     ["incompatible version", agentHello({ minimumMinor: 1 })],
     ["resize/end without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, terminalResizeEndCapability] })],
+    ["process exit without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, sessionProcessExitCapability] })],
   ])("rejects %s", (_name, encoded) => {
     expect(() => acceptAgentHello(encoded, connectionId)).toThrow();
   });
