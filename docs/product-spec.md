@@ -14,7 +14,7 @@ VibeBridge provides:
 - One active browser controller at a time.
 - Terminal output, direct keyboard input, prompt composition, shortcuts, resize, reconnect, and explicit session termination.
 - A per-run pairing token delivered through the printed URL and QR code.
-- Versioned local configuration and structured launch profiles with explicit working-directory and environment inheritance policy.
+- Versioned local configuration, canonical workspace registry, and structured launch profiles with explicit workspace, working-directory, and environment inheritance policy.
 - Local diagnostics, privacy-safe structured lifecycle logs, and session status without exposing terminal contents.
 
 VibeBridge does not provide:

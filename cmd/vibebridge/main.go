@@ -203,6 +203,7 @@ type startupOptions struct {
 	idleTimeout           time.Duration
 	disableLegacyProtocol bool
 	profileID             string
+	workspaceID           string
 }
 
 func resolveStartupOptions(options startupOptions, configPath string, requestedProfile string, explicitFlags map[string]bool, lookupEnv func(string) (string, bool)) (startupOptions, error) {
@@ -261,6 +262,7 @@ func resolveStartupOptions(options startupOptions, configPath string, requestedP
 		return startupOptions{}, fmt.Errorf("launch profile %q was not found", selectedID)
 	}
 	options.profileID = profile.ID
+	options.workspaceID = profile.WorkspaceID
 	options.command = append([]string{profile.Executable}, profile.Args...)
 	options.workingDirectory = profile.WorkingDirectory
 	options.environment = resolveEnvironment(profile.EnvironmentAllowlist, lookupEnv)

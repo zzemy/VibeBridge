@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/zzemy/VibeBridge/internal/workspace"
 )
 
 const (
@@ -23,14 +25,15 @@ var (
 )
 
 type File struct {
-	Version               int             `json:"version"`
-	ListenAddress         string          `json:"listen_address,omitempty"`
-	WebDirectory          string          `json:"web_directory,omitempty"`
-	ReconnectTimeout      string          `json:"reconnect_timeout,omitempty"`
-	IdleTimeout           string          `json:"idle_timeout,omitempty"`
-	DisableLegacyProtocol bool            `json:"disable_legacy_protocol,omitempty"`
-	DefaultProfile        string          `json:"default_profile"`
-	Profiles              []LaunchProfile `json:"profiles"`
+	Version               int                    `json:"version"`
+	ListenAddress         string                 `json:"listen_address,omitempty"`
+	WebDirectory          string                 `json:"web_directory,omitempty"`
+	ReconnectTimeout      string                 `json:"reconnect_timeout,omitempty"`
+	IdleTimeout           string                 `json:"idle_timeout,omitempty"`
+	DisableLegacyProtocol bool                   `json:"disable_legacy_protocol,omitempty"`
+	Workspaces            []workspace.Definition `json:"workspaces,omitempty"`
+	DefaultProfile        string                 `json:"default_profile"`
+	Profiles              []LaunchProfile        `json:"profiles"`
 }
 
 type LaunchProfile struct {
@@ -38,6 +41,7 @@ type LaunchProfile struct {
 	Label                string   `json:"label"`
 	Executable           string   `json:"executable"`
 	Args                 []string `json:"args,omitempty"`
+	WorkspaceID          string   `json:"workspace_id,omitempty"`
 	WorkingDirectory     string   `json:"working_directory,omitempty"`
 	EnvironmentAllowlist []string `json:"environment_allowlist,omitempty"`
 }
@@ -83,10 +87,11 @@ func ensureJSONEnd(decoder *json.Decoder) error {
 }
 
 func (c File) Validate() error {
-	return c.validate("")
+	copy := c
+	return copy.validate("")
 }
 
-func (c File) validate(baseDirectory string) error {
+func (c *File) validate(baseDirectory string) error {
 	if c.Version != CurrentVersion {
 		return fmt.Errorf("unsupported version %d; supported version is %d", c.Version, CurrentVersion)
 	}
@@ -103,11 +108,17 @@ func (c File) validate(baseDirectory string) error {
 		return err
 	}
 
+	workspaceRegistry, err := workspace.NewRegistry(c.Workspaces, baseDirectory)
+	if err != nil {
+		return err
+	}
+	c.Workspaces = workspaceRegistry.Definitions()
+
 	seen := make(map[string]struct{}, len(c.Profiles))
 	defaultFound := false
 	for index := range c.Profiles {
 		profile := &c.Profiles[index]
-		if err := profile.validate(baseDirectory); err != nil {
+		if err := profile.validate(baseDirectory, workspaceRegistry); err != nil {
 			return fmt.Errorf("profiles[%d]: %w", index, err)
 		}
 		if _, exists := seen[profile.ID]; exists {
@@ -133,7 +144,16 @@ func (c File) Profile(id string) (LaunchProfile, bool) {
 	return LaunchProfile{}, false
 }
 
-func (p *LaunchProfile) validate(baseDirectory string) error {
+func (c File) Workspace(id string) (workspace.Definition, bool) {
+	for _, definition := range c.Workspaces {
+		if definition.ID == id {
+			return definition, true
+		}
+	}
+	return workspace.Definition{}, false
+}
+
+func (p *LaunchProfile) validate(baseDirectory string, workspaceRegistry workspace.Registry) error {
 	if !profileIDPattern.MatchString(p.ID) {
 		return fmt.Errorf("id %q must match %s", p.ID, profileIDPattern)
 	}
@@ -150,7 +170,13 @@ func (p *LaunchProfile) validate(baseDirectory string) error {
 			return fmt.Errorf("args[%d] contains a NUL byte", index)
 		}
 	}
-	if p.WorkingDirectory != "" {
+	if p.WorkspaceID != "" {
+		workingDirectory, err := workspaceRegistry.ResolveDirectory(p.WorkspaceID, p.WorkingDirectory)
+		if err != nil {
+			return fmt.Errorf("workspace_id %q: %w", p.WorkspaceID, err)
+		}
+		p.WorkingDirectory = workingDirectory
+	} else if p.WorkingDirectory != "" {
 		if baseDirectory != "" && !filepath.IsAbs(p.WorkingDirectory) {
 			p.WorkingDirectory = filepath.Join(baseDirectory, p.WorkingDirectory)
 		}

@@ -89,3 +89,106 @@ func writeConfig(t *testing.T, content string) string {
 	}
 	return path
 }
+
+func TestLoadWorkspaceProfileUsesCanonicalWorkspaceBoundary(t *testing.T) {
+	configDirectory := t.TempDir()
+	workspaceRoot := filepath.Join(configDirectory, "工作区")
+	workingDirectory := filepath.Join(workspaceRoot, "src")
+	if err := os.MkdirAll(workingDirectory, 0o700); err != nil {
+		t.Fatalf("create workspace directories: %v", err)
+	}
+	path := filepath.Join(configDirectory, "config.json")
+	content := `{
+		"version": 1,
+		"workspaces": [{"id":"repo","label":"  Main Repo  ","root":"工作区"}],
+		"default_profile": "codex",
+		"profiles": [{
+			"id": "codex",
+			"label": "Codex",
+			"executable": "codex",
+			"workspace_id": "repo",
+			"working_directory": "src"
+		}]
+	}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	config, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	workspace, ok := config.Workspace("repo")
+	if !ok {
+		t.Fatal("workspace was not found")
+	}
+	wantRoot, err := filepath.EvalSymlinks(workspaceRoot)
+	if err != nil {
+		t.Fatalf("canonicalize expected workspace root: %v", err)
+	}
+	if workspace.Root != filepath.Clean(wantRoot) || workspace.Label != "Main Repo" {
+		t.Fatalf("workspace = %#v, want canonical root %q and trimmed label", workspace, filepath.Clean(wantRoot))
+	}
+	profile, ok := config.Profile("codex")
+	if !ok {
+		t.Fatal("profile was not found")
+	}
+	wantWorkingDirectory, err := filepath.EvalSymlinks(workingDirectory)
+	if err != nil {
+		t.Fatalf("canonicalize expected working directory: %v", err)
+	}
+	if profile.WorkspaceID != "repo" || profile.WorkingDirectory != filepath.Clean(wantWorkingDirectory) {
+		t.Fatalf("profile workspace/working directory = %q/%q, want repo/%q", profile.WorkspaceID, profile.WorkingDirectory, filepath.Clean(wantWorkingDirectory))
+	}
+}
+
+func TestLoadWorkspaceProfileDefaultsWorkingDirectoryToRoot(t *testing.T) {
+	configDirectory := t.TempDir()
+	workspaceRoot := filepath.Join(configDirectory, "repo")
+	if err := os.Mkdir(workspaceRoot, 0o700); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	path := filepath.Join(configDirectory, "config.json")
+	content := `{"version":1,"workspaces":[{"id":"repo","label":"Repo","root":"repo"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo"}]}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	config, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	workspace, _ := config.Workspace("repo")
+	profile, _ := config.Profile("shell")
+	if profile.WorkingDirectory != workspace.Root {
+		t.Fatalf("profile working directory = %q, want workspace root %q", profile.WorkingDirectory, workspace.Root)
+	}
+}
+
+func TestLoadRejectsInvalidWorkspaceBindings(t *testing.T) {
+	configDirectory := t.TempDir()
+	workspaceRoot := filepath.Join(configDirectory, "repo")
+	if err := os.Mkdir(workspaceRoot, 0o700); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	cases := map[string]string{
+		"duplicate workspace id":      `{"version":1,"workspaces":[{"id":"repo","label":"Repo","root":"repo"},{"id":"repo","label":"Other","root":"."}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
+		"duplicate canonical root":    `{"version":1,"workspaces":[{"id":"repo","label":"Repo","root":"repo"},{"id":"other","label":"Other","root":"repo/."}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
+		"unknown workspace":           `{"version":1,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"missing"}]}`,
+		"working directory traversal": `{"version":1,"workspaces":[{"id":"repo","label":"Repo","root":"repo"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo","working_directory":".."}]}`,
+		"missing workspace root":      `{"version":1,"workspaces":[{"id":"repo","label":"Repo","root":"missing"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo"}]}`,
+	}
+
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(configDirectory, strings.ReplaceAll(name, " ", "-")+".json")
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatal("invalid workspace configuration loaded successfully")
+			}
+		})
+	}
+}
