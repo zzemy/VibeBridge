@@ -119,6 +119,38 @@ message SessionStatus {
 // outbound payload on which it can be piggybacked.
 message Acknowledgement {}
 
+// AttachmentBegin requests a new client-to-Agent transfer. transfer_id is an
+// opaque transport identifier and must not be used to construct a local path.
+// The name, content type, and extension are untrusted display/policy metadata.
+message AttachmentBegin {
+  bytes transfer_id = 1;
+  string display_name = 2;
+  string declared_content_type = 3;
+  string declared_extension = 4;
+  uint64 total_size_bytes = 5;
+  bytes total_sha256 = 6;
+}
+
+// AttachmentChunk carries bytes at one absolute offset. chunk_sha256 covers
+// data only; the Agent independently verifies total_sha256 before availability.
+message AttachmentChunk {
+  bytes transfer_id = 1;
+  uint64 offset_bytes = 2;
+  bytes data = 3;
+  bytes chunk_sha256 = 4;
+}
+
+// AttachmentComplete asks the Agent to verify and finalize one transfer. The
+// resulting file must remain unavailable until size and total hash both match.
+message AttachmentComplete {
+  bytes transfer_id = 1;
+}
+
+// AttachmentCancel idempotently abandons one transfer and its partial data.
+message AttachmentCancel {
+  bytes transfer_id = 1;
+}
+
 // Envelope carries one typed V1 application message. Sequence and acknowledge
 // are direction-local counters; zero acknowledge means no message is confirmed.
 message Envelope {
@@ -144,5 +176,9 @@ message Envelope {
     Error error = 32;
     Acknowledgement acknowledgement = 33;
     ProcessExit process_exit = 34;
+    AttachmentBegin attachment_begin = 40;
+    AttachmentChunk attachment_chunk = 41;
+    AttachmentComplete attachment_complete = 42;
+    AttachmentCancel attachment_cancel = 43;
   }
 }

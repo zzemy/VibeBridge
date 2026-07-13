@@ -19,6 +19,7 @@ const (
 	CapabilitySessionResume       = "session.resume_v1"
 	CapabilityControlError        = "control.error_v1"
 	CapabilityControlHealth       = "control.health_v1"
+	CapabilityAttachmentTransfer  = "attachment.transfer_v1"
 	MaxTerminalInputBytes         = 32 * 1024
 	MaxTerminalDimension          = 65_535
 )

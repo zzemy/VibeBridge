@@ -122,3 +122,67 @@ func goldenTerminalOutputEnvelope() *vibebridgev1.Envelope {
 		}},
 	}
 }
+
+func TestAttachmentBeginEnvelopeMatchesCrossLanguageGoldenVector(t *testing.T) {
+	goldenPath := filepath.Join("..", "..", "proto", "vibebridge", "v1", "testdata", "attachment_begin_envelope.bin")
+	want := goldenAttachmentBeginEnvelope()
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(want)
+	if err != nil {
+		t.Fatalf("encode attachment begin envelope: %v", err)
+	}
+	if os.Getenv("VIBEBRIDGE_UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(goldenPath, encoded, 0o644); err != nil {
+			t.Fatalf("update attachment begin envelope golden vector: %v", err)
+		}
+	}
+
+	golden, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read attachment begin envelope golden vector: %v", err)
+	}
+	if !bytes.Equal(encoded, golden) {
+		t.Fatalf("encoded attachment begin envelope does not match %s", goldenPath)
+	}
+
+	decoded := new(vibebridgev1.Envelope)
+	if err := proto.Unmarshal(golden, decoded); err != nil {
+		t.Fatalf("decode attachment begin envelope golden vector: %v", err)
+	}
+	if !proto.Equal(decoded, want) {
+		t.Fatalf("decoded attachment begin envelope = %v, want %v", decoded, want)
+	}
+}
+
+func goldenAttachmentBeginEnvelope() *vibebridgev1.Envelope {
+	return &vibebridgev1.Envelope{
+		ProtocolMajor: 1,
+		ConnectionId: []byte{
+			0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+			0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+		},
+		SessionId: []byte{
+			0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+			0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+		},
+		SessionGeneration: 7,
+		Sequence:          9,
+		Acknowledge:       4,
+		SentAt: &timestamppb.Timestamp{
+			Seconds: 1783843202,
+			Nanos:   789000000,
+		},
+		Payload: &vibebridgev1.Envelope_AttachmentBegin{AttachmentBegin: &vibebridgev1.AttachmentBegin{
+			TransferId:          []byte{0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf},
+			DisplayName:         "diagram.png",
+			DeclaredContentType: "image/png",
+			DeclaredExtension:   "png",
+			TotalSizeBytes:      12_345,
+			TotalSha256: []byte{
+				0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+				0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+				0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+				0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+			},
+		}},
+	}
+}

@@ -29,6 +29,26 @@ func TestAcceptClientHelloNegotiatesCurrentVersion(t *testing.T) {
 	}
 }
 
+func TestAcceptClientHelloNegotiatesAttachmentTransferWithSequencedIO(t *testing.T) {
+	envelope := clientHello(
+		&vibebridgev1.ProtocolVersion{Major: 1, Minor: 0},
+		&vibebridgev1.ProtocolVersion{Major: 1, Minor: 0},
+	)
+	envelope.GetHello().Capabilities = append(
+		envelope.GetHello().Capabilities,
+		CapabilityTerminalSequencedIO,
+		CapabilityAttachmentTransfer,
+	)
+
+	negotiated, err := AcceptClientHello(marshalHello(t, envelope))
+	if err != nil {
+		t.Fatalf("accept client Hello: %v", err)
+	}
+	if !negotiated.HasCapability(CapabilityAttachmentTransfer) {
+		t.Fatal("attachment transfer capability was not retained")
+	}
+}
+
 func TestAcceptClientHelloRejectsIncompatibleVersion(t *testing.T) {
 	encoded := marshalHello(t, clientHello(
 		&vibebridgev1.ProtocolVersion{Major: 2, Minor: 0},
@@ -88,6 +108,12 @@ func TestAcceptClientHelloRejectsWrongRoleAndMalformedRange(t *testing.T) {
 				envelope.GetHello().Capabilities = append(envelope.GetHello().Capabilities, CapabilityControlHealth)
 			},
 		},
+		{
+			name: "attachment transfer without sequenced I/O",
+			mutate: func(envelope *vibebridgev1.Envelope) {
+				envelope.GetHello().Capabilities = append(envelope.GetHello().Capabilities, CapabilityAttachmentTransfer)
+			},
+		},
 	}
 
 	for _, testCase := range tests {
@@ -120,6 +146,11 @@ func TestNewAgentHelloUsesNegotiatedVersion(t *testing.T) {
 		t.Fatalf("sequence = %d, want 1", envelope.Sequence)
 	}
 	wantCapabilities := []string{CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilitySessionResume, CapabilityControlError, CapabilityControlHealth}
+	for _, capability := range envelope.GetHello().GetCapabilities() {
+		if capability == CapabilityAttachmentTransfer {
+			t.Fatal("Agent advertised attachment transfer before implementing the transfer state machine")
+		}
+	}
 	for _, want := range wantCapabilities {
 		found := false
 		for _, capability := range envelope.GetHello().GetCapabilities() {
