@@ -4,6 +4,8 @@ import { describe, expect, test } from "vitest";
 
 import {
   AcknowledgementSchema,
+  ErrorCode,
+  ErrorSchema,
   EnvelopeSchema,
   ProcessExitOutcome,
   ProcessExitSchema,
@@ -102,6 +104,63 @@ describe("Protocol V1 sequenced terminal stream", () => {
       case: "processExit",
       value: create(ProcessExitSchema, { outcome: ProcessExitOutcome.UNSPECIFIED }),
     }))).toThrow("ProcessExit");
+  });
+
+  test("accepts only negotiated stable errors", () => {
+    const error = agentEnvelope(2n, 1n, {
+      case: "error",
+      value: create(ErrorSchema, { code: ErrorCode.SESSION_START_FAILED }),
+    });
+    const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { controlError: true });
+    expect(stream.acceptAgentMessage(error)).toEqual({ type: "error", code: ErrorCode.SESSION_START_FAILED });
+    expect(stream.usesControlError()).toBe(true);
+
+    const unnegotiated = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes);
+    expect(() => unnegotiated.acceptAgentMessage(error)).toThrow("Error");
+    for (const code of [ErrorCode.UNSPECIFIED, 99 as ErrorCode]) {
+      const invalid = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { controlError: true });
+      expect(() => invalid.acceptAgentMessage(agentEnvelope(2n, 1n, {
+        case: "error",
+        value: create(ErrorSchema, { code }),
+      }))).toThrow("Error");
+    }
+  });
+
+  test("accepts empty-metadata Error before resume binding without binding the stream", () => {
+    const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, {
+      controlError: true,
+      sessionResume: true,
+    });
+    stream.createAttachSession(undefined, sentAt);
+    const message = stream.acceptAgentMessage(agentEnvelope(2n, 1n, {
+      case: "error",
+      value: create(ErrorSchema, { code: ErrorCode.SESSION_ALREADY_ACTIVE }),
+    }));
+    expect(message).toEqual({ type: "error", code: ErrorCode.SESSION_ALREADY_ACTIVE });
+    expect(stream.getResumeCursor()).toBeNull();
+
+    for (const code of [ErrorCode.TERMINAL_INPUT_FAILED, ErrorCode.TERMINAL_RESIZE_FAILED, ErrorCode.UNSUPPORTED_MESSAGE]) {
+      const invalidCode = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, {
+        controlError: true,
+        sessionResume: true,
+      });
+      invalidCode.createAttachSession(undefined, sentAt);
+      expect(() => invalidCode.acceptAgentMessage(agentEnvelope(2n, 1n, {
+        case: "error",
+        value: create(ErrorSchema, { code }),
+      }))).toThrow("before SessionStatus");
+    }
+
+    const invalidMetadata = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, {
+      controlError: true,
+      sessionResume: true,
+    });
+    invalidMetadata.createAttachSession(undefined, sentAt);
+    const sessionId = Uint8Array.from({ length: 16 }, (_, index) => 255 - index);
+    expect(() => invalidMetadata.acceptAgentMessage(agentEnvelope(2n, 1n, {
+      case: "error",
+      value: create(ErrorSchema, { code: ErrorCode.SESSION_START_FAILED }),
+    }, sessionId, 1n))).toThrow("metadata");
   });
 
   test("attaches and carries a resumable session identity", () => {

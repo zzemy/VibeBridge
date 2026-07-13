@@ -57,6 +57,23 @@ message TerminalResize {
 // EndSession requests idempotent termination of the active PTY session.
 message EndSession {}
 
+// ErrorCode identifies a stable, user-actionable Agent error without exposing
+// host or implementation details.
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_SESSION_START_FAILED = 1;
+  ERROR_CODE_SESSION_ALREADY_ACTIVE = 2;
+  ERROR_CODE_TERMINAL_INPUT_FAILED = 3;
+  ERROR_CODE_TERMINAL_RESIZE_FAILED = 4;
+  ERROR_CODE_UNSUPPORTED_MESSAGE = 5;
+}
+
+// Error reports an application failure using an allowlisted code. Protocol
+// framing and negotiation failures use the WebSocket protocol close instead.
+message Error {
+  ErrorCode code = 1;
+}
+
 // ProcessExitOutcome reports the final PTY lifecycle result without exposing
 // host process errors.
 enum ProcessExitOutcome {
@@ -115,6 +132,7 @@ message Envelope {
     TerminalResize terminal_resize = 25;
     SessionStatus session_status = 26;
     EndSession end_session = 27;
+    Error error = 32;
     Acknowledgement acknowledgement = 33;
     ProcessExit process_exit = 34;
   }

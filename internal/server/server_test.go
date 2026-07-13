@@ -276,6 +276,103 @@ func (p *countingPTY) Read([]byte) (int, error)       { return 0, io.EOF }
 func (p *countingPTY) Resize(int, int) error          { return nil }
 func (p *countingPTY) Write(data []byte) (int, error) { return len(data), nil }
 
+func TestStableErrorMessage(t *testing.T) {
+	tests := []struct {
+		code vibebridgev1.ErrorCode
+		want string
+	}{
+		{vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED, "could not start terminal session"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_SESSION_ALREADY_ACTIVE, "session already active"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED, "could not write terminal input"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED, "could not resize terminal"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE, "unsupported message type"},
+	}
+	for _, testCase := range tests {
+		got, err := stableErrorMessage(testCase.code)
+		if err != nil || got != testCase.want {
+			t.Errorf("stableErrorMessage(%v) = %q, %v; want %q, nil", testCase.code, got, err, testCase.want)
+		}
+	}
+	if _, err := stableErrorMessage(vibebridgev1.ErrorCode_ERROR_CODE_UNSPECIFIED); err == nil {
+		t.Fatal("stableErrorMessage accepted unspecified code")
+	}
+}
+
+func TestProtocolV1ReportsStableSessionStartError(t *testing.T) {
+	privateError := "private host launch failure"
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = &fakeTerminalLauncher{err: errors.New(privateError)}
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilitySessionResume,
+		protocolv1.CapabilityControlError,
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection)
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientAttach(t, nil, 0, 0)); err != nil {
+		t.Fatalf("send AttachSession: %v", err)
+	}
+
+	messageType, encoded, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read stable Error: %v", err)
+	}
+	if messageType != websocket.BinaryMessage {
+		t.Fatalf("Error message type = %d, want binary", messageType)
+	}
+	envelope := new(vibebridgev1.Envelope)
+	if err := proto.Unmarshal(encoded, envelope); err != nil {
+		t.Fatalf("decode stable Error: %v", err)
+	}
+	if envelope.Sequence != 2 || envelope.Acknowledge != 1 || envelope.GetError().GetCode() != vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED {
+		t.Fatalf("Error sequence/ack/code = %d/%d/%v", envelope.Sequence, envelope.Acknowledge, envelope.GetError().GetCode())
+	}
+	if len(envelope.SessionId) != 0 || envelope.SessionGeneration != 0 {
+		t.Fatalf("pre-bind Error session metadata = %x/%d, want empty/0", envelope.SessionId, envelope.SessionGeneration)
+	}
+	if bytes.Contains(encoded, []byte(privateError)) {
+		t.Fatalf("stable Error exposed host failure: %q", encoded)
+	}
+}
+
+func TestProtocolV1SessionStartErrorUsesSafeJSONFallback(t *testing.T) {
+	privateError := "private host launch failure"
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = &fakeTerminalLauncher{err: errors.New(privateError)}
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection)
+
+	var message ServerMessage
+	if err := connection.ReadJSON(&message); err != nil {
+		t.Fatalf("read JSON Error fallback: %v", err)
+	}
+	if message.Type != "error" || message.Data != "could not start terminal session" {
+		t.Fatalf("JSON Error fallback = %#v", message)
+	}
+	if strings.Contains(message.Data, privateError) {
+		t.Fatalf("JSON Error fallback exposed host failure: %q", message.Data)
+	}
+}
+
 func TestProtocolV1NegotiatesBeforeStartingSession(t *testing.T) {
 	wait := make(chan struct{})
 	terminal := &recordingPTY{writes: make(chan []byte, 1), resizes: make(chan terminalDimensions, 1)}

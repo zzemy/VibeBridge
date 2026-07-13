@@ -179,7 +179,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	session, created, err := s.getOrCreateSession()
 	if err != nil {
-		_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
+		_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED)
 		writeClose(conn)
 		return
 	}
@@ -191,7 +191,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		attached = session.attach(writer)
 	}
 	if !attached {
-		_ = writer.writeJSON(ServerMessage{Type: "error", Data: "session already active"})
+		_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_SESSION_ALREADY_ACTIVE)
 		writeClose(conn)
 		return
 	}
@@ -390,7 +390,7 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 				switch streamMessage.Kind {
 				case protocolv1.ClientStreamMessageTerminalInput:
 					if err := session.writeInputBytes(streamMessage.Data); err != nil {
-						_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
+						_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED)
 						return
 					}
 					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, true); err != nil {
@@ -398,7 +398,7 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 					}
 				case protocolv1.ClientStreamMessageTerminalResize:
 					if err := session.resize(int(streamMessage.Columns), int(streamMessage.Rows)); err != nil {
-						_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
+						_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED)
 						return
 					}
 					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, true); err != nil {
@@ -436,7 +436,7 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 		switch msg.Type {
 		case "input":
 			if err := session.writeInput(msg.Data); err != nil {
-				_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
+				_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED)
 				return
 			}
 		case "exit":
@@ -446,7 +446,7 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 		case "resize":
 			if msg.Cols > 0 && msg.Cols <= protocolv1.MaxTerminalDimension && msg.Rows > 0 && msg.Rows <= protocolv1.MaxTerminalDimension {
 				if err := session.resize(msg.Cols, msg.Rows); err != nil {
-					_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
+					_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED)
 					return
 				}
 			}
@@ -455,7 +455,7 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 				return
 			}
 		default:
-			if err := writer.writeJSON(ServerMessage{Type: "error", Data: "unsupported message type"}); err != nil {
+			if err := writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE); err != nil {
 				return
 			}
 		}
@@ -834,6 +834,40 @@ func (w *websocketWriter) writeJSON(value ServerMessage) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.conn.WriteJSON(value)
+}
+
+func (w *websocketWriter) writeError(code vibebridgev1.ErrorCode) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.protocolV1 == nil || !w.protocolV1.UsesControlError() {
+		message, err := stableErrorMessage(code)
+		if err != nil {
+			return err
+		}
+		return w.conn.WriteJSON(ServerMessage{Type: "error", Data: message})
+	}
+	encoded, err := w.protocolV1.EncodeError(code, w.currentTime())
+	if err != nil {
+		return err
+	}
+	return w.conn.WriteMessage(websocket.BinaryMessage, encoded)
+}
+
+func stableErrorMessage(code vibebridgev1.ErrorCode) (string, error) {
+	switch code {
+	case vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED:
+		return "could not start terminal session", nil
+	case vibebridgev1.ErrorCode_ERROR_CODE_SESSION_ALREADY_ACTIVE:
+		return "session already active", nil
+	case vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED:
+		return "could not write terminal input", nil
+	case vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED:
+		return "could not resize terminal", nil
+	case vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE:
+		return "unsupported message type", nil
+	default:
+		return "", errors.New("stable error code is invalid")
+	}
 }
 
 func (w *websocketWriter) writeProcessExit(outcome vibebridgev1.ProcessExitOutcome, legacyMessage string) error {

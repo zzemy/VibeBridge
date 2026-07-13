@@ -17,6 +17,7 @@ const (
 	CapabilityTerminalResizeEnd   = "terminal.resize_end_v1"
 	CapabilitySessionProcessExit  = "session.process_exit_v1"
 	CapabilitySessionResume       = "session.resume_v1"
+	CapabilityControlError        = "control.error_v1"
 	MaxTerminalInputBytes         = 32 * 1024
 	MaxTerminalDimension          = 65_535
 )
@@ -56,6 +57,7 @@ type AgentStream struct {
 	sessionResume       bool
 	terminalResizeEnd   bool
 	sessionProcessExit  bool
+	controlError        bool
 	sessionBound        bool
 	sessionID           []byte
 	sessionGeneration   uint64
@@ -77,6 +79,7 @@ func NewAgentStream(negotiated NegotiatedHello) (*AgentStream, error) {
 		sessionResume:       negotiated.HasCapability(CapabilitySessionResume),
 		terminalResizeEnd:   negotiated.HasCapability(CapabilityTerminalResizeEnd),
 		sessionProcessExit:  negotiated.HasCapability(CapabilitySessionProcessExit),
+		controlError:        negotiated.HasCapability(CapabilityControlError),
 	}, nil
 }
 
@@ -269,6 +272,40 @@ func (s *AgentStream) EncodeProcessExit(outcome vibebridgev1.ProcessExitOutcome,
 	return s.encodeLocked(&vibebridgev1.Envelope{Payload: &vibebridgev1.Envelope_ProcessExit{ProcessExit: &vibebridgev1.ProcessExit{
 		Outcome: outcome,
 	}}}, sentAt)
+}
+
+// EncodeError encodes an allowlisted application failure. Unlike terminal
+// traffic, a resumable stream may report a session-start or active-session error
+// before it binds; that envelope carries empty session metadata.
+func (s *AgentStream) EncodeError(code vibebridgev1.ErrorCode, sentAt time.Time) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.controlError {
+		return nil, errors.New("control error was not negotiated")
+	}
+	switch code {
+	case vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED,
+		vibebridgev1.ErrorCode_ERROR_CODE_SESSION_ALREADY_ACTIVE,
+		vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED,
+		vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED,
+		vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE:
+	default:
+		return nil, errors.New("error code is invalid")
+	}
+	if s.sessionResume && !s.sessionBound && code != vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED && code != vibebridgev1.ErrorCode_ERROR_CODE_SESSION_ALREADY_ACTIVE {
+		return nil, errors.New("only session start or active-session errors are valid before session binding")
+	}
+	return s.encodeLocked(&vibebridgev1.Envelope{Payload: &vibebridgev1.Envelope_Error{Error: &vibebridgev1.Error{
+		Code: code,
+	}}}, sentAt)
+}
+
+// UsesControlError reports whether control.error_v1 was negotiated for this
+// physical connection.
+func (s *AgentStream) UsesControlError() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.controlError
 }
 
 // UsesSessionProcessExit reports whether session.process_exit_v1 was negotiated

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import {
   EnvelopeSchema,
+  ErrorCode,
+  ErrorSchema,
   HelloSchema,
   PeerRole,
   ProcessExitOutcome,
@@ -15,6 +17,7 @@ import {
   SessionStatusSchema,
 } from "./gen/vibebridge/v1/envelope_pb";
 import {
+  controlErrorCapability,
   protocolV1MaxEnvelopeBytes,
   protocolV1WebSocketSubprotocol,
   sessionProcessExitCapability,
@@ -244,6 +247,96 @@ test("waits for SessionStatus, resets stale history, and sends negotiated resize
 
   await waitFor(() => expect(screen.getByText("Closed")).toBeTruthy());
   expect(terminalState.chunks.at(-1)).toBe("process: exited\r\n");
+});
+
+test("handles a negotiated stable Error before SessionStatus", async () => {
+  window.history.replaceState({}, "", "/?token=test-token");
+  render(<App />);
+  await screen.findByTestId("terminal-view");
+  await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+  const socket = FakeWebSocket.instances[0];
+  if (!socket) throw new Error("expected WebSocket instance");
+
+  act(() => socket.open());
+  const clientHelloBytes = socket.sent[0];
+  if (!(clientHelloBytes instanceof ArrayBuffer)) throw new Error("expected binary client Hello");
+  const clientHello = fromBinary(EnvelopeSchema, new Uint8Array(clientHelloBytes));
+  const agentHello = createAgentHello(clientHello.connectionId, [
+    terminalBinaryOutputCapability,
+    terminalSequencedIoCapability,
+    sessionResumeCapability,
+    controlErrorCapability,
+  ]);
+  act(() => socket.message(agentHello.slice().buffer));
+  await waitFor(() => expect(socket.sent).toHaveLength(2));
+
+  const error = toBinary(EnvelopeSchema, create(EnvelopeSchema, {
+    protocolMajor: 1,
+    connectionId: clientHello.connectionId,
+    sequence: 2n,
+    acknowledge: 1n,
+    payload: {
+      case: "error",
+      value: create(ErrorSchema, { code: ErrorCode.SESSION_ALREADY_ACTIVE }),
+    },
+  }));
+  act(() => socket.message(error.slice().buffer));
+
+  await waitFor(() => expect(screen.getByText("Error")).toBeTruthy());
+  expect(terminalState.chunks.at(-1)).toBe("error: another browser is already controlling this session\r\n");
+
+  act(() => socket.close());
+  expect(screen.getByText("Error")).toBeTruthy();
+  expect(FakeWebSocket.instances).toHaveLength(1);
+});
+
+test("retains JSON error fallback when control.error_v1 is not negotiated", async () => {
+  window.history.replaceState({}, "", "/?token=test-token");
+  render(<App />);
+  await screen.findByTestId("terminal-view");
+  await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+  const socket = FakeWebSocket.instances[0];
+  if (!socket) throw new Error("expected WebSocket instance");
+
+  act(() => socket.open());
+  const clientHelloBytes = socket.sent[0];
+  if (!(clientHelloBytes instanceof ArrayBuffer)) throw new Error("expected binary client Hello");
+  const clientHello = fromBinary(EnvelopeSchema, new Uint8Array(clientHelloBytes));
+  const agentHello = createAgentHello(clientHello.connectionId, [terminalBinaryOutputCapability, terminalSequencedIoCapability]);
+  act(() => socket.message(agentHello.slice().buffer));
+  await waitFor(() => expect(screen.getByText("Connected")).toBeTruthy());
+
+  act(() => socket.message(JSON.stringify({ type: "error", data: "session already active" })));
+
+  await waitFor(() => expect(screen.getByText("Error")).toBeTruthy());
+  expect(terminalState.chunks.at(-1)).toBe("error: another browser is already controlling this session\r\n");
+});
+
+test("rejects JSON errors when control.error_v1 is negotiated", async () => {
+  window.history.replaceState({}, "", "/?token=test-token");
+  render(<App />);
+  await screen.findByTestId("terminal-view");
+  await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+  const socket = FakeWebSocket.instances[0];
+  if (!socket) throw new Error("expected WebSocket instance");
+
+  act(() => socket.open());
+  const clientHelloBytes = socket.sent[0];
+  if (!(clientHelloBytes instanceof ArrayBuffer)) throw new Error("expected binary client Hello");
+  const clientHello = fromBinary(EnvelopeSchema, new Uint8Array(clientHelloBytes));
+  const agentHello = createAgentHello(clientHello.connectionId, [
+    terminalBinaryOutputCapability,
+    terminalSequencedIoCapability,
+    controlErrorCapability,
+  ]);
+  act(() => socket.message(agentHello.slice().buffer));
+  await waitFor(() => expect(screen.getByText("Connected")).toBeTruthy());
+
+  act(() => socket.message(JSON.stringify({ type: "error", data: "session already active" })));
+
+  await waitFor(() => expect(screen.getByText("Error")).toBeTruthy());
+  expect(terminalState.chunks.at(-1)).toBe("protocol negotiation failed: Negotiated errors must use a Protocol V1 envelope\r\n");
+  expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
 });
 
 test("falls back to JSON resize/end controls when the capability is not negotiated", async () => {

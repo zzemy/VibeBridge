@@ -6,6 +6,7 @@ import {
   AttachSessionSchema,
   EndSessionSchema,
   EnvelopeSchema,
+  ErrorCode,
   HelloSchema,
   PeerRole,
   ProcessExitOutcome,
@@ -26,6 +27,7 @@ export const terminalSequencedIoCapability = "terminal.sequenced_io_v1";
 export const terminalResizeEndCapability = "terminal.resize_end_v1";
 export const sessionProcessExitCapability = "session.process_exit_v1";
 export const sessionResumeCapability = "session.resume_v1";
+export const controlErrorCapability = "control.error_v1";
 export const protocolV1MaxTerminalInputBytes = 32 * 1024;
 export const protocolV1MaxTerminalDimension = 65_535;
 
@@ -61,7 +63,7 @@ export function createClientHello(connectionId: Uint8Array, sentAt = new Date())
           minimum: version(),
           maximum: version(),
         }),
-        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, terminalResizeEndCapability, sessionProcessExitCapability, sessionResumeCapability],
+        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, terminalResizeEndCapability, sessionProcessExitCapability, sessionResumeCapability, controlErrorCapability],
         maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
       }),
     },
@@ -123,7 +125,7 @@ export function acceptAgentHello(encoded: Uint8Array, expectedConnectionId: Uint
     }
     capabilities.add(capability);
   }
-  for (const dependent of [terminalResizeEndCapability, sessionProcessExitCapability]) {
+  for (const dependent of [terminalResizeEndCapability, sessionProcessExitCapability, controlErrorCapability]) {
     if (capabilities.has(dependent) && !capabilities.has(terminalSequencedIoCapability)) {
       throw new Error(`${dependent} requires ${terminalSequencedIoCapability}`);
     }
@@ -148,12 +150,14 @@ export type AgentStreamMessage =
   | { type: "session-status"; disposition: ResumeDisposition; sessionId: Uint8Array; sessionGeneration: bigint }
   | { type: "terminal-output"; data: Uint8Array }
   | { type: "process-exit"; outcome: ProcessExitOutcome }
+  | { type: "error"; code: ErrorCode }
   | { type: "acknowledgement" };
 
 type ProtocolV1ClientStreamOptions = {
   sessionResume?: boolean;
   sessionProcessExit?: boolean;
   terminalResizeEnd?: boolean;
+  controlError?: boolean;
 };
 
 /** Owns connection-local sequence and acknowledgement state after Hello. */
@@ -167,6 +171,7 @@ export class ProtocolV1ClientStream {
   private readonly sessionResume: boolean;
   private readonly sessionProcessExit: boolean;
   private readonly terminalResizeEnd: boolean;
+  private readonly controlError: boolean;
   private sessionBound = false;
   private sessionId = new Uint8Array();
   private sessionGeneration = 0n;
@@ -181,6 +186,12 @@ export class ProtocolV1ClientStream {
     this.sessionResume = options.sessionResume === true;
     this.sessionProcessExit = options.sessionProcessExit === true;
     this.terminalResizeEnd = options.terminalResizeEnd === true;
+    this.controlError = options.controlError === true;
+  }
+
+  /** Reports whether control.error_v1 was negotiated for this physical connection. */
+  usesControlError(): boolean {
+    return this.controlError;
   }
 
   createAttachSession(cursor?: SessionResumeCursor, sentAt = new Date()): Uint8Array {
@@ -280,11 +291,14 @@ export class ProtocolV1ClientStream {
         if (!equalBytes(envelope.sessionId, this.sessionId) || envelope.sessionGeneration !== this.sessionGeneration) {
           throw new Error("Agent envelope session metadata does not match the bound session");
         }
-      } else {
-        if (envelope.payload.case !== "sessionStatus") {
-          throw new Error("First Agent stream message must contain SessionStatus");
-        }
+      } else if (envelope.payload.case === "sessionStatus") {
         assertSessionIdentity(envelope.sessionId, envelope.sessionGeneration);
+      } else if (envelope.payload.case === "error" && this.controlError) {
+        if (envelope.sessionId.byteLength !== 0 || envelope.sessionGeneration !== 0n) {
+          throw new Error("Pre-bind Error must use empty session metadata");
+        }
+      } else {
+        throw new Error("First Agent stream message must contain SessionStatus or a negotiated Error");
       }
     } else if (envelope.sessionId.byteLength !== 0 || envelope.sessionGeneration !== 0n) {
       throw new Error("Connection-local envelope contains session metadata");
@@ -320,6 +334,15 @@ export class ProtocolV1ClientStream {
           throw new Error("ProcessExit is not valid for this stream state");
         }
         message = { type: "process-exit", outcome: envelope.payload.value.outcome };
+        break;
+      case "error":
+        if (!this.controlError || !isKnownErrorCode(envelope.payload.value.code)) {
+          throw new Error("Error is not valid for this stream state");
+        }
+        if (this.sessionResume && !this.sessionBound && !isPreBindErrorCode(envelope.payload.value.code)) {
+          throw new Error("Only session start or active-session Error is valid before SessionStatus");
+        }
+        message = { type: "error", code: envelope.payload.value.code };
         break;
       case "acknowledgement":
         message = { type: "acknowledgement" };
@@ -384,6 +407,18 @@ function assertSessionIdentity(sessionId: Uint8Array, generation: bigint) {
   if (sessionId.byteLength !== connectionIdBytes || generation <= 0n) {
     throw new Error(`Session ID must be ${connectionIdBytes} bytes and generation must be positive`);
   }
+}
+
+function isPreBindErrorCode(code: ErrorCode) {
+  return code === ErrorCode.SESSION_START_FAILED || code === ErrorCode.SESSION_ALREADY_ACTIVE;
+}
+
+function isKnownErrorCode(code: ErrorCode) {
+  return code === ErrorCode.SESSION_START_FAILED
+    || code === ErrorCode.SESSION_ALREADY_ACTIVE
+    || code === ErrorCode.TERMINAL_INPUT_FAILED
+    || code === ErrorCode.TERMINAL_RESIZE_FAILED
+    || code === ErrorCode.UNSUPPORTED_MESSAGE;
 }
 
 function isKnownProcessExitOutcome(outcome: ProcessExitOutcome) {

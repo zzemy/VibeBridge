@@ -5,7 +5,7 @@ import { PromptComposer } from "./components/PromptComposer";
 import { ShortcutBar } from "./components/ShortcutBar";
 import { TerminalToolbar } from "./components/TerminalToolbar";
 import type { TerminalViewHandle } from "./components/TerminalView";
-import { ProcessExitOutcome, ResumeDisposition } from "./gen/vibebridge/v1/envelope_pb";
+import { ErrorCode, ProcessExitOutcome, ResumeDisposition } from "./gen/vibebridge/v1/envelope_pb";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +20,7 @@ import { Button } from "./components/ui/button";
 import { isServerMessage, isSessionStatus, type ServerMessage, type SessionStatus } from "./lib/protocol";
 import {
   acceptAgentHello,
+  controlErrorCapability,
   createClientHello,
   newProtocolV1ConnectionId,
   ProtocolV1ClientStream,
@@ -40,6 +41,23 @@ const TerminalView = lazy(() => import("./components/TerminalView").then((module
 const reconnectDelaySeconds = 3;
 const minTerminalFontSize = 11;
 const maxTerminalFontSize = 18;
+
+function stableErrorMessage(code: ErrorCode) {
+  switch (code) {
+    case ErrorCode.SESSION_START_FAILED:
+      return "could not start terminal session";
+    case ErrorCode.SESSION_ALREADY_ACTIVE:
+      return "session already active";
+    case ErrorCode.TERMINAL_INPUT_FAILED:
+      return "could not write terminal input";
+    case ErrorCode.TERMINAL_RESIZE_FAILED:
+      return "could not resize terminal";
+    case ErrorCode.UNSUPPORTED_MESSAGE:
+      return "unsupported message type";
+    default:
+      return "unknown";
+  }
+}
 
 function readTerminalFontSize() {
   try {
@@ -163,16 +181,20 @@ export function App() {
     setConnectionState("closed");
   }, []);
 
+  const handleApplicationError = useCallback((message: string, sessionAlreadyActive: boolean) => {
+    if (sessionAlreadyActive) {
+      stopReconnectRef.current = true;
+      setConnectionState("error");
+      setTerminalChunks((chunks) => [...chunks, "error: another browser is already controlling this session\r\n"]);
+      return;
+    }
+    setTerminalChunks((chunks) => [...chunks, `error: ${message}\r\n`]);
+  }, []);
+
   const handleServerMessage = useCallback((message: ServerMessage) => {
     switch (message.type) {
       case "error":
-        if (message.data === "session already active") {
-          stopReconnectRef.current = true;
-          setConnectionState("error");
-          setTerminalChunks((chunks) => [...chunks, "error: another browser is already controlling this session\r\n"]);
-          break;
-        }
-        setTerminalChunks((chunks) => [...chunks, `error: ${message.data ?? "unknown"}\r\n`]);
+        handleApplicationError(message.data ?? "unknown", message.data === "session already active");
         break;
       case "exit":
         handleProcessExit(message.data ?? "exited");
@@ -180,7 +202,7 @@ export function App() {
       case "pong":
         break;
     }
-  }, [handleProcessExit]);
+  }, [handleApplicationError, handleProcessExit]);
 
   useEffect(() => {
     if (!wsUrl) {
@@ -271,10 +293,12 @@ export function App() {
               const sessionResume = negotiated.capabilities.has(sessionResumeCapability);
               const sessionProcessExit = negotiated.capabilities.has(sessionProcessExitCapability);
               const terminalResizeEnd = negotiated.capabilities.has(terminalResizeEndCapability);
+              const controlError = negotiated.capabilities.has(controlErrorCapability);
               const stream = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes, {
                 sessionProcessExit,
                 sessionResume,
                 terminalResizeEnd,
+                controlError,
               });
               protocolStreamRef.current = stream;
               protocolNegotiated = true;
@@ -317,6 +341,11 @@ export function App() {
               socket.send(protocolStream.createAcknowledgement().slice().buffer);
             } else if (message.type === "process-exit") {
               handleProcessExit(message.outcome === ProcessExitOutcome.SUCCESS ? "exited" : "failed");
+            } else if (message.type === "error") {
+              handleApplicationError(
+                stableErrorMessage(message.code),
+                message.code === ErrorCode.SESSION_ALREADY_ACTIVE,
+              );
             }
           } catch (error) {
             failProtocol(error instanceof Error ? error.message : "invalid Protocol V1 stream message");
@@ -340,6 +369,10 @@ export function App() {
           failProtocol("Negotiated process exit must use a Protocol V1 envelope");
           return;
         }
+        if (parsed.type === "error" && protocolStreamRef.current?.usesControlError()) {
+          failProtocol("Negotiated errors must use a Protocol V1 envelope");
+          return;
+        }
         handleServerMessage(parsed);
       });
 
@@ -356,8 +389,12 @@ export function App() {
           }
           return;
         }
-        if (disposed || stopReconnectRef.current) {
+        if (disposed) {
           setConnectionState("closed");
+          return;
+        }
+        if (stopReconnectRef.current) {
+          setConnectionState((current) => current === "error" ? current : "closed");
           return;
         }
         if (!disconnectReportedRef.current) {
@@ -388,7 +425,7 @@ export function App() {
       socketRef.current = null;
       protocolStreamRef.current = null;
     };
-  }, [handleProcessExit, handleServerMessage, retryTrigger, showNotice, wsUrl]);
+  }, [handleApplicationError, handleProcessExit, handleServerMessage, retryTrigger, showNotice, wsUrl]);
 
   const sendInput = useCallback((data: string) => {
     const socket = socketRef.current;

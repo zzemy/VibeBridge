@@ -116,7 +116,8 @@ Current migration behavior:
 - The Agent returns `RESUMED` only for an exact identity, generation, detach-checkpoint, cursor, and complete-replay match. Byte or time eviction makes replay incomplete. A new PTY returns `FRESH`; every other attachment returns `RESYNC_REQUIRED`, causing the browser to reset stale terminal state, explain the truncation, and render any retained replay tail. Each new PTY gets a random protocol session ID and a monotonically increasing in-process generation.
 - If both peers also advertise `terminal.resize_end_v1`, client resize and explicit end controls use ordered `TerminalResize` and `EndSession` envelopes. Advertising it without `terminal.sequenced_io_v1` is an invalid capability combination. Columns and rows are integers from 1 through 65,535. Once negotiated, JSON resize/end controls are protocol errors; without the capability, their transitional JSON adapter remains available for older peers.
 - If both peers also advertise `session.process_exit_v1`, the Agent reports terminal completion as an ordered `ProcessExit` with a `SUCCESS` or `FAILURE` outcome. Advertising it without `terminal.sequenced_io_v1` is invalid. The outcome follows the final session lifecycle state, so an explicit end remains successful even if process termination returns an expected host error; raw host errors are never included. Without the capability, process exit retains its transitional JSON adapter.
-- Application ping/pong and error controls remain on the transitional JSON adapter until their V1 payloads are introduced.
+- If both peers also advertise `control.error_v1`, the Agent reports application failures as ordered `Error` envelopes containing only a known `ErrorCode`. Advertising it without `terminal.sequenced_io_v1` is invalid. A resumable connection may receive a fatal startup or occupied-session error before `SessionStatus`; that envelope has empty session metadata and does not bind the stream. Once negotiated, a JSON error is a protocol violation. Without the capability, the Agent uses a JSON adapter with the same fixed safe display text.
+- Negotiation, framing, sequence, acknowledgement, unsupported protobuf payload, and session-metadata failures close the WebSocket with protocol code `1002`; they are not represented as application `Error` payloads. Application ping/pong remains on the transitional JSON adapter.
 
 Support policy:
 
@@ -135,6 +136,7 @@ Examples:
 - `terminal.resize_end_v1`
 - `session.process_exit_v1`
 - `session.resume_v1`
+- `control.error_v1`
 - `attachment.chunked_v1`
 - `attachment.image_preview_v1`
 - `tool.codex_adapter_v1`
@@ -153,24 +155,17 @@ Required capabilities are declared before starting a flow. A client must not inf
 
 ## Error Model
 
-Errors contain:
+The current negotiated `control.error_v1` payload is intentionally enum-only. `Error` contains one allowlisted `ErrorCode`; it does not carry free-form text, retry metadata, correlation identifiers, or implementation details. The current codes are:
 
-- Stable machine code.
-- Retry classification: retryable, user action, permanent, incompatible.
-- Safe display message.
-- Optional retry delay.
-- Opaque correlation identifier.
+- `SESSION_START_FAILED`
+- `SESSION_ALREADY_ACTIVE`
+- `TERMINAL_INPUT_FAILED`
+- `TERMINAL_RESIZE_FAILED`
+- `UNSUPPORTED_MESSAGE`
 
-Errors never include raw third-party errors, stack traces, commands, terminal contents, or private paths over remote transports.
+`UNSPECIFIED` and unknown enum values are rejected. The legacy JSON adapter maps each valid code to fixed safe wire text, and the browser derives safe user-facing copy from the code. `SESSION_ALREADY_ACTIVE` retains the existing actionable browser copy that another browser controls the session. Raw third-party errors, stack traces, commands, terminal contents, private paths, SDK responses, and host process details never cross this boundary.
 
-Core error families:
-
-- Authentication and revocation.
-- Protocol and capability mismatch.
-- Session not found, occupied, ended, or expired.
-- PTY start, input, resize, and cleanup failure.
-- Attachment validation, quota, integrity, and storage failure.
-- Relay unavailable, overloaded, or ticket expired.
+Application failures use `Error`; protocol and capability violations use a WebSocket protocol close. Only `SESSION_START_FAILED` or `SESSION_ALREADY_ACTIVE` may precede binding on a resume-enabled stream; that ordered envelope carries an empty session ID and generation zero. Errors emitted after binding carry the bound session metadata. Future retry classification or correlation fields require an explicit compatible schema and capability update rather than free-form data in the current payload.
 
 ## Limits
 

@@ -76,6 +76,12 @@ func TestAcceptClientHelloRejectsWrongRoleAndMalformedRange(t *testing.T) {
 				envelope.GetHello().Capabilities = append(envelope.GetHello().Capabilities, CapabilitySessionProcessExit)
 			},
 		},
+		{
+			name: "control error without sequenced I/O",
+			mutate: func(envelope *vibebridgev1.Envelope) {
+				envelope.GetHello().Capabilities = append(envelope.GetHello().Capabilities, CapabilityControlError)
+			},
+		},
 	}
 
 	for _, testCase := range tests {
@@ -107,7 +113,7 @@ func TestNewAgentHelloUsesNegotiatedVersion(t *testing.T) {
 	if envelope.Sequence != 1 {
 		t.Fatalf("sequence = %d, want 1", envelope.Sequence)
 	}
-	wantCapabilities := []string{CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilitySessionResume}
+	wantCapabilities := []string{CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilitySessionResume, CapabilityControlError}
 	for _, want := range wantCapabilities {
 		found := false
 		for _, capability := range envelope.GetHello().GetCapabilities() {
