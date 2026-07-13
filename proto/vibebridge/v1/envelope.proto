@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package vibebridge.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1;vibebridgev1";
+
+// PeerRole identifies the protocol responsibility of a peer. It does not grant
+// authorization; authorization is established outside capability negotiation.
+enum PeerRole {
+  PEER_ROLE_UNSPECIFIED = 0;
+  PEER_ROLE_AGENT = 1;
+  PEER_ROLE_CLIENT = 2;
+  PEER_ROLE_RELAY = 3;
+}
+
+// ProtocolVersion identifies one application-protocol revision.
+message ProtocolVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+}
+
+// ProtocolVersionRange is an inclusive range supported by one peer. Both ends
+// must use the same major version; disjoint ranges are incompatible.
+message ProtocolVersionRange {
+  ProtocolVersion minimum = 1;
+  ProtocolVersion maximum = 2;
+}
+
+// Hello advertises compatibility before any session mutation is accepted.
+// Capability names describe optional behavior and never imply authorization.
+message Hello {
+  PeerRole peer_role = 1;
+  ProtocolVersionRange supported_versions = 2;
+  repeated string capabilities = 3;
+  uint32 max_envelope_bytes = 4;
+}
+
+// Envelope carries one typed V1 application message. Sequence and acknowledge
+// are direction-local counters; zero acknowledge means no message is confirmed.
+message Envelope {
+  uint32 protocol_major = 1;
+  uint32 protocol_minor = 2;
+  bytes connection_id = 3;
+  bytes session_id = 4;
+  uint64 session_generation = 5;
+  uint64 sequence = 6;
+  uint64 acknowledge = 7;
+  google.protobuf.Timestamp sent_at = 8;
+
+  oneof payload {
+    Hello hello = 20;
+  }
+}

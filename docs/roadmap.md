@@ -76,6 +76,10 @@ Exit gate:
 - Current and previous client builds pass compatibility tests.
 - Legacy protocol can be disabled without changing session internals.
 
+Current status (2026-07-12):
+
+- In progress. The canonical `vibebridge.v1` envelope and Hello capability-advertisement schema, pinned Buf generation, committed Go/TypeScript packages, shared cross-language binary golden vector, schema lint, generated-code drift checks, and future-main breaking checks are in place. The running browser endpoint remains on the legacy JSON/raw-binary adapter while negotiation, sequenced terminal messages, acknowledgements, resume behavior, errors, and limits are implemented incrementally.
+
 ## Phase 3: Workspace and Attachments
 
 Goal: safely transfer phone files into a local AI workflow.
