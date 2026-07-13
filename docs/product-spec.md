@@ -80,6 +80,8 @@ The browser offers WebSocket subprotocol `vibebridge.v1`. When selected, both pe
 
 A reconnect is `RESUMED` only when the identity and generation match the retained PTY, a prior detach checkpoint exists, the resume cursor exactly equals the Agent's previous highest outbound sequence, and the byte/time-bounded replay is complete. A newly created PTY returns `FRESH`. Every other attachment returns `RESYNC_REQUIRED`; the browser resets its terminal view, explains that history was truncated, and then renders any retained replay tail. Each newly created PTY receives a new random session ID and a monotonically increasing in-process generation, so stale identities cannot silently attach to a replacement. Older peers fall back to the staged legacy terminal adapter after Hello, and connections without the subprotocol remain fully legacy-compatible.
 
+Legacy compatibility remains enabled by default. Operators can disable it through `disable_legacy_protocol` or `--disable-legacy-protocol`; the Agent then accepts only `vibebridge.v1` clients advertising the complete current terminal, sequencing, resize/end, process-exit, resume, error, and health capability set. Rejection occurs before Agent Hello and PTY/session creation, without changing lifecycle or PTY internals.
+
 Transitional browser-to-server JSON controls:
 
 - `input`: terminal input data, only on the legacy terminal path.

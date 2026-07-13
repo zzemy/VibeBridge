@@ -50,6 +50,7 @@ func runAgent(args []string) error {
 	commandLine := flags.String("cmd", defaultCommandLine(), "command to run for each WebSocket session")
 	reconnectTimeout := flags.Duration("reconnect-timeout", 90*time.Second, "how long to keep a detached PTY session alive")
 	idleTimeout := flags.Duration("idle-timeout", 30*time.Minute, "how long to keep a PTY session alive without input; set 0 to disable")
+	disableLegacyProtocol := flags.Bool("disable-legacy-protocol", false, "require the complete current Protocol V1 capability set")
 	configPath := flags.String("config", "", "path to a versioned local Agent configuration file")
 	profileID := flags.String("profile", "", "launch profile ID from --config")
 	diagnose := flags.Bool("diagnose", false, "check command, network listener, and frontend assets without starting a session")
@@ -68,11 +69,12 @@ func runAgent(args []string) error {
 	explicitFlags := make(map[string]bool)
 	flags.Visit(func(value *flag.Flag) { explicitFlags[value.Name] = true })
 	options, err := resolveStartupOptions(startupOptions{
-		addr:             *addr,
-		webDir:           *webDir,
-		commandLine:      *commandLine,
-		reconnectTimeout: *reconnectTimeout,
-		idleTimeout:      *idleTimeout,
+		addr:                  *addr,
+		webDir:                *webDir,
+		commandLine:           *commandLine,
+		reconnectTimeout:      *reconnectTimeout,
+		idleTimeout:           *idleTimeout,
+		disableLegacyProtocol: *disableLegacyProtocol,
 	}, *configPath, *profileID, explicitFlags, os.LookupEnv)
 	if err != nil {
 		return err
@@ -94,15 +96,16 @@ func runAgent(args []string) error {
 	}
 
 	app := server.New(server.Config{
-		SessionToken:     token,
-		WebDir:           options.webDir,
-		StaticFS:         staticFS,
-		Command:          options.command,
-		WorkingDirectory: options.workingDirectory,
-		Environment:      options.environment,
-		ReconnectTimeout: options.reconnectTimeout,
-		IdleTimeout:      options.idleTimeout,
-		Logger:           eventLogger,
+		SessionToken:          token,
+		WebDir:                options.webDir,
+		StaticFS:              staticFS,
+		Command:               options.command,
+		WorkingDirectory:      options.workingDirectory,
+		Environment:           options.environment,
+		ReconnectTimeout:      options.reconnectTimeout,
+		IdleTimeout:           options.idleTimeout,
+		DisableLegacyProtocol: options.disableLegacyProtocol,
+		Logger:                eventLogger,
 	})
 
 	listener, err := net.Listen("tcp", options.addr)
@@ -190,15 +193,16 @@ func runAgent(args []string) error {
 }
 
 type startupOptions struct {
-	addr             string
-	webDir           string
-	commandLine      string
-	command          []string
-	workingDirectory string
-	environment      []string
-	reconnectTimeout time.Duration
-	idleTimeout      time.Duration
-	profileID        string
+	addr                  string
+	webDir                string
+	commandLine           string
+	command               []string
+	workingDirectory      string
+	environment           []string
+	reconnectTimeout      time.Duration
+	idleTimeout           time.Duration
+	disableLegacyProtocol bool
+	profileID             string
 }
 
 func resolveStartupOptions(options startupOptions, configPath string, requestedProfile string, explicitFlags map[string]bool, lookupEnv func(string) (string, bool)) (startupOptions, error) {
@@ -232,6 +236,9 @@ func resolveStartupOptions(options startupOptions, configPath string, requestedP
 		if duration, ok := config.ParsedIdleTimeout(); ok {
 			options.idleTimeout = duration
 		}
+	}
+	if !explicitFlags["disable-legacy-protocol"] {
+		options.disableLegacyProtocol = config.DisableLegacyProtocol
 	}
 
 	if explicitFlags["cmd"] {

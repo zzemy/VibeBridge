@@ -31,15 +31,16 @@ const (
 )
 
 type Config struct {
-	SessionToken     string
-	WebDir           string
-	StaticFS         fs.FS
-	Command          []string
-	WorkingDirectory string
-	Environment      []string
-	ReconnectTimeout time.Duration
-	IdleTimeout      time.Duration
-	Logger           agentlog.Logger
+	SessionToken          string
+	WebDir                string
+	StaticFS              fs.FS
+	Command               []string
+	WorkingDirectory      string
+	Environment           []string
+	ReconnectTimeout      time.Duration
+	IdleTimeout           time.Duration
+	DisableLegacyProtocol bool
+	Logger                agentlog.Logger
 }
 
 type Server struct {
@@ -147,6 +148,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid session token"})
 		return
 	}
+	if s.config.DisableLegacyProtocol && !offersWebSocketSubprotocol(r, protocolv1.WebSocketSubprotocol) {
+		w.Header().Set("Upgrade", "websocket")
+		writeJSON(w, http.StatusUpgradeRequired, map[string]string{"error": "Protocol V1 is required"})
+		return
+	}
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -206,6 +212,15 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	writeClose(conn)
 }
 
+func offersWebSocketSubprotocol(r *http.Request, want string) bool {
+	for _, offered := range websocket.Subprotocols(r) {
+		if offered == want {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) negotiateProtocolV1(writer *websocketWriter, conn *websocket.Conn) error {
 	conn.SetReadLimit(int64(protocolv1.MaxEnvelopeBytes))
 	_ = conn.SetReadDeadline(time.Now().Add(protocolHelloTimeout))
@@ -221,7 +236,11 @@ func (s *Server) negotiateProtocolV1(writer *websocketWriter, conn *websocket.Co
 	if err != nil {
 		return err
 	}
-	if !negotiated.HasCapability(protocolv1.CapabilityTerminalBinaryOutput) {
+	if s.config.DisableLegacyProtocol {
+		if err := requireCurrentClientCapabilities(negotiated); err != nil {
+			return err
+		}
+	} else if !negotiated.HasCapability(protocolv1.CapabilityTerminalBinaryOutput) {
 		return fmt.Errorf("client does not support required capability %q", protocolv1.CapabilityTerminalBinaryOutput)
 	}
 	response, err := protocolv1.NewAgentHello(negotiated.ConnectionID, negotiated.Major, negotiated.Minor, s.clock.Now())
@@ -246,6 +265,24 @@ func (s *Server) negotiateProtocolV1(writer *websocketWriter, conn *websocket.Co
 		writer.enableProtocolV1(stream)
 	}
 	return conn.SetReadDeadline(time.Now().Add(pongWait))
+}
+
+func requireCurrentClientCapabilities(negotiated protocolv1.NegotiatedHello) error {
+	required := [...]string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilityTerminalResizeEnd,
+		protocolv1.CapabilitySessionProcessExit,
+		protocolv1.CapabilitySessionResume,
+		protocolv1.CapabilityControlError,
+		protocolv1.CapabilityControlHealth,
+	}
+	for _, capability := range required {
+		if !negotiated.HasCapability(capability) {
+			return fmt.Errorf("client does not support required capability %q", capability)
+		}
+	}
+	return nil
 }
 
 func (s *Server) readProtocolV1Attach(writer *websocketWriter, conn *websocket.Conn) (protocolv1.ClientStreamMessage, error) {

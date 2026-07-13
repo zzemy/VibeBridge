@@ -23,13 +23,14 @@ var (
 )
 
 type File struct {
-	Version          int             `json:"version"`
-	ListenAddress    string          `json:"listen_address,omitempty"`
-	WebDirectory     string          `json:"web_directory,omitempty"`
-	ReconnectTimeout string          `json:"reconnect_timeout,omitempty"`
-	IdleTimeout      string          `json:"idle_timeout,omitempty"`
-	DefaultProfile   string          `json:"default_profile"`
-	Profiles         []LaunchProfile `json:"profiles"`
+	Version               int             `json:"version"`
+	ListenAddress         string          `json:"listen_address,omitempty"`
+	WebDirectory          string          `json:"web_directory,omitempty"`
+	ReconnectTimeout      string          `json:"reconnect_timeout,omitempty"`
+	IdleTimeout           string          `json:"idle_timeout,omitempty"`
+	DisableLegacyProtocol bool            `json:"disable_legacy_protocol,omitempty"`
+	DefaultProfile        string          `json:"default_profile"`
+	Profiles              []LaunchProfile `json:"profiles"`
 }
 
 type LaunchProfile struct {
