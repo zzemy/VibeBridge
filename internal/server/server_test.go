@@ -11,7 +11,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 	"github.com/zzemy/VibeBridge/internal/agentlog"
+	protocolv1 "github.com/zzemy/VibeBridge/internal/protocol"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestHandlerHealthAndRejectsInvalidToken(t *testing.T) {
@@ -270,3 +273,127 @@ func (p *countingPTY) Close() error                   { p.closeCalls++; return n
 func (p *countingPTY) Read([]byte) (int, error)       { return 0, io.EOF }
 func (p *countingPTY) Resize(int, int) error          { return nil }
 func (p *countingPTY) Write(data []byte) (int, error) { return len(data), nil }
+
+func TestProtocolV1NegotiatesBeforeStartingSession(t *testing.T) {
+	wait := make(chan struct{})
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    &countingPTY{},
+		processTree: &countingProcessTree{},
+		cancel:      func() {},
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	if launcher.calls.Load() != 0 {
+		t.Fatalf("terminal launch calls before Hello = %d, want 0", launcher.calls.Load())
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, []string{protocolv1.CapabilityTerminalBinaryOutput})); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+
+	messageType, encoded, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read Agent Hello: %v", err)
+	}
+	if messageType != websocket.BinaryMessage {
+		t.Fatalf("Agent Hello message type = %d, want binary", messageType)
+	}
+	envelope := new(vibebridgev1.Envelope)
+	if err := proto.Unmarshal(encoded, envelope); err != nil {
+		t.Fatalf("decode Agent Hello: %v", err)
+	}
+	if envelope.GetHello().GetPeerRole() != vibebridgev1.PeerRole_PEER_ROLE_AGENT {
+		t.Fatalf("Agent Hello peer role = %v, want Agent", envelope.GetHello().GetPeerRole())
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for launcher.calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if launcher.calls.Load() != 1 {
+		t.Fatalf("terminal launch calls after Hello = %d, want 1", launcher.calls.Load())
+	}
+	connection.Close()
+	app.Close()
+	close(wait)
+}
+
+func TestProtocolV1RejectsInvalidHelloWithoutStartingSession(t *testing.T) {
+	tests := []struct {
+		name         string
+		major        uint32
+		capabilities []string
+	}{
+		{name: "incompatible version", major: 2, capabilities: []string{protocolv1.CapabilityTerminalBinaryOutput}},
+		{name: "missing required capability", major: 1},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			launcher := &fakeTerminalLauncher{}
+			app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+			app.launcher = launcher
+			testServer := httptest.NewServer(app.Handler())
+			defer testServer.Close()
+
+			connection := dialProtocolV1(t, testServer.URL)
+			defer connection.Close()
+			encoded := marshalClientHello(t, testCase.major, 0, testCase.capabilities)
+			if err := connection.WriteMessage(websocket.BinaryMessage, encoded); err != nil {
+				t.Fatalf("send invalid client Hello: %v", err)
+			}
+			if _, _, err := connection.ReadMessage(); err == nil {
+				t.Fatal("connection remained open after invalid Hello")
+			}
+			if launcher.calls.Load() != 0 {
+				t.Fatalf("terminal launch calls = %d, want 0", launcher.calls.Load())
+			}
+		})
+	}
+}
+
+func dialProtocolV1(t *testing.T, serverURL string) *websocket.Conn {
+	t.Helper()
+	dialer := *websocket.DefaultDialer
+	dialer.Subprotocols = []string{protocolv1.WebSocketSubprotocol}
+	wsURL := "ws" + strings.TrimPrefix(serverURL, "http") + "/ws?token=expected-token"
+	connection, response, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial Protocol V1 WebSocket: %v", err)
+	}
+	if response.Header.Get("Sec-WebSocket-Protocol") != protocolv1.WebSocketSubprotocol {
+		connection.Close()
+		t.Fatalf("selected subprotocol = %q, want %q", response.Header.Get("Sec-WebSocket-Protocol"), protocolv1.WebSocketSubprotocol)
+	}
+	return connection
+}
+
+func marshalClientHello(t *testing.T, major, minor uint32, capabilities []string) []byte {
+	t.Helper()
+	version := &vibebridgev1.ProtocolVersion{Major: major, Minor: minor}
+	envelope := &vibebridgev1.Envelope{
+		ProtocolMajor: major,
+		ProtocolMinor: minor,
+		ConnectionId:  []byte("0123456789abcdef"),
+		Sequence:      1,
+		Payload: &vibebridgev1.Envelope_Hello{Hello: &vibebridgev1.Hello{
+			PeerRole: vibebridgev1.PeerRole_PEER_ROLE_CLIENT,
+			SupportedVersions: &vibebridgev1.ProtocolVersionRange{
+				Minimum: version,
+				Maximum: &vibebridgev1.ProtocolVersion{Major: major, Minor: minor},
+			},
+			Capabilities:     capabilities,
+			MaxEnvelopeBytes: protocolv1.MaxEnvelopeBytes,
+		}},
+	}
+	encoded, err := proto.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal client Hello: %v", err)
+	}
+	return encoded
+}

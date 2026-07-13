@@ -17,6 +17,13 @@ import {
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { isServerMessage, isSessionStatus, type ServerMessage, type SessionStatus } from "./lib/protocol";
+import {
+  acceptAgentHello,
+  createClientHello,
+  newProtocolV1ConnectionId,
+  protocolV1WebSocketSubprotocol,
+  terminalBinaryOutputCapability,
+} from "./lib/protocol-v1";
 import { terminalKeys } from "./lib/terminalKeys";
 
 type ConnectionState = "missing-token" | "connecting" | "reconnecting" | "connected" | "closed" | "error";
@@ -195,11 +202,14 @@ export function App() {
       }
 
       setConnectionState(hasConnectedRef.current ? "reconnecting" : "connecting");
-      const socket = new WebSocket(wsUrl);
+      const connectionId = newProtocolV1ConnectionId();
+      const socket = new WebSocket(wsUrl, [protocolV1WebSocketSubprotocol]);
+      let protocolNegotiated = false;
+      let fatalProtocolError = false;
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
 
-      socket.addEventListener("open", () => {
+      const markConnected = () => {
         if (hasConnectedRef.current) {
           setTerminalChunks((chunks) => [...chunks, "connection restored\r\n"]);
           showNotice("Session restored");
@@ -208,10 +218,49 @@ export function App() {
         disconnectReportedRef.current = false;
         setRetryIn(0);
         setConnectionState("connected");
+      };
+
+      const failProtocol = (message: string) => {
+        fatalProtocolError = true;
+        stopReconnectRef.current = true;
+        setConnectionState("error");
+        setTerminalChunks((chunks) => [...chunks, `protocol negotiation failed: ${message}\r\n`]);
+        socket.close(1002, "Protocol V1 negotiation failed");
+      };
+
+      socket.addEventListener("open", () => {
+        if (socket.protocol !== protocolV1WebSocketSubprotocol) {
+          protocolNegotiated = true;
+          markConnected();
+          return;
+        }
+        try {
+          socket.send(createClientHello(connectionId).slice().buffer);
+        } catch (error) {
+          failProtocol(error instanceof Error ? error.message : "could not create client Hello");
+        }
       });
 
       socket.addEventListener("message", (event: MessageEvent<string | ArrayBuffer>) => {
         const payload = event.data;
+        if (!protocolNegotiated && socket.protocol === protocolV1WebSocketSubprotocol) {
+          if (typeof payload === "string") {
+            failProtocol("Agent Hello must be binary");
+            return;
+          }
+          try {
+            const negotiated = acceptAgentHello(new Uint8Array(payload), connectionId);
+            if (!negotiated.capabilities.has(terminalBinaryOutputCapability)) {
+              throw new Error(`Agent does not support ${terminalBinaryOutputCapability}`);
+            }
+            protocolNegotiated = true;
+            markConnected();
+          } catch (error) {
+            failProtocol(error instanceof Error ? error.message : "invalid Agent Hello");
+          }
+          return;
+        }
+
         if (typeof payload !== "string") {
           setTerminalChunks((chunks) => [...chunks, new Uint8Array(payload)]);
           return;
@@ -232,9 +281,17 @@ export function App() {
         handleServerMessage(parsed);
       });
 
-      socket.addEventListener("close", () => {
+      socket.addEventListener("close", (event) => {
         if (socketRef.current === socket) {
           socketRef.current = null;
+        }
+        if (fatalProtocolError || (!protocolNegotiated && socket.protocol === protocolV1WebSocketSubprotocol && event.code === 1002)) {
+          stopReconnectRef.current = true;
+          setConnectionState("error");
+          if (!fatalProtocolError) {
+            setTerminalChunks((chunks) => [...chunks, "protocol negotiation rejected by Agent\r\n"]);
+          }
+          return;
         }
         if (disposed || stopReconnectRef.current) {
           setConnectionState("closed");
