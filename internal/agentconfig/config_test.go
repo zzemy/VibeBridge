@@ -53,7 +53,7 @@ func TestLoadValidConfigAndResolveProfile(t *testing.T) {
 
 func TestLoadRejectsInvalidConfigBoundaries(t *testing.T) {
 	cases := map[string]string{
-		"unknown version":       `{"version":2,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
+		"unknown version":       `{"version":3,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
 		"unknown field":         `{"version":1,"unknown":true,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
 		"duplicate id":          `{"version":1,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"},{"id":"shell","label":"Other","executable":"cmd"}]}`,
 		"missing default":       `{"version":1,"default_profile":"codex","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
@@ -69,6 +69,25 @@ func TestLoadRejectsInvalidConfigBoundaries(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Load(writeConfig(t, content)); err == nil {
 				t.Fatal("invalid config loaded successfully")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsWorkspaceFieldsInVersion1(t *testing.T) {
+	cases := map[string]string{
+		"workspace registry": `{"version":1,"workspaces":[],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
+		"profile binding":    `{"version":1,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":""}]}`,
+	}
+
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, content))
+			if err == nil {
+				t.Fatal("version 1 workspace field loaded successfully")
+			}
+			if !strings.Contains(err.Error(), "require config version 2") {
+				t.Fatalf("load error = %q, want version 2 migration guidance", err)
 			}
 		})
 	}
@@ -99,7 +118,7 @@ func TestLoadWorkspaceProfileUsesCanonicalWorkspaceBoundary(t *testing.T) {
 	}
 	path := filepath.Join(configDirectory, "config.json")
 	content := `{
-		"version": 1,
+		"version": 2,
 		"workspaces": [{"id":"repo","label":"  Main Repo  ","root":"工作区"}],
 		"default_profile": "codex",
 		"profiles": [{
@@ -149,7 +168,7 @@ func TestLoadWorkspaceProfileDefaultsWorkingDirectoryToRoot(t *testing.T) {
 		t.Fatalf("create workspace: %v", err)
 	}
 	path := filepath.Join(configDirectory, "config.json")
-	content := `{"version":1,"workspaces":[{"id":"repo","label":"Repo","root":"repo"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo"}]}`
+	content := `{"version":2,"workspaces":[{"id":"repo","label":"Repo","root":"repo"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo"}]}`
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -158,8 +177,14 @@ func TestLoadWorkspaceProfileDefaultsWorkingDirectoryToRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	workspace, _ := config.Workspace("repo")
-	profile, _ := config.Profile("shell")
+	workspace, ok := config.Workspace("repo")
+	if !ok {
+		t.Fatal("workspace was not found")
+	}
+	profile, ok := config.Profile("shell")
+	if !ok {
+		t.Fatal("profile was not found")
+	}
 	if profile.WorkingDirectory != workspace.Root {
 		t.Fatalf("profile working directory = %q, want workspace root %q", profile.WorkingDirectory, workspace.Root)
 	}
@@ -173,11 +198,11 @@ func TestLoadRejectsInvalidWorkspaceBindings(t *testing.T) {
 	}
 
 	cases := map[string]string{
-		"duplicate workspace id":      `{"version":1,"workspaces":[{"id":"repo","label":"Repo","root":"repo"},{"id":"repo","label":"Other","root":"."}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
-		"duplicate canonical root":    `{"version":1,"workspaces":[{"id":"repo","label":"Repo","root":"repo"},{"id":"other","label":"Other","root":"repo/."}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
-		"unknown workspace":           `{"version":1,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"missing"}]}`,
-		"working directory traversal": `{"version":1,"workspaces":[{"id":"repo","label":"Repo","root":"repo"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo","working_directory":".."}]}`,
-		"missing workspace root":      `{"version":1,"workspaces":[{"id":"repo","label":"Repo","root":"missing"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo"}]}`,
+		"duplicate workspace id":      `{"version":2,"workspaces":[{"id":"repo","label":"Repo","root":"repo"},{"id":"repo","label":"Other","root":"."}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
+		"duplicate canonical root":    `{"version":2,"workspaces":[{"id":"repo","label":"Repo","root":"repo"},{"id":"other","label":"Other","root":"repo/."}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
+		"unknown workspace":           `{"version":2,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"missing"}]}`,
+		"working directory traversal": `{"version":2,"workspaces":[{"id":"repo","label":"Repo","root":"repo"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo","working_directory":".."}]}`,
+		"missing workspace root":      `{"version":2,"workspaces":[{"id":"repo","label":"Repo","root":"missing"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo"}]}`,
 	}
 
 	for name, content := range cases {

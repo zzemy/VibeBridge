@@ -162,7 +162,7 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 	workspace := t.TempDir()
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	content := `{
-		"version": 1,
+		"version": 2,
 		"listen_address": "127.0.0.1:9000",
 		"web_directory": "custom-web",
 		"reconnect_timeout": "2m",
