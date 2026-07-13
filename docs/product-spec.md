@@ -35,7 +35,7 @@ The system has three participants:
 2. The Go server owns the HTTP/WebSocket endpoints and PTY lifecycle.
 3. The local CLI process performs the actual work on the host machine.
 
-PTY output is sent to the browser as binary WebSocket frames so terminal bytes and ANSI sequences are preserved. When both peers negotiate `terminal.sequenced_io_v1`, terminal input/output and acknowledgements are protobuf envelopes with connection-local ordering. When they also negotiate `session.resume_v1`, `AttachSession` and `SessionStatus` bind each physical connection to a resumable PTY generation. Negotiated `terminal.resize_end_v1` adds ordered resize and explicit end controls, `session.process_exit_v1` adds an ordered final process outcome, and `control.error_v1` adds ordered allowlisted application failures without exposing host errors. Peers without those capabilities retain safe JSON adapters. Otherwise the staged legacy path uses raw binary output and JSON input. Application ping/pong currently uses JSON text frames in both paths.
+PTY output is sent to the browser as binary WebSocket frames so terminal bytes and ANSI sequences are preserved. When both peers negotiate `terminal.sequenced_io_v1`, terminal input/output and acknowledgements are protobuf envelopes with connection-local ordering. When they also negotiate `session.resume_v1`, `AttachSession` and `SessionStatus` bind each physical connection to a resumable PTY generation. Negotiated `terminal.resize_end_v1` adds ordered resize and explicit end controls, `session.process_exit_v1` adds an ordered final process outcome, `control.error_v1` adds ordered allowlisted application failures without exposing host errors, and `control.health_v1` adds ordered application Ping/Pong after resume-enabled session binding. Peers without those capabilities retain safe JSON adapters. Otherwise the staged legacy path uses raw binary output and JSON input.
 
 ## Session Lifecycle
 
@@ -85,16 +85,16 @@ Transitional browser-to-server JSON controls:
 - `input`: terminal input data, only on the legacy terminal path.
 - `resize`: terminal columns and rows when `terminal.resize_end_v1` is not negotiated.
 - `exit`: explicit PTY termination request when `terminal.resize_end_v1` is not negotiated.
-- `ping`: application-level health check until a V1 health-control capability is introduced.
+- `ping`: application-level health check when `control.health_v1` is not negotiated.
 
 Transitional server-to-browser messages:
 
 - Binary frames: raw PTY output only on the legacy terminal path.
 - `error`: fixed safe error text only when `control.error_v1` is not negotiated.
 - `exit`: process exit state when `session.process_exit_v1` is not negotiated.
-- `pong`: response to an application-level ping.
+- `pong`: response to an application-level ping when `control.health_v1` is not negotiated.
 
-The server also sends WebSocket Ping control frames to keep idle connections alive.
+When `control.health_v1` is negotiated, application Ping/Pong uses empty ordered protobuf envelopes and the Agent Pong acknowledges the client Ping. The server separately sends WebSocket Ping control frames to keep idle connections alive; transport keepalive does not replace or share semantics with the application health exchange.
 
 ## Acceptance Requirements
 
