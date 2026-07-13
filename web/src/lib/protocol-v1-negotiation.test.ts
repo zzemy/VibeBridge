@@ -11,6 +11,7 @@ import {
 } from "../gen/vibebridge/v1/envelope_pb";
 import {
   acceptAgentHello,
+  attachmentTransferCapability,
   controlErrorCapability,
   controlHealthCapability,
   createClientHello,
@@ -64,6 +65,15 @@ describe("Protocol V1 Hello negotiation", () => {
     expect(clientHello.payload.value.capabilities).toContain(sessionResumeCapability);
     expect(clientHello.payload.value.capabilities).toContain(controlErrorCapability);
     expect(clientHello.payload.value.capabilities).toContain(controlHealthCapability);
+    expect(clientHello.payload.value.capabilities).not.toContain(attachmentTransferCapability);
+  });
+
+  test("accepts attachment transfer when sequenced I/O is also advertised", () => {
+    const negotiated = acceptAgentHello(agentHello({
+      capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, attachmentTransferCapability],
+    }), connectionId);
+
+    expect(negotiated.capabilities.has(attachmentTransferCapability)).toBe(true);
   });
 
   test.each([
@@ -74,6 +84,7 @@ describe("Protocol V1 Hello negotiation", () => {
     ["process exit without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, sessionProcessExitCapability] })],
     ["control error without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, controlErrorCapability] })],
     ["control health without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, controlHealthCapability] })],
+    ["attachment transfer without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, attachmentTransferCapability] })],
   ])("rejects %s", (_name, encoded) => {
     expect(() => acceptAgentHello(encoded, connectionId)).toThrow();
   });

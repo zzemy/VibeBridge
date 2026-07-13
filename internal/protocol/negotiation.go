@@ -92,7 +92,7 @@ func AcceptClientHello(encoded []byte) (NegotiatedHello, error) {
 		capabilities[capability] = struct{}{}
 	}
 	_, hasSequencedIO := capabilities[CapabilityTerminalSequencedIO]
-	for _, dependent := range []string{CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilityControlError, CapabilityControlHealth} {
+	for _, dependent := range []string{CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilityControlError, CapabilityControlHealth, CapabilityAttachmentTransfer} {
 		if _, advertised := capabilities[dependent]; advertised && !hasSequencedIO {
 			return NegotiatedHello{}, fmt.Errorf("%s requires %s", dependent, CapabilityTerminalSequencedIO)
 		}
