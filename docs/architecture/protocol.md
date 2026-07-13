@@ -78,7 +78,7 @@ message Envelope {
     AttachSession attach_session = 22;
     TerminalInput terminal_input = 23;
     TerminalOutput terminal_output = 24;
-    ResizeTerminal resize_terminal = 25;
+    TerminalResize terminal_resize = 25;
     SessionStatus session_status = 26;
     EndSession end_session = 27;
     AttachmentBegin attachment_begin = 28;
@@ -112,7 +112,8 @@ Current migration behavior:
 - If both peers also advertise `session.resume_v1`, the first client stream message is `AttachSession` at sequence `2`, followed by the Agent's `SessionStatus` at sequence `2`. Fresh attachment uses empty session metadata and cursor zero; resume sends the assigned 16-byte session ID, positive generation, and the highest Agent sequence processed on the previous physical connection. Terminal traffic starts at sequence `3` after attachment.
 - Sequence and acknowledgement state is physical-connection-local: each WebSocket restarts with Hello sequence `1`. Detached raw PTY output is re-encoded into new sequence `3+` envelopes rather than preserving old wire sequence numbers.
 - The Agent returns `RESUMED` only for an exact identity, generation, detach-checkpoint, cursor, and complete-replay match. Byte or time eviction makes replay incomplete. A new PTY returns `FRESH`; every other attachment returns `RESYNC_REQUIRED`, causing the browser to reset stale terminal state, explain the truncation, and render any retained replay tail. Each new PTY gets a random protocol session ID and a monotonically increasing in-process generation.
-- Resize, end, ping/pong, process-exit, and error controls remain on the transitional JSON adapter until their V1 payloads are introduced.
+- If both peers also advertise `terminal.resize_end_v1`, client resize and explicit end controls use ordered `TerminalResize` and `EndSession` envelopes. Advertising it without `terminal.sequenced_io_v1` is an invalid capability combination. Columns and rows are integers from 1 through 65,535. Once negotiated, JSON resize/end controls are protocol errors; without the capability, their transitional JSON adapter remains available for older peers.
+- Application ping/pong, process-exit, and error controls remain on the transitional JSON adapter until their V1 payloads are introduced.
 
 Support policy:
 
@@ -127,6 +128,8 @@ Capabilities describe optional behavior, not product authorization.
 Examples:
 
 - `terminal.binary_output`
+- `terminal.sequenced_io_v1`
+- `terminal.resize_end_v1`
 - `session.resume_v1`
 - `attachment.chunked_v1`
 - `attachment.image_preview_v1`
@@ -172,6 +175,7 @@ Every decoder receives configured maximums:
 - Outer frame size.
 - Inner envelope size.
 - Terminal input and output payload size.
+- Terminal dimensions (currently 1 through 65,535 columns and rows).
 - Attachment chunk size.
 - In-flight messages and bytes.
 - Unacknowledged replay bytes.
