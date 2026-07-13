@@ -19,6 +19,7 @@ import (
 	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 	"github.com/zzemy/VibeBridge/internal/agentlog"
 	protocolv1 "github.com/zzemy/VibeBridge/internal/protocol"
+	"github.com/zzemy/VibeBridge/internal/workspace"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -36,6 +37,7 @@ type Config struct {
 	StaticFS              fs.FS
 	Command               []string
 	WorkingDirectory      string
+	WorkspaceRoot         string
 	Environment           []string
 	ReconnectTimeout      time.Duration
 	IdleTimeout           time.Duration
@@ -365,6 +367,15 @@ func (s *Server) getOrCreateSession() (*ptySession, bool, error) {
 		return current, false, nil
 	}
 
+	workingDirectory := s.config.WorkingDirectory
+	if s.config.WorkspaceRoot != "" {
+		revalidatedDirectory, err := workspace.RevalidateDirectory(s.config.WorkspaceRoot, workingDirectory)
+		if err != nil {
+			return nil, false, fmt.Errorf("revalidate workspace launch directory: %w", err)
+		}
+		workingDirectory = revalidatedDirectory
+	}
+
 	correlationID, err := newSessionCorrelationID()
 	if err != nil {
 		return nil, false, fmt.Errorf("create session correlation ID: %w", err)
@@ -374,7 +385,7 @@ func (s *Server) getOrCreateSession() (*ptySession, bool, error) {
 		return nil, false, fmt.Errorf("create protocol session ID: %w", err)
 	}
 	session, err := newPTYSession(
-		terminalLaunchRequest{Command: s.config.Command, WorkingDirectory: s.config.WorkingDirectory, Environment: s.config.Environment},
+		terminalLaunchRequest{Command: s.config.Command, WorkingDirectory: workingDirectory, Environment: s.config.Environment},
 		s.config.IdleTimeout,
 		s.clock,
 		s.launcher,

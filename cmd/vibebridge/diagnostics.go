@@ -11,6 +11,7 @@ import (
 	"runtime"
 
 	"github.com/zzemy/VibeBridge/internal/agentservice"
+	"github.com/zzemy/VibeBridge/internal/workspace"
 )
 
 type diagnosticCheck struct {
@@ -58,7 +59,7 @@ func collectDiagnostics(options startupOptions, hasEmbeddedAssets bool) []diagno
 	checks = append(checks, diagnosticCheck{
 		status:  "ok",
 		message: workingDirectoryMessage,
-		err:     validateWorkingDirectory(options.workingDirectory),
+		err:     validateStartupWorkingDirectory(options),
 	})
 
 	listener, err := net.Listen("tcp", options.addr)
@@ -160,6 +161,19 @@ func isLoopbackHost(host string) bool {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+func validateStartupWorkingDirectory(options startupOptions) error {
+	var err error
+	if options.workspaceRoot != "" {
+		_, err = workspace.RevalidateDirectory(options.workspaceRoot, options.workingDirectory)
+	} else {
+		err = validateWorkingDirectory(options.workingDirectory)
+	}
+	if err != nil && options.workspaceID != "" {
+		return errors.New("workspace root or launch working directory is not available")
+	}
+	return err
 }
 
 func validateWorkingDirectory(path string) error {
