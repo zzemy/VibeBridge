@@ -47,6 +47,27 @@ message TerminalOutput {
   bytes data = 1;
 }
 
+// AttachSession starts a fresh attachment or resumes a previously attached
+// session. The cursor refers to the highest Agent sequence processed on the
+// previous physical connection.
+message AttachSession {
+  uint64 last_acknowledged_sequence = 1;
+}
+
+// ResumeDisposition reports whether the Agent could preserve terminal history.
+enum ResumeDisposition {
+  RESUME_DISPOSITION_UNSPECIFIED = 0;
+  RESUME_DISPOSITION_FRESH = 1;
+  RESUME_DISPOSITION_RESUMED = 2;
+  RESUME_DISPOSITION_RESYNC_REQUIRED = 3;
+}
+
+// SessionStatus binds the connection to the session identity carried by its
+// envelope and reports the result of the attachment request.
+message SessionStatus {
+  ResumeDisposition resume_disposition = 1;
+}
+
 // Acknowledgement advances the peer acknowledgement when there is no other
 // outbound payload on which it can be piggybacked.
 message Acknowledgement {}
@@ -65,8 +86,10 @@ message Envelope {
 
   oneof payload {
     Hello hello = 20;
+    AttachSession attach_session = 22;
     TerminalInput terminal_input = 23;
     TerminalOutput terminal_output = 24;
+    SessionStatus session_status = 26;
     Acknowledgement acknowledgement = 33;
   }
 }

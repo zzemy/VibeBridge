@@ -3,10 +3,12 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import {
   AcknowledgementSchema,
+  AttachSessionSchema,
   EnvelopeSchema,
   HelloSchema,
   PeerRole,
   ProtocolVersionRangeSchema,
+  ResumeDisposition,
   ProtocolVersionSchema,
   TerminalInputSchema,
   type Envelope,
@@ -18,6 +20,7 @@ export const protocolV1Minor = 0;
 export const protocolV1MaxEnvelopeBytes = 64 * 1024;
 export const terminalBinaryOutputCapability = "terminal.binary_output";
 export const terminalSequencedIoCapability = "terminal.sequenced_io_v1";
+export const sessionResumeCapability = "session.resume_v1";
 export const protocolV1MaxTerminalInputBytes = 32 * 1024;
 
 const connectionIdBytes = 16;
@@ -52,7 +55,7 @@ export function createClientHello(connectionId: Uint8Array, sentAt = new Date())
           minimum: version(),
           maximum: version(),
         }),
-        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability],
+        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, sessionResumeCapability],
         maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
       }),
     },
@@ -124,9 +127,20 @@ export function acceptAgentHello(encoded: Uint8Array, expectedConnectionId: Uint
 }
 
 
+export type SessionResumeCursor = {
+  sessionId: Uint8Array;
+  sessionGeneration: bigint;
+  lastAcknowledgedSequence: bigint;
+};
+
 export type AgentStreamMessage =
+  | { type: "session-status"; disposition: ResumeDisposition; sessionId: Uint8Array; sessionGeneration: bigint }
   | { type: "terminal-output"; data: Uint8Array }
   | { type: "acknowledgement" };
+
+type ProtocolV1ClientStreamOptions = {
+  sessionResume?: boolean;
+};
 
 /** Owns connection-local sequence and acknowledgement state after Hello. */
 export class ProtocolV1ClientStream {
@@ -136,14 +150,49 @@ export class ProtocolV1ClientStream {
   private highestPeerAcknowledgement = 0n;
   private readonly connectionId: Uint8Array;
   private readonly peerMaxEnvelopeBytes: number;
+  private readonly sessionResume: boolean;
+  private sessionBound = false;
+  private sessionId = new Uint8Array();
+  private sessionGeneration = 0n;
 
-  constructor(connectionId: Uint8Array, peerMaxEnvelopeBytes: number) {
+  constructor(connectionId: Uint8Array, peerMaxEnvelopeBytes: number, options: ProtocolV1ClientStreamOptions = {}) {
     assertConnectionId(connectionId);
     if (!Number.isInteger(peerMaxEnvelopeBytes) || peerMaxEnvelopeBytes <= 0) {
       throw new Error("Peer max envelope bytes must be a positive integer");
     }
     this.connectionId = connectionId.slice();
     this.peerMaxEnvelopeBytes = peerMaxEnvelopeBytes;
+    this.sessionResume = options.sessionResume === true;
+  }
+
+  createAttachSession(cursor?: SessionResumeCursor, sentAt = new Date()): Uint8Array {
+    if (!this.sessionResume) {
+      throw new Error("Session resume was not negotiated");
+    }
+    if (this.nextOutbound !== 2n || this.sessionBound) {
+      throw new Error("AttachSession has already been sent");
+    }
+    if (cursor) {
+      assertSessionIdentity(cursor.sessionId, cursor.sessionGeneration);
+      if (cursor.lastAcknowledgedSequence <= 0n) {
+        throw new Error("Resume cursor must acknowledge a positive Agent sequence");
+      }
+    }
+    return this.encode({
+      case: "attachSession",
+      value: create(AttachSessionSchema, { lastAcknowledgedSequence: cursor?.lastAcknowledgedSequence ?? 0n }),
+    }, sentAt, cursor?.sessionId, cursor?.sessionGeneration ?? 0n, true);
+  }
+
+  getResumeCursor(): SessionResumeCursor | null {
+    if (!this.sessionResume || !this.sessionBound) {
+      return null;
+    }
+    return {
+      sessionId: this.sessionId.slice(),
+      sessionGeneration: this.sessionGeneration,
+      lastAcknowledgedSequence: this.highestInbound,
+    };
   }
 
   createTerminalInput(data: string, sentAt = new Date()): Uint8Array {
@@ -175,7 +224,18 @@ export class ProtocolV1ClientStream {
     if (!equalBytes(envelope.connectionId, this.connectionId)) {
       throw new Error("Agent envelope connection ID does not match");
     }
-    if (envelope.sessionId.byteLength !== 0 || envelope.sessionGeneration !== 0n) {
+    if (this.sessionResume) {
+      if (this.sessionBound) {
+        if (!equalBytes(envelope.sessionId, this.sessionId) || envelope.sessionGeneration !== this.sessionGeneration) {
+          throw new Error("Agent envelope session metadata does not match the bound session");
+        }
+      } else {
+        if (envelope.payload.case !== "sessionStatus") {
+          throw new Error("First Agent stream message must contain SessionStatus");
+        }
+        assertSessionIdentity(envelope.sessionId, envelope.sessionGeneration);
+      }
+    } else if (envelope.sessionId.byteLength !== 0 || envelope.sessionGeneration !== 0n) {
       throw new Error("Connection-local envelope contains session metadata");
     }
     if (envelope.sequence !== this.nextInbound) {
@@ -187,6 +247,17 @@ export class ProtocolV1ClientStream {
 
     let message: AgentStreamMessage;
     switch (envelope.payload.case) {
+      case "sessionStatus":
+        if (!this.sessionResume || this.sessionBound || !isKnownResumeDisposition(envelope.payload.value.resumeDisposition)) {
+          throw new Error("SessionStatus is not valid for this stream state");
+        }
+        message = {
+          type: "session-status",
+          disposition: envelope.payload.value.resumeDisposition,
+          sessionId: envelope.sessionId.slice(),
+          sessionGeneration: envelope.sessionGeneration,
+        };
+        break;
       case "terminalOutput":
         if (envelope.payload.value.data.byteLength === 0) {
           throw new Error("Terminal output must not be empty");
@@ -200,17 +271,33 @@ export class ProtocolV1ClientStream {
         throw new Error("Agent envelope contains an unsupported payload");
     }
 
+    if (message.type === "session-status") {
+      this.sessionId = message.sessionId.slice();
+      this.sessionGeneration = message.sessionGeneration;
+      this.sessionBound = true;
+    }
     this.highestPeerAcknowledgement = envelope.acknowledge;
     this.highestInbound = envelope.sequence;
     this.nextInbound += 1n;
     return message;
   }
 
-  private encode(payload: Envelope["payload"], sentAt: Date): Uint8Array {
+  private encode(
+    payload: Envelope["payload"],
+    sentAt: Date,
+    sessionId: Uint8Array<ArrayBufferLike> | undefined = this.sessionId,
+    sessionGeneration = this.sessionGeneration,
+    allowUnbound = false,
+  ): Uint8Array {
+    if (this.sessionResume && !this.sessionBound && !allowUnbound) {
+      throw new Error("SessionStatus must be accepted before stream traffic");
+    }
     const envelope = create(EnvelopeSchema, {
       protocolMajor: protocolV1Major,
       protocolMinor: protocolV1Minor,
       connectionId: this.connectionId,
+      sessionId,
+      sessionGeneration,
       sequence: this.nextOutbound,
       acknowledge: this.highestInbound,
       sentAt: timestampFromDate(sentAt),
@@ -230,6 +317,18 @@ function assertConnectionId(connectionId: Uint8Array) {
   if (connectionId.byteLength !== connectionIdBytes) {
     throw new Error(`Connection ID must be ${connectionIdBytes} bytes`);
   }
+}
+
+function assertSessionIdentity(sessionId: Uint8Array, generation: bigint) {
+  if (sessionId.byteLength !== connectionIdBytes || generation <= 0n) {
+    throw new Error(`Session ID must be ${connectionIdBytes} bytes and generation must be positive`);
+  }
+}
+
+function isKnownResumeDisposition(disposition: ResumeDisposition) {
+  return disposition === ResumeDisposition.FRESH
+    || disposition === ResumeDisposition.RESUMED
+    || disposition === ResumeDisposition.RESYNC_REQUIRED;
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array) {

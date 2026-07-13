@@ -13,6 +13,7 @@ import {
   acceptAgentHello,
   createClientHello,
   protocolV1MaxEnvelopeBytes,
+  sessionResumeCapability,
   terminalBinaryOutputCapability,
   terminalSequencedIoCapability,
 } from "./protocol-v1";
@@ -54,6 +55,7 @@ describe("Protocol V1 Hello negotiation", () => {
     expect(clientHello.payload.case).toBe("hello");
     if (clientHello.payload.case !== "hello") throw new Error("expected client Hello");
     expect(clientHello.payload.value.capabilities).toContain(terminalSequencedIoCapability);
+    expect(clientHello.payload.value.capabilities).toContain(sessionResumeCapability);
   });
 
   test.each([

@@ -14,25 +14,29 @@ import (
 
 const (
 	CapabilityTerminalSequencedIO = "terminal.sequenced_io_v1"
+	CapabilitySessionResume       = "session.resume_v1"
 	MaxTerminalInputBytes         = 32 * 1024
 )
 
 type ClientStreamMessageKind uint8
 
 const (
-	ClientStreamMessageTerminalInput ClientStreamMessageKind = iota + 1
+	ClientStreamMessageAttachSession ClientStreamMessageKind = iota + 1
+	ClientStreamMessageTerminalInput
 	ClientStreamMessageAcknowledgement
 )
 
 type ClientStreamMessage struct {
-	Kind     ClientStreamMessageKind
-	Sequence uint64
-	Data     []byte
+	Kind                     ClientStreamMessageKind
+	Sequence                 uint64
+	Data                     []byte
+	SessionID                []byte
+	SessionGeneration        uint64
+	LastAcknowledgedSequence uint64
 }
 
-// AgentStream owns connection-local ordering state after Hello negotiation.
-// Session-level generation and resume state are introduced separately so the
-// current legacy reconnect behavior remains unchanged during migration.
+// AgentStream owns connection-local ordering state after Hello negotiation and,
+// when negotiated, binds that connection to one resumable PTY generation.
 type AgentStream struct {
 	mu sync.Mutex
 
@@ -42,6 +46,10 @@ type AgentStream struct {
 	nextInbound         uint64
 	highestInbound      uint64
 	highestPeerAck      uint64
+	sessionResume       bool
+	sessionBound        bool
+	sessionID           []byte
+	sessionGeneration   uint64
 }
 
 func NewAgentStream(negotiated NegotiatedHello) (*AgentStream, error) {
@@ -57,6 +65,7 @@ func NewAgentStream(negotiated NegotiatedHello) (*AgentStream, error) {
 		nextOutbound:        2,
 		nextInbound:         2,
 		highestInbound:      1,
+		sessionResume:       negotiated.HasCapability(CapabilitySessionResume),
 	}, nil
 }
 
@@ -77,6 +86,14 @@ func (s *AgentStream) DecodeClientMessage(encoded []byte) (ClientStreamMessage, 
 
 	message := ClientStreamMessage{Sequence: envelope.Sequence}
 	switch payload := envelope.Payload.(type) {
+	case *vibebridgev1.Envelope_AttachSession:
+		if !s.sessionResume || s.sessionBound {
+			return ClientStreamMessage{}, errors.New("AttachSession is not valid for this stream state")
+		}
+		message.Kind = ClientStreamMessageAttachSession
+		message.SessionID = append([]byte(nil), envelope.SessionId...)
+		message.SessionGeneration = envelope.SessionGeneration
+		message.LastAcknowledgedSequence = payload.AttachSession.LastAcknowledgedSequence
 	case *vibebridgev1.Envelope_TerminalInput:
 		if len(payload.TerminalInput.Data) == 0 || len(payload.TerminalInput.Data) > MaxTerminalInputBytes {
 			return ClientStreamMessage{}, fmt.Errorf("terminal input size must be between 1 and %d bytes", MaxTerminalInputBytes)
@@ -112,6 +129,9 @@ func (s *AgentStream) EncodeTerminalOutput(data []byte, sentAt time.Time) ([]byt
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.sessionResume && !s.sessionBound {
+		return nil, errors.New("session must be bound before terminal output")
+	}
 	encoded, err := s.marshalLocked(s.terminalOutputEnvelope(data, sentAt))
 	if err != nil {
 		return nil, err
@@ -128,6 +148,9 @@ func (s *AgentStream) EncodeTerminalOutputChunk(data []byte, sentAt time.Time) (
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.sessionResume && !s.sessionBound {
+		return nil, 0, errors.New("session must be bound before terminal output")
+	}
 
 	low, high := 1, len(data)
 	bestLength := 0
@@ -151,6 +174,71 @@ func (s *AgentStream) EncodeTerminalOutputChunk(data []byte, sentAt time.Time) (
 	return best, bestLength, nil
 }
 
+// BindSession binds a resume-enabled physical connection to one PTY session
+// generation. The AttachSession envelope must first be decoded and committed
+// with CommitClientMessage. It returns an error when resume was not negotiated,
+// the stream is already bound, the attach was not committed, or the identity is
+// not a 16-byte session ID with a positive generation.
+func (s *AgentStream) BindSession(sessionID []byte, generation uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.sessionResume {
+		return errors.New("session resume was not negotiated")
+	}
+	if s.sessionBound {
+		return errors.New("session is already bound")
+	}
+	if s.highestInbound < 2 {
+		return errors.New("AttachSession must be committed before binding")
+	}
+	if len(sessionID) != connectionIDBytes || generation == 0 {
+		return errors.New("session ID must be 16 bytes and generation must be positive")
+	}
+	s.sessionID = append([]byte(nil), sessionID...)
+	s.sessionGeneration = generation
+	s.sessionBound = true
+	return nil
+}
+
+// EncodeSessionStatus encodes the next connection-local outbound envelope for
+// a bound resume-enabled session. Callers must invoke it after BindSession and
+// before replay or live output. It rejects unknown dispositions and returns an
+// error when the stream is not bound or the envelope exceeds the peer limit.
+func (s *AgentStream) EncodeSessionStatus(disposition vibebridgev1.ResumeDisposition, sentAt time.Time) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.sessionResume || !s.sessionBound {
+		return nil, errors.New("session must be bound before SessionStatus")
+	}
+	switch disposition {
+	case vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_FRESH,
+		vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESUMED,
+		vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED:
+	default:
+		return nil, errors.New("resume disposition is invalid")
+	}
+	return s.encodeLocked(&vibebridgev1.Envelope{Payload: &vibebridgev1.Envelope_SessionStatus{SessionStatus: &vibebridgev1.SessionStatus{
+		ResumeDisposition: disposition,
+	}}}, sentAt)
+}
+
+// UsesSessionResume reports whether session.resume_v1 was negotiated for this
+// physical connection.
+func (s *AgentStream) UsesSessionResume() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sessionResume
+}
+
+// HighestOutboundSequence returns the highest sequence successfully encoded on
+// this physical connection. Sequence numbers are connection-local and start at
+// one for the agent Hello envelope.
+func (s *AgentStream) HighestOutboundSequence() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.nextOutbound - 1
+}
+
 func (s *AgentStream) EncodeAcknowledgement(sentAt time.Time) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -164,7 +252,25 @@ func (s *AgentStream) validateInboundEnvelope(envelope *vibebridgev1.Envelope) e
 	if !bytes.Equal(envelope.ConnectionId, s.connectionID) {
 		return errors.New("client envelope connection ID does not match")
 	}
-	if len(envelope.SessionId) != 0 || envelope.SessionGeneration != 0 {
+	if s.sessionResume {
+		if s.sessionBound {
+			if !bytes.Equal(envelope.SessionId, s.sessionID) || envelope.SessionGeneration != s.sessionGeneration {
+				return errors.New("client envelope session metadata does not match the bound session")
+			}
+		} else {
+			if envelope.GetAttachSession() == nil {
+				return errors.New("first client stream message must contain AttachSession")
+			}
+			fresh := len(envelope.SessionId) == 0 && envelope.SessionGeneration == 0
+			resume := len(envelope.SessionId) == connectionIDBytes && envelope.SessionGeneration > 0
+			if !fresh && !resume {
+				return errors.New("AttachSession has invalid session metadata")
+			}
+			if fresh && envelope.GetAttachSession().LastAcknowledgedSequence != 0 {
+				return errors.New("fresh AttachSession cannot carry a resume cursor")
+			}
+		}
+	} else if len(envelope.SessionId) != 0 || envelope.SessionGeneration != 0 {
 		return errors.New("connection-local envelope contains session metadata")
 	}
 	if envelope.Sequence != s.nextInbound {
@@ -178,12 +284,14 @@ func (s *AgentStream) validateInboundEnvelope(envelope *vibebridgev1.Envelope) e
 
 func (s *AgentStream) terminalOutputEnvelope(data []byte, sentAt time.Time) *vibebridgev1.Envelope {
 	return &vibebridgev1.Envelope{
-		ProtocolMajor: CurrentMajor,
-		ProtocolMinor: CurrentMinor,
-		ConnectionId:  append([]byte(nil), s.connectionID...),
-		Sequence:      s.nextOutbound,
-		Acknowledge:   s.highestInbound,
-		SentAt:        timestamppb.New(sentAt.UTC()),
+		ProtocolMajor:     CurrentMajor,
+		ProtocolMinor:     CurrentMinor,
+		ConnectionId:      append([]byte(nil), s.connectionID...),
+		SessionId:         append([]byte(nil), s.sessionID...),
+		SessionGeneration: s.sessionGeneration,
+		Sequence:          s.nextOutbound,
+		Acknowledge:       s.highestInbound,
+		SentAt:            timestamppb.New(sentAt.UTC()),
 		Payload: &vibebridgev1.Envelope_TerminalOutput{TerminalOutput: &vibebridgev1.TerminalOutput{
 			Data: append([]byte(nil), data...),
 		}},
@@ -194,6 +302,8 @@ func (s *AgentStream) encodeLocked(envelope *vibebridgev1.Envelope, sentAt time.
 	envelope.ProtocolMajor = CurrentMajor
 	envelope.ProtocolMinor = CurrentMinor
 	envelope.ConnectionId = append([]byte(nil), s.connectionID...)
+	envelope.SessionId = append([]byte(nil), s.sessionID...)
+	envelope.SessionGeneration = s.sessionGeneration
 	envelope.Sequence = s.nextOutbound
 	envelope.Acknowledge = s.highestInbound
 	envelope.SentAt = timestamppb.New(sentAt.UTC())

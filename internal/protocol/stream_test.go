@@ -49,6 +49,98 @@ func TestAgentStreamSequencesTerminalTrafficAndAcknowledgements(t *testing.T) {
 	}
 }
 
+func TestAgentStreamBindsSessionAndSequencesResumeTraffic(t *testing.T) {
+	stream := newTestAgentResumeStream(t, MaxEnvelopeBytes)
+	sessionID := []byte("fedcba9876543210")
+	attachBytes := marshalClientSessionEnvelope(t, nil, 0, 2, 1, &vibebridgev1.Envelope_AttachSession{
+		AttachSession: &vibebridgev1.AttachSession{LastAcknowledgedSequence: 9},
+	})
+	attachEnvelope := unmarshalStreamEnvelope(t, attachBytes)
+	attachEnvelope.SessionId = append([]byte(nil), sessionID...)
+	attachEnvelope.SessionGeneration = 7
+	attachBytes, _ = proto.Marshal(attachEnvelope)
+
+	attach, err := stream.DecodeClientMessage(attachBytes)
+	if err != nil {
+		t.Fatalf("decode resume attachment: %v", err)
+	}
+	if attach.Kind != ClientStreamMessageAttachSession || attach.LastAcknowledgedSequence != 9 || attach.SessionGeneration != 7 || !bytes.Equal(attach.SessionID, sessionID) {
+		t.Fatalf("decoded attachment = %#v", attach)
+	}
+	if err := stream.CommitClientMessage(attach.Sequence); err != nil {
+		t.Fatalf("commit attachment: %v", err)
+	}
+	if err := stream.BindSession(sessionID, 7); err != nil {
+		t.Fatalf("bind session: %v", err)
+	}
+	if _, err := stream.EncodeSessionStatus(vibebridgev1.ResumeDisposition(99), time.Now()); err == nil {
+		t.Fatal("unknown resume disposition was accepted")
+	}
+
+	statusBytes, err := stream.EncodeSessionStatus(vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESUMED, time.Now())
+	if err != nil {
+		t.Fatalf("encode session status: %v", err)
+	}
+	status := unmarshalStreamEnvelope(t, statusBytes)
+	if status.Sequence != 2 || status.Acknowledge != 2 || status.GetSessionStatus().GetResumeDisposition() != vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESUMED {
+		t.Fatalf("status sequence/ack/disposition = %d/%d/%v", status.Sequence, status.Acknowledge, status.GetSessionStatus().GetResumeDisposition())
+	}
+	if !bytes.Equal(status.SessionId, sessionID) || status.SessionGeneration != 7 {
+		t.Fatalf("status session metadata = %x/%d", status.SessionId, status.SessionGeneration)
+	}
+
+	outputBytes, err := stream.EncodeTerminalOutput([]byte("restored\r\n"), time.Now())
+	if err != nil {
+		t.Fatalf("encode resumed output: %v", err)
+	}
+	output := unmarshalStreamEnvelope(t, outputBytes)
+	if output.Sequence != 3 || !bytes.Equal(output.SessionId, sessionID) || output.SessionGeneration != 7 {
+		t.Fatalf("output sequence/session = %d/%x/%d", output.Sequence, output.SessionId, output.SessionGeneration)
+	}
+	if got := stream.HighestOutboundSequence(); got != 3 {
+		t.Fatalf("highest outbound sequence = %d, want 3", got)
+	}
+}
+
+func TestAgentResumeStreamRejectsTrafficBeforeAttachAndMismatchedSessionMetadata(t *testing.T) {
+	stream := newTestAgentResumeStream(t, MaxEnvelopeBytes)
+	terminalInput := marshalClientStreamEnvelope(t, 2, 1, &vibebridgev1.Envelope_TerminalInput{
+		TerminalInput: &vibebridgev1.TerminalInput{Data: []byte("x")},
+	})
+	if _, err := stream.DecodeClientMessage(terminalInput); err == nil {
+		t.Fatal("terminal input before AttachSession was accepted")
+	}
+
+	sessionID := []byte("fedcba9876543210")
+	attach := marshalClientSessionEnvelope(t, nil, 0, 2, 1, &vibebridgev1.Envelope_AttachSession{AttachSession: &vibebridgev1.AttachSession{}})
+	message, err := stream.DecodeClientMessage(attach)
+	if err != nil {
+		t.Fatalf("decode fresh attachment: %v", err)
+	}
+	if err := stream.CommitClientMessage(message.Sequence); err != nil {
+		t.Fatalf("commit fresh attachment: %v", err)
+	}
+	if err := stream.BindSession(sessionID, 3); err != nil {
+		t.Fatalf("bind session: %v", err)
+	}
+
+	for _, testCase := range []struct {
+		name       string
+		sessionID  []byte
+		generation uint64
+	}{
+		{name: "session ID mismatch", sessionID: []byte("0123456789abcdef"), generation: 3},
+		{name: "generation mismatch", sessionID: sessionID, generation: 2},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			encoded := marshalClientSessionEnvelope(t, testCase.sessionID, testCase.generation, 3, 1, &vibebridgev1.Envelope_Acknowledgement{Acknowledgement: &vibebridgev1.Acknowledgement{}})
+			if _, err := stream.DecodeClientMessage(encoded); err == nil {
+				t.Fatal("mismatched session metadata was accepted")
+			}
+		})
+	}
+}
+
 func TestAgentStreamRejectsDuplicateOutOfOrderAndInvalidAcknowledgement(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -124,16 +216,40 @@ func newTestAgentStream(t *testing.T, peerLimit uint32) *AgentStream {
 	return stream
 }
 
+func newTestAgentResumeStream(t *testing.T, peerLimit uint32) *AgentStream {
+	t.Helper()
+	stream, err := NewAgentStream(NegotiatedHello{
+		Major:                CurrentMajor,
+		Minor:                CurrentMinor,
+		PeerMaxEnvelopeBytes: peerLimit,
+		ConnectionID:         []byte("0123456789abcdef"),
+		capabilities:         map[string]struct{}{CapabilitySessionResume: {}},
+	})
+	if err != nil {
+		t.Fatalf("create resumable Agent stream: %v", err)
+	}
+	return stream
+}
+
 func marshalClientStreamEnvelope(t *testing.T, sequence, acknowledge uint64, payload any) []byte {
 	t.Helper()
+	return marshalClientSessionEnvelope(t, nil, 0, sequence, acknowledge, payload)
+}
+
+func marshalClientSessionEnvelope(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64, payload any) []byte {
+	t.Helper()
 	envelope := &vibebridgev1.Envelope{
-		ProtocolMajor: CurrentMajor,
-		ProtocolMinor: CurrentMinor,
-		ConnectionId:  []byte("0123456789abcdef"),
-		Sequence:      sequence,
-		Acknowledge:   acknowledge,
+		ProtocolMajor:     CurrentMajor,
+		ProtocolMinor:     CurrentMinor,
+		ConnectionId:      []byte("0123456789abcdef"),
+		SessionId:         append([]byte(nil), sessionID...),
+		SessionGeneration: generation,
+		Sequence:          sequence,
+		Acknowledge:       acknowledge,
 	}
 	switch value := payload.(type) {
+	case *vibebridgev1.Envelope_AttachSession:
+		envelope.Payload = value
 	case *vibebridgev1.Envelope_TerminalInput:
 		envelope.Payload = value
 	case *vibebridgev1.Envelope_Acknowledgement:

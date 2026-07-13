@@ -17,7 +17,7 @@ Control local AI CLI sessions such as Codex and Claude Code from your phone over
 - A least-privilege, user-scoped Windows background Agent installed through Task Scheduler.
 - Canonical Protocol V1 Protobuf schemas, generated Go/TypeScript packages, golden vectors, and compatibility CI.
 
-The browser endpoint now negotiates Protocol V1. When both peers support sequenced I/O, terminal input, terminal output, and acknowledgements use ordered Protobuf envelopes; session resume and the remaining control messages are still being migrated incrementally. The legacy adapter remains available during this staged transition.
+The browser endpoint now negotiates Protocol V1. When both peers support sequenced I/O and `session.resume_v1`, terminal traffic, acknowledgements, session attachment, and bounded reconnect replay use ordered Protobuf envelopes with explicit `FRESH`, `RESUMED`, or `RESYNC_REQUIRED` results. The remaining control messages are still being migrated, and the legacy adapter remains available during this staged transition.
 
 ## Platform Status
 
@@ -125,7 +125,7 @@ The background Agent stores its current PID, start time, listener, and random pe
 - Sending `Ctrl+C` to the VibeBridge process or receiving `SIGTERM` closes the active PTY before the HTTP server exits.
 - `GET /status?token=...` reports the session state, start time, last activity time, and configured timeouts without exposing terminal output or the configured command.
 
-Terminal bytes and ANSI sequences are preserved in WebSocket binary frames. Negotiated Protocol V1 peers carry terminal input, terminal output, and acknowledgements in binary Protobuf envelopes; resize, exit, error, and status controls remain JSON text messages during the staged migration. Legacy peers continue to use raw binary output and JSON input.
+Terminal bytes and ANSI sequences are preserved in WebSocket binary frames. Negotiated Protocol V1 peers carry terminal input, terminal output, acknowledgements, `AttachSession`, and `SessionStatus` in binary Protobuf envelopes. Every physical WebSocket starts new sequence state; a reconnect supplies the prior session identity, generation, and highest processed Agent sequence. If the exact checkpoint or complete bounded replay is unavailable, the Agent returns `RESYNC_REQUIRED` and the browser clears stale terminal history before showing the retained tail. Resize, explicit exit, process-exit notification, error, and application ping/pong controls remain JSON text messages during the staged migration. Legacy peers continue to use raw binary output and JSON input.
 
 ## Privacy-Safe Lifecycle Logs
 
@@ -166,7 +166,7 @@ Before using a release, run this real-device check on the target Windows machine
 2. Verify colored CLI output, Chinese input composition, `Send + Enter`, `Insert only`, `Esc`, `Ctrl+C`, Tab, arrows, and clipboard paste.
 3. Rotate the device and open/close the soft keyboard; the terminal must resize without corrupting the CLI layout.
 4. Test terminal search, copy selection, clear view, direct keyboard input, font-size changes, quick prompts, and recent history.
-5. Lock the device or switch networks briefly, confirm the retry countdown, then reconnect before the configured timeout; the same PTY should resume.
+5. Lock the device or switch networks briefly, confirm the retry countdown, then reconnect before the configured timeout; the same PTY identity and generation should resume without duplicated output. If the 1 MiB/two-minute replay bounds are exceeded, confirm the browser clears stale history and explains that terminal history was truncated.
 6. Click End and confirm that the local `codex` process exits. Repeat by stopping VibeBridge with Ctrl+C.
 
 ## Single Binary Build
@@ -184,7 +184,7 @@ The resulting binary contains the React frontend and does not require `web/dist`
 
 - One browser client can control a session at a time.
 - Access uses a per-run token in the QR URL, but transport is not encrypted by VibeBridge itself.
-- Session resume/`RESYNC_REQUIRED` and stable V1 control/error messages are not active yet; the legacy adapter remains available during the Protocol V1 migration.
+- Stable V1 resize/end/ping/pong/exit/error messages are not active yet; these controls and the removable legacy adapter remain migration work.
 - Public relay, native mobile clients, file attachments, and packaged releases are roadmap work, not current features.
 
 ## License

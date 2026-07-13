@@ -5,6 +5,8 @@ import { describe, expect, test } from "vitest";
 import {
   AcknowledgementSchema,
   EnvelopeSchema,
+  ResumeDisposition,
+  SessionStatusSchema,
   TerminalOutputSchema,
   type Envelope,
 } from "../gen/vibebridge/v1/envelope_pb";
@@ -16,10 +18,12 @@ import {
 const connectionId = Uint8Array.from({ length: 16 }, (_, index) => index);
 const sentAt = new Date("2026-07-13T12:00:00Z");
 
-function agentEnvelope(sequence: bigint, acknowledge: bigint, payload: Envelope["payload"]) {
+function agentEnvelope(sequence: bigint, acknowledge: bigint, payload: Envelope["payload"], sessionId = new Uint8Array(), sessionGeneration = 0n) {
   return toBinary(EnvelopeSchema, create(EnvelopeSchema, {
     protocolMajor: 1,
     connectionId,
+    sessionId,
+    sessionGeneration,
     sequence,
     acknowledge,
     sentAt: timestampFromDate(sentAt),
@@ -51,6 +55,79 @@ describe("Protocol V1 sequenced terminal stream", () => {
     expect(acknowledgement.sequence).toBe(3n);
     expect(acknowledgement.acknowledge).toBe(2n);
     expect(acknowledgement.payload.case).toBe("acknowledgement");
+  });
+
+
+  test("attaches and carries a resumable session identity", () => {
+    const sessionId = Uint8Array.from({ length: 16 }, (_, index) => 255 - index);
+    const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { sessionResume: true });
+
+    const attach = fromBinary(EnvelopeSchema, stream.createAttachSession({
+      sessionId,
+      sessionGeneration: 7n,
+      lastAcknowledgedSequence: 9n,
+    }, sentAt));
+    expect(attach.sequence).toBe(2n);
+    expect(attach.acknowledge).toBe(1n);
+    expect(attach.sessionId).toEqual(sessionId);
+    expect(attach.sessionGeneration).toBe(7n);
+    expect(attach.payload.case).toBe("attachSession");
+    if (attach.payload.case !== "attachSession") throw new Error("expected AttachSession");
+    expect(attach.payload.value.lastAcknowledgedSequence).toBe(9n);
+
+    const status = agentEnvelope(2n, 2n, {
+      case: "sessionStatus",
+      value: create(SessionStatusSchema, { resumeDisposition: ResumeDisposition.RESUMED }),
+    }, sessionId, 7n);
+    const statusMessage = stream.acceptAgentMessage(status);
+    expect(statusMessage).toEqual({
+      type: "session-status",
+      disposition: ResumeDisposition.RESUMED,
+      sessionId,
+      sessionGeneration: 7n,
+    });
+    expect(stream.getResumeCursor()).toEqual({
+      sessionId,
+      sessionGeneration: 7n,
+      lastAcknowledgedSequence: 2n,
+    });
+
+    const output = agentEnvelope(3n, 2n, {
+      case: "terminalOutput",
+      value: create(TerminalOutputSchema, { data: new TextEncoder().encode("restored\r\n") }),
+    }, sessionId, 7n);
+    expect(stream.acceptAgentMessage(output).type).toBe("terminal-output");
+    expect(stream.getResumeCursor()?.lastAcknowledgedSequence).toBe(3n);
+
+    const input = fromBinary(EnvelopeSchema, stream.createTerminalInput("continue\r", sentAt));
+    expect(input.sequence).toBe(3n);
+    expect(input.sessionId).toEqual(sessionId);
+    expect(input.sessionGeneration).toBe(7n);
+  });
+
+  test("rejects stream traffic before SessionStatus and mismatched bound metadata", () => {
+    const sessionId = Uint8Array.from({ length: 16 }, (_, index) => 255 - index);
+    const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { sessionResume: true });
+    stream.createAttachSession(undefined, sentAt);
+
+    expect(() => stream.acceptAgentMessage(agentEnvelope(2n, 2n, {
+      case: "terminalOutput",
+      value: create(TerminalOutputSchema, { data: new Uint8Array([1]) }),
+    }))).toThrow("SessionStatus");
+    expect(() => stream.acceptAgentMessage(agentEnvelope(2n, 2n, {
+      case: "sessionStatus",
+      value: fromBinary(SessionStatusSchema, new Uint8Array([8, 99])),
+    }, sessionId, 1n))).toThrow("SessionStatus");
+
+    stream.acceptAgentMessage(agentEnvelope(2n, 2n, {
+      case: "sessionStatus",
+      value: create(SessionStatusSchema, { resumeDisposition: ResumeDisposition.FRESH }),
+    }, sessionId, 1n));
+
+    expect(() => stream.acceptAgentMessage(agentEnvelope(3n, 2n, {
+      case: "acknowledgement",
+      value: create(AcknowledgementSchema),
+    }, sessionId, 2n))).toThrow("session metadata");
   });
 
   test.each([

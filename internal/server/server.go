@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 	"github.com/zzemy/VibeBridge/internal/agentlog"
 	protocolv1 "github.com/zzemy/VibeBridge/internal/protocol"
 	"google.golang.org/protobuf/proto"
@@ -44,11 +46,12 @@ type Server struct {
 	config   Config
 	upgrader websocket.Upgrader
 
-	mu       sync.Mutex
-	session  *ptySession
-	clock    clock
-	launcher terminalLauncher
-	logger   agentlog.Logger
+	mu                    sync.Mutex
+	session               *ptySession
+	nextSessionGeneration uint64
+	clock                 clock
+	launcher              terminalLauncher
+	logger                agentlog.Logger
 }
 
 type ClientMessage struct {
@@ -165,19 +168,38 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	session, err := s.getOrCreateSession()
+	var attachRequest protocolv1.ClientStreamMessage
+	if writer.usesSessionResume() {
+		attachRequest, err = s.readProtocolV1Attach(writer, conn)
+		if err != nil {
+			writer.closeProtocol("Invalid Protocol V1 AttachSession")
+			return
+		}
+	}
+
+	session, created, err := s.getOrCreateSession()
 	if err != nil {
 		_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
 		writeClose(conn)
 		return
 	}
 
-	if !session.attach(writer) {
+	attached := false
+	if writer.usesSessionResume() {
+		attached, err = session.attachProtocolV1(writer, attachRequest, created)
+	} else {
+		attached = session.attach(writer)
+	}
+	if !attached {
 		_ = writer.writeJSON(ServerMessage{Type: "error", Data: "session already active"})
 		writeClose(conn)
 		return
 	}
 	defer session.detach(writer, s.config.ReconnectTimeout)
+	if err != nil {
+		writer.closeProtocol("Protocol V1 session attachment failed")
+		return
+	}
 	defer s.keepConnectionAlive(writer)()
 
 	s.readClientMessages(session, writer, conn)
@@ -226,6 +248,28 @@ func (s *Server) negotiateProtocolV1(writer *websocketWriter, conn *websocket.Co
 	return conn.SetReadDeadline(time.Now().Add(pongWait))
 }
 
+func (s *Server) readProtocolV1Attach(writer *websocketWriter, conn *websocket.Conn) (protocolv1.ClientStreamMessage, error) {
+	_ = conn.SetReadDeadline(time.Now().Add(protocolHelloTimeout))
+	messageType, encoded, err := conn.ReadMessage()
+	if err != nil {
+		return protocolv1.ClientStreamMessage{}, fmt.Errorf("read AttachSession: %w", err)
+	}
+	if messageType != websocket.BinaryMessage {
+		return protocolv1.ClientStreamMessage{}, errors.New("AttachSession must use a binary WebSocket message")
+	}
+	message, err := writer.decodeProtocolV1ClientMessage(encoded)
+	if err != nil {
+		return protocolv1.ClientStreamMessage{}, err
+	}
+	if message.Kind != protocolv1.ClientStreamMessageAttachSession {
+		return protocolv1.ClientStreamMessage{}, errors.New("first stream message must contain AttachSession")
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		return protocolv1.ClientStreamMessage{}, err
+	}
+	return message, nil
+}
+
 func (s *Server) sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -271,9 +315,9 @@ func (s *Server) Close() {
 	}
 }
 
-func (s *Server) getOrCreateSession() (*ptySession, error) {
+func (s *Server) getOrCreateSession() (*ptySession, bool, error) {
 	if len(s.config.Command) == 0 {
-		return nil, errors.New("no command configured")
+		return nil, false, errors.New("no command configured")
 	}
 
 	s.mu.Lock()
@@ -281,12 +325,16 @@ func (s *Server) getOrCreateSession() (*ptySession, error) {
 	s.mu.Unlock()
 
 	if current != nil && !current.isEnded() {
-		return current, nil
+		return current, false, nil
 	}
 
 	correlationID, err := newSessionCorrelationID()
 	if err != nil {
-		return nil, fmt.Errorf("create session correlation ID: %w", err)
+		return nil, false, fmt.Errorf("create session correlation ID: %w", err)
+	}
+	protocolSessionID, err := newProtocolSessionID()
+	if err != nil {
+		return nil, false, fmt.Errorf("create protocol session ID: %w", err)
 	}
 	session, err := newPTYSession(
 		terminalLaunchRequest{Command: s.config.Command, WorkingDirectory: s.config.WorkingDirectory, Environment: s.config.Environment},
@@ -297,17 +345,24 @@ func (s *Server) getOrCreateSession() (*ptySession, error) {
 		sessionTelemetry{correlationID: correlationID, logger: s.logger},
 	)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.session != nil && !s.session.isEnded() {
 		session.terminateWithReason(agentlog.ReasonSuperseded)
-		return s.session, nil
+		return s.session, false, nil
 	}
+	if s.nextSessionGeneration == ^uint64(0) {
+		session.terminateWithReason(agentlog.ReasonSuperseded)
+		return nil, false, errors.New("session generation exhausted")
+	}
+	s.nextSessionGeneration++
+	session.sessionID = protocolSessionID
+	session.generation = s.nextSessionGeneration
 	s.session = session
-	return session, nil
+	return session, true, nil
 }
 
 func (s *Server) clearSession(session *ptySession) {
@@ -396,9 +451,14 @@ type ptySession struct {
 	done        chan struct{}
 	onDone      func(*ptySession)
 
+	outputMu           sync.Mutex
 	mu                 sync.Mutex
 	client             *websocketWriter
 	replay             replayBuffer
+	sessionID          []byte
+	generation         uint64
+	resumeCheckpoint   bool
+	lastDetachedOutput uint64
 	lifecycle          sessionLifecycle
 	detachTimer        timer
 	idleTimeout        time.Duration
@@ -452,22 +512,15 @@ func newPTYSession(request terminalLaunchRequest, idleTimeout time.Duration, ses
 }
 
 func (s *ptySession) attach(writer *websocketWriter) bool {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+
 	s.mu.Lock()
-	if s.client != nil || !s.lifecycle.attach() {
+	if !s.beginAttachLocked(writer) {
 		s.mu.Unlock()
 		return false
 	}
-
-	if s.detachTimer != nil {
-		s.detachTimer.Stop()
-		s.detachTimer = nil
-	}
-
-	s.client = writer
-	s.lastActivityAt = s.clock.Now()
-	s.resetIdleTimerLocked()
 	buffered := s.replay.drain()
-	s.logEvent(agentlog.EventSessionAttached, agentlog.State(s.lifecycle.state), "", "")
 	s.mu.Unlock()
 
 	for _, chunk := range buffered {
@@ -478,13 +531,75 @@ func (s *ptySession) attach(writer *websocketWriter) bool {
 	return true
 }
 
+func (s *ptySession) attachProtocolV1(writer *websocketWriter, request protocolv1.ClientStreamMessage, created bool) (bool, error) {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+
+	s.mu.Lock()
+	if !s.beginAttachLocked(writer) {
+		s.mu.Unlock()
+		return false, nil
+	}
+	buffered, replayComplete := s.replay.drainWithStatus()
+	disposition := s.resumeDispositionLocked(request, created, replayComplete)
+	sessionID := append([]byte(nil), s.sessionID...)
+	generation := s.generation
+	s.mu.Unlock()
+
+	if err := writer.commitProtocolV1Attach(request.Sequence, sessionID, generation, disposition); err != nil {
+		return true, err
+	}
+	for _, chunk := range buffered {
+		if err := writer.writeBinary(chunk); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
+}
+
+func (s *ptySession) beginAttachLocked(writer *websocketWriter) bool {
+	if s.client != nil || !s.lifecycle.attach() {
+		return false
+	}
+	if s.detachTimer != nil {
+		s.detachTimer.Stop()
+		s.detachTimer = nil
+	}
+	s.client = writer
+	s.lastActivityAt = s.clock.Now()
+	s.resetIdleTimerLocked()
+	s.logEvent(agentlog.EventSessionAttached, agentlog.State(s.lifecycle.state), "", "")
+	return true
+}
+
+func (s *ptySession) resumeDispositionLocked(request protocolv1.ClientStreamMessage, created, replayComplete bool) vibebridgev1.ResumeDisposition {
+	fresh := len(request.SessionID) == 0 && request.SessionGeneration == 0 && request.LastAcknowledgedSequence == 0
+	if created && fresh {
+		return vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_FRESH
+	}
+	identityMatches := bytes.Equal(request.SessionID, s.sessionID) && request.SessionGeneration == s.generation
+	if !created && identityMatches && s.resumeCheckpoint && replayComplete && request.LastAcknowledgedSequence == s.lastDetachedOutput {
+		return vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESUMED
+	}
+	return vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED
+}
+
 func (s *ptySession) detach(writer *websocketWriter, timeout time.Duration) {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
 	s.mu.Lock()
 	if s.client != writer {
 		s.mu.Unlock()
 		return
 	}
 	s.client = nil
+	if writer.usesSessionResume() {
+		s.resumeCheckpoint = true
+		s.lastDetachedOutput = writer.highestProtocolV1OutboundSequence()
+	} else {
+		s.resumeCheckpoint = false
+		s.lastDetachedOutput = 0
+	}
 	if !s.lifecycle.detach() {
 		s.mu.Unlock()
 		return
@@ -591,6 +706,8 @@ func (s *ptySession) streamOutput() {
 }
 
 func (s *ptySession) deliverOutput(chunk []byte) {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
 	s.mu.Lock()
 	if !s.lifecycle.acceptsOutput() {
 		s.mu.Unlock()
@@ -720,6 +837,12 @@ func (w *websocketWriter) enableProtocolV1(stream *protocolv1.AgentStream) {
 	w.protocolV1 = stream
 }
 
+func (w *websocketWriter) usesSessionResume() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.protocolV1 != nil && w.protocolV1.UsesSessionResume()
+}
+
 func (w *websocketWriter) usesProtocolV1() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -730,6 +853,31 @@ func (w *websocketWriter) decodeProtocolV1ClientMessage(encoded []byte) (protoco
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.protocolV1.DecodeClientMessage(encoded)
+}
+
+func (w *websocketWriter) commitProtocolV1Attach(sequence uint64, sessionID []byte, generation uint64, disposition vibebridgev1.ResumeDisposition) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.protocolV1.CommitClientMessage(sequence); err != nil {
+		return err
+	}
+	if err := w.protocolV1.BindSession(sessionID, generation); err != nil {
+		return err
+	}
+	encoded, err := w.protocolV1.EncodeSessionStatus(disposition, w.currentTime())
+	if err != nil {
+		return err
+	}
+	return w.conn.WriteMessage(websocket.BinaryMessage, encoded)
+}
+
+func (w *websocketWriter) highestProtocolV1OutboundSequence() uint64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.protocolV1 == nil {
+		return 0
+	}
+	return w.protocolV1.HighestOutboundSequence()
 }
 
 func (w *websocketWriter) commitProtocolV1ClientMessage(sequence uint64, sendAcknowledgement bool) error {
