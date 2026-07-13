@@ -137,6 +137,206 @@ func TestWebSocketRejectsCrossOrigin(t *testing.T) {
 	}
 }
 
+func TestPreviousStableClientCompatibility(t *testing.T) {
+	// dfc6a108550258fba8c7652351193fa89f01014d is the previous stable
+	// browser baseline: no WebSocket subprotocol, raw binary output, and JSON controls.
+	wait := make(chan struct{})
+	var cancelOnce sync.Once
+	terminal := &recordingPTY{writes: make(chan []byte, 1), resizes: make(chan terminalDimensions, 1)}
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    terminal,
+		processTree: &countingProcessTree{},
+		cancel:      func() { cancelOnce.Do(func() { close(wait) }) },
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	defer app.Close()
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws?token=expected-token"
+	connection, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial previous client WebSocket: %v", err)
+	}
+	defer connection.Close()
+
+	messageType, initialOutput, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read previous client initial output: %v", err)
+	}
+	if messageType != websocket.BinaryMessage || !strings.Contains(string(initialOutput), "started PTY shell") {
+		t.Fatalf("previous client initial output type/data = %d/%q", messageType, initialOutput)
+	}
+
+	if err := connection.WriteJSON(ClientMessage{Type: "input", Data: "previous\r"}); err != nil {
+		t.Fatalf("send previous client input: %v", err)
+	}
+	select {
+	case written := <-terminal.writes:
+		if string(written) != "previous\r" {
+			t.Fatalf("previous client PTY input = %q, want previous\\r", written)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("previous client input was not written to the PTY")
+	}
+
+	if err := connection.WriteJSON(ClientMessage{Type: "resize", Cols: 90, Rows: 30}); err != nil {
+		t.Fatalf("send previous client resize: %v", err)
+	}
+	select {
+	case dimensions := <-terminal.resizes:
+		if dimensions.columns != 90 || dimensions.rows != 30 {
+			t.Fatalf("previous client PTY resize = %#v, want 90x30", dimensions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("previous client resize was not applied")
+	}
+
+	if err := connection.WriteJSON(ClientMessage{Type: "ping"}); err != nil {
+		t.Fatalf("send previous client ping: %v", err)
+	}
+	var pong ServerMessage
+	if err := connection.ReadJSON(&pong); err != nil {
+		t.Fatalf("read previous client pong: %v", err)
+	}
+	if pong.Type != "pong" {
+		t.Fatalf("previous client health response = %#v, want pong", pong)
+	}
+
+	if err := connection.WriteJSON(ClientMessage{Type: "exit"}); err != nil {
+		t.Fatalf("send previous client exit: %v", err)
+	}
+	messageType, endingOutput, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read previous client ending output: %v", err)
+	}
+	if messageType != websocket.BinaryMessage || !strings.Contains(string(endingOutput), "ending session") {
+		t.Fatalf("previous client ending output type/data = %d/%q", messageType, endingOutput)
+	}
+	var exit ServerMessage
+	if err := connection.ReadJSON(&exit); err != nil {
+		t.Fatalf("read previous client process exit: %v", err)
+	}
+	if exit.Type != "exit" || exit.Data != "process exited" {
+		t.Fatalf("previous client process exit = %#v", exit)
+	}
+}
+
+func TestDisabledLegacyProtocolRejectsPreviousClientBeforeStartingSession(t *testing.T) {
+	launcher := &fakeTerminalLauncher{}
+	app := New(Config{
+		SessionToken:          "expected-token",
+		Command:               []string{"fake"},
+		DisableLegacyProtocol: true,
+	})
+	app.launcher = launcher
+	defer app.Close()
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws?token=expected-token"
+	connection, response, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if connection != nil {
+		connection.Close()
+	}
+	if err == nil {
+		t.Fatal("previous client connected while legacy protocol was disabled")
+	}
+	if response == nil || response.StatusCode != http.StatusUpgradeRequired {
+		status := 0
+		if response != nil {
+			status = response.StatusCode
+		}
+		t.Fatalf("legacy-disabled response status = %d, want %d", status, http.StatusUpgradeRequired)
+	}
+	if launcher.calls.Load() != 0 {
+		t.Fatalf("terminal launch calls = %d, want 0", launcher.calls.Load())
+	}
+}
+
+func TestDisabledLegacyProtocolRejectsPartialProtocolV1BeforeStartingSession(t *testing.T) {
+	launcher := &fakeTerminalLauncher{err: errors.New("partial client must not start a terminal")}
+	app := New(Config{
+		SessionToken:          "expected-token",
+		Command:               []string{"fake"},
+		DisableLegacyProtocol: true,
+	})
+	app.launcher = launcher
+	defer app.Close()
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{protocolv1.CapabilityTerminalBinaryOutput}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send partial client Hello: %v", err)
+	}
+	if _, _, err := connection.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseProtocolError) {
+		t.Fatalf("partial client close error = %v, want WebSocket 1002", err)
+	}
+	if launcher.calls.Load() != 0 {
+		t.Fatalf("terminal launch calls = %d, want 0", launcher.calls.Load())
+	}
+}
+
+func TestDisabledLegacyProtocolAcceptsCurrentClient(t *testing.T) {
+	wait := make(chan struct{})
+	var cancelOnce sync.Once
+	terminal := &recordingPTY{writes: make(chan []byte, 1)}
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    terminal,
+		processTree: &countingProcessTree{},
+		cancel:      func() { cancelOnce.Do(func() { close(wait) }) },
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{
+		SessionToken:          "expected-token",
+		Command:               []string{"fake"},
+		DisableLegacyProtocol: true,
+	})
+	app.launcher = launcher
+	defer app.Close()
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilityTerminalResizeEnd,
+		protocolv1.CapabilitySessionProcessExit,
+		protocolv1.CapabilitySessionResume,
+		protocolv1.CapabilityControlError,
+		protocolv1.CapabilityControlHealth,
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send current client Hello: %v", err)
+	}
+	hello := readProtocolEnvelope(t, connection)
+	if hello.Sequence != 1 || hello.GetHello().GetPeerRole() != vibebridgev1.PeerRole_PEER_ROLE_AGENT {
+		t.Fatalf("Agent Hello sequence/peer role = %d/%v, want 1/Agent", hello.Sequence, hello.GetHello().GetPeerRole())
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientAttach(t, nil, 0, 0)); err != nil {
+		t.Fatalf("send fresh AttachSession: %v", err)
+	}
+	fresh := readProtocolEnvelope(t, connection)
+	if fresh.Sequence != 2 || fresh.Acknowledge != 2 || fresh.GetSessionStatus().GetResumeDisposition() != vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_FRESH {
+		t.Fatalf("fresh status sequence/ack/disposition = %d/%d/%v, want 2/2/fresh", fresh.Sequence, fresh.Acknowledge, fresh.GetSessionStatus().GetResumeDisposition())
+	}
+	initialOutput := readProtocolEnvelope(t, connection)
+	if initialOutput.Sequence != 3 || initialOutput.Acknowledge != 2 || initialOutput.GetTerminalOutput() == nil || !strings.Contains(string(initialOutput.GetTerminalOutput().GetData()), "started PTY shell") {
+		t.Fatalf("current client initial output sequence/ack/data = %d/%d/%q", initialOutput.Sequence, initialOutput.Acknowledge, initialOutput.GetTerminalOutput().GetData())
+	}
+	if launcher.calls.Load() != 1 {
+		t.Fatalf("terminal launch calls = %d, want 1", launcher.calls.Load())
+	}
+
+}
+
 func TestWebSocketWriterWritesBinaryOutput(t *testing.T) {
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		connection, err := websocket.Upgrade(w, r, nil, 1024, 1024)

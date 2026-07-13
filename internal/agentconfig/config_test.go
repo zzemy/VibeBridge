@@ -14,6 +14,7 @@ func TestLoadValidConfigAndResolveProfile(t *testing.T) {
 		"listen_address": "127.0.0.1:8787",
 		"reconnect_timeout": "2m",
 		"idle_timeout": "0s",
+		"disable_legacy_protocol": true,
 		"default_profile": "codex",
 		"profiles": [{
 			"id": "codex",
@@ -44,6 +45,9 @@ func TestLoadValidConfigAndResolveProfile(t *testing.T) {
 	}
 	if timeout, ok := config.ParsedReconnectTimeout(); !ok || timeout != 2*time.Minute {
 		t.Fatalf("reconnect timeout = %v/%t, want 2m/true", timeout, ok)
+	}
+	if !config.DisableLegacyProtocol {
+		t.Fatal("disable_legacy_protocol was not loaded")
 	}
 }
 

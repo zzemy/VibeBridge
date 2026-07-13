@@ -63,6 +63,7 @@ go run ./cmd/vibebridge --cmd "codex"
 go run ./cmd/vibebridge --addr "0.0.0.0:8787"
 go run ./cmd/vibebridge --reconnect-timeout 90s
 go run ./cmd/vibebridge --idle-timeout 30m
+go run ./cmd/vibebridge --disable-legacy-protocol
 go run ./cmd/vibebridge --diagnose
 ```
 
@@ -81,11 +82,13 @@ go run ./cmd/vibebridge --config config.local.json --profile codex
 go run ./cmd/vibebridge --config config.local.json --profile claude --diagnose
 ```
 
-The configuration format is explicitly versioned. Version 1 supports listener/static-asset settings, reconnect and idle durations, a default profile, and structured launch profiles. Each profile declares an executable, an argument array, an optional working directory, and an environment-variable allowlist. Arguments are passed directly to the executable without shell interpolation. Relative working directories are resolved relative to the configuration file.
+The configuration format is explicitly versioned. Version 1 supports listener/static-asset settings, reconnect and idle durations, the optional `disable_legacy_protocol` migration gate, a default profile, and structured launch profiles. Each profile declares an executable, an argument array, an optional working directory, and an environment-variable allowlist. Arguments are passed directly to the executable without shell interpolation. Relative working directories are resolved relative to the configuration file.
 
 Profile sessions inherit only environment variables named in `environment_allowlist`; missing variables are omitted. Include variables required by the selected tool, such as `PATH`, `PATHEXT`, `SYSTEMROOT`, `TEMP`, `TMP`, and `USERPROFILE` on Windows. The example is Windows-oriented; change the shell executable and environment names for another supported platform.
 
-Unknown fields, unsupported versions, duplicate profile IDs, invalid durations, missing default profiles, invalid environment names, and configuration files larger than 1 MiB are rejected. Command-line `--addr`, `--web-dir`, `--reconnect-timeout`, and `--idle-timeout` values override configured values. An explicit `--cmd` preserves the legacy flow and overrides the configured default profile; `--cmd` and `--profile` cannot be combined.
+Unknown fields, unsupported versions, duplicate profile IDs, invalid durations, missing default profiles, invalid environment names, and configuration files larger than 1 MiB are rejected. Command-line `--addr`, `--web-dir`, `--reconnect-timeout`, `--idle-timeout`, and explicit `--disable-legacy-protocol=true|false` values override configured values. An explicit `--cmd` preserves the legacy flow and overrides the configured default profile; `--cmd` and `--profile` cannot be combined.
+
+Legacy compatibility is enabled by default. Set `disable_legacy_protocol` to `true` or pass `--disable-legacy-protocol` only after all deployed clients support the complete current Protocol V1 capability set. In that mode, clients without the `vibebridge.v1` WebSocket subprotocol receive HTTP `426` and V1 clients missing a required current capability receive WebSocket close `1002`; both checks happen before PTY/session creation.
 
 ## Windows Background Agent
 
@@ -184,7 +187,7 @@ The resulting binary contains the React frontend and does not require `web/dist`
 
 - One browser client can control a session at a time.
 - Access uses a per-run token in the QR URL, but transport is not encrypted by VibeBridge itself.
-- The browser does not yet schedule Protocol V1 application health probes; previous-client compatibility coverage and the removable legacy adapter also remain migration work.
+- The browser does not yet schedule Protocol V1 application health probes.
 - Public relay, native mobile clients, file attachments, and packaged releases are roadmap work, not current features.
 
 ## License

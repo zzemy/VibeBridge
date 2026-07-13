@@ -145,6 +145,7 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 		"web_directory": "custom-web",
 		"reconnect_timeout": "2m",
 		"idle_timeout": "0s",
+		"disable_legacy_protocol": true,
 		"default_profile": "codex",
 		"profiles": [{
 			"id": "codex",
@@ -187,6 +188,9 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 	if options.reconnectTimeout != 2*time.Minute || options.idleTimeout != 0 {
 		t.Fatalf("configured timeouts = %v/%v", options.reconnectTimeout, options.idleTimeout)
 	}
+	if !options.disableLegacyProtocol {
+		t.Fatal("configured disable_legacy_protocol was not applied")
+	}
 	if !reflect.DeepEqual(options.environment, []string{"PATH=test-path"}) {
 		t.Fatalf("environment = %q, want allowlisted existing value", options.environment)
 	}
@@ -194,19 +198,20 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 
 func TestResolveStartupOptionsPreservesExplicitCLIOverrides(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	content := `{"version":1,"listen_address":"127.0.0.1:9000","web_directory":"configured-web","reconnect_timeout":"2m","idle_timeout":"0s","default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`
+	content := `{"version":1,"listen_address":"127.0.0.1:9000","web_directory":"configured-web","reconnect_timeout":"2m","idle_timeout":"0s","disable_legacy_protocol":true,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`
 	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
 	options, err := resolveStartupOptions(startupOptions{
-		addr:             "127.0.0.1:7000",
-		webDir:           "cli-web",
-		commandLine:      "custom --arg",
-		reconnectTimeout: time.Minute,
-		idleTimeout:      15 * time.Minute,
+		addr:                  "127.0.0.1:7000",
+		webDir:                "cli-web",
+		commandLine:           "custom --arg",
+		reconnectTimeout:      time.Minute,
+		idleTimeout:           15 * time.Minute,
+		disableLegacyProtocol: false,
 	}, configPath, "", map[string]bool{
-		"addr": true, "web-dir": true, "cmd": true, "reconnect-timeout": true, "idle-timeout": true,
+		"addr": true, "web-dir": true, "cmd": true, "reconnect-timeout": true, "idle-timeout": true, "disable-legacy-protocol": true,
 	}, os.LookupEnv)
 	if err != nil {
 		t.Fatalf("resolve options: %v", err)
@@ -216,6 +221,9 @@ func TestResolveStartupOptionsPreservesExplicitCLIOverrides(t *testing.T) {
 	}
 	if options.reconnectTimeout != time.Minute || options.idleTimeout != 15*time.Minute {
 		t.Fatalf("CLI timeout overrides = %v/%v", options.reconnectTimeout, options.idleTimeout)
+	}
+	if options.disableLegacyProtocol {
+		t.Fatal("explicit CLI false did not override disable_legacy_protocol")
 	}
 	if !reflect.DeepEqual(options.command, []string{"custom", "--arg"}) {
 		t.Fatalf("CLI command override = %q", options.command)
