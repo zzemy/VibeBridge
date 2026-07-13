@@ -15,6 +15,7 @@ import (
 const (
 	CapabilityTerminalSequencedIO = "terminal.sequenced_io_v1"
 	CapabilityTerminalResizeEnd   = "terminal.resize_end_v1"
+	CapabilitySessionProcessExit  = "session.process_exit_v1"
 	CapabilitySessionResume       = "session.resume_v1"
 	MaxTerminalInputBytes         = 32 * 1024
 	MaxTerminalDimension          = 65_535
@@ -54,6 +55,7 @@ type AgentStream struct {
 	highestPeerAck      uint64
 	sessionResume       bool
 	terminalResizeEnd   bool
+	sessionProcessExit  bool
 	sessionBound        bool
 	sessionID           []byte
 	sessionGeneration   uint64
@@ -74,6 +76,7 @@ func NewAgentStream(negotiated NegotiatedHello) (*AgentStream, error) {
 		highestInbound:      1,
 		sessionResume:       negotiated.HasCapability(CapabilitySessionResume),
 		terminalResizeEnd:   negotiated.HasCapability(CapabilityTerminalResizeEnd),
+		sessionProcessExit:  negotiated.HasCapability(CapabilitySessionProcessExit),
 	}, nil
 }
 
@@ -244,6 +247,36 @@ func (s *AgentStream) EncodeSessionStatus(disposition vibebridgev1.ResumeDisposi
 	return s.encodeLocked(&vibebridgev1.Envelope{Payload: &vibebridgev1.Envelope_SessionStatus{SessionStatus: &vibebridgev1.SessionStatus{
 		ResumeDisposition: disposition,
 	}}}, sentAt)
+}
+
+// EncodeProcessExit encodes a safe final PTY lifecycle result. It rejects
+// unnegotiated streams, unknown outcomes, and unbound resumable sessions.
+func (s *AgentStream) EncodeProcessExit(outcome vibebridgev1.ProcessExitOutcome, sentAt time.Time) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.sessionProcessExit {
+		return nil, errors.New("session process exit was not negotiated")
+	}
+	if s.sessionResume && !s.sessionBound {
+		return nil, errors.New("session must be bound before ProcessExit")
+	}
+	switch outcome {
+	case vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_SUCCESS,
+		vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_FAILURE:
+	default:
+		return nil, errors.New("process exit outcome is invalid")
+	}
+	return s.encodeLocked(&vibebridgev1.Envelope{Payload: &vibebridgev1.Envelope_ProcessExit{ProcessExit: &vibebridgev1.ProcessExit{
+		Outcome: outcome,
+	}}}, sentAt)
+}
+
+// UsesSessionProcessExit reports whether session.process_exit_v1 was negotiated
+// for this physical connection.
+func (s *AgentStream) UsesSessionProcessExit() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sessionProcessExit
 }
 
 // UsesTerminalResizeEnd reports whether terminal.resize_end_v1 was negotiated

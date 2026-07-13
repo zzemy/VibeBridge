@@ -7,6 +7,8 @@ import {
   EnvelopeSchema,
   HelloSchema,
   PeerRole,
+  ProcessExitOutcome,
+  ProcessExitSchema,
   ProtocolVersionRangeSchema,
   ProtocolVersionSchema,
   ResumeDisposition,
@@ -15,6 +17,7 @@ import {
 import {
   protocolV1MaxEnvelopeBytes,
   protocolV1WebSocketSubprotocol,
+  sessionProcessExitCapability,
   sessionResumeCapability,
   terminalBinaryOutputCapability,
   terminalResizeEndCapability,
@@ -106,6 +109,24 @@ class FakeWebSocket {
   }
 }
 
+function createAgentHello(connectionId: Uint8Array, capabilities: string[]) {
+  const version = () => create(ProtocolVersionSchema, { major: 1, minor: 0 });
+  return toBinary(EnvelopeSchema, create(EnvelopeSchema, {
+    protocolMajor: 1,
+    connectionId,
+    sequence: 1n,
+    payload: {
+      case: "hello",
+      value: create(HelloSchema, {
+        peerRole: PeerRole.AGENT,
+        supportedVersions: create(ProtocolVersionRangeSchema, { minimum: version(), maximum: version() }),
+        capabilities,
+        maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
+      }),
+    },
+  }));
+}
+
 import { App } from "./App";
 
 beforeEach(() => {
@@ -151,21 +172,13 @@ test("waits for SessionStatus, resets stale history, and sends negotiated resize
   const clientHello = fromBinary(EnvelopeSchema, new Uint8Array(clientHelloBytes));
   expect(screen.getByText("Connecting")).toBeTruthy();
 
-  const version = () => create(ProtocolVersionSchema, { major: 1, minor: 0 });
-  const agentHello = toBinary(EnvelopeSchema, create(EnvelopeSchema, {
-    protocolMajor: 1,
-    connectionId: clientHello.connectionId,
-    sequence: 1n,
-    payload: {
-      case: "hello",
-      value: create(HelloSchema, {
-        peerRole: PeerRole.AGENT,
-        supportedVersions: create(ProtocolVersionRangeSchema, { minimum: version(), maximum: version() }),
-        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, terminalResizeEndCapability, sessionResumeCapability],
-        maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
-      }),
-    },
-  }));
+  const agentHello = createAgentHello(clientHello.connectionId, [
+    terminalBinaryOutputCapability,
+    terminalSequencedIoCapability,
+    terminalResizeEndCapability,
+    sessionProcessExitCapability,
+    sessionResumeCapability,
+  ]);
   act(() => socket.message(agentHello.slice().buffer));
 
   expect(screen.getByText("Connecting")).toBeTruthy();
@@ -214,6 +227,23 @@ test("waits for SessionStatus, resets stale history, and sends negotiated resize
   expect(end.sessionId).toEqual(sessionId);
   expect(end.sessionGeneration).toBe(4n);
   expect(end.payload.case).toBe("endSession");
+
+  const processExit = toBinary(EnvelopeSchema, create(EnvelopeSchema, {
+    protocolMajor: 1,
+    connectionId: clientHello.connectionId,
+    sessionId,
+    sessionGeneration: 4n,
+    sequence: 3n,
+    acknowledge: 4n,
+    payload: {
+      case: "processExit",
+      value: create(ProcessExitSchema, { outcome: ProcessExitOutcome.SUCCESS }),
+    },
+  }));
+  act(() => socket.message(processExit.slice().buffer));
+
+  await waitFor(() => expect(screen.getByText("Closed")).toBeTruthy());
+  expect(terminalState.chunks.at(-1)).toBe("process: exited\r\n");
 });
 
 test("falls back to JSON resize/end controls when the capability is not negotiated", async () => {
@@ -228,21 +258,7 @@ test("falls back to JSON resize/end controls when the capability is not negotiat
   const clientHelloBytes = socket.sent[0];
   if (!(clientHelloBytes instanceof ArrayBuffer)) throw new Error("expected binary client Hello");
   const clientHello = fromBinary(EnvelopeSchema, new Uint8Array(clientHelloBytes));
-  const version = () => create(ProtocolVersionSchema, { major: 1, minor: 0 });
-  const agentHello = toBinary(EnvelopeSchema, create(EnvelopeSchema, {
-    protocolMajor: 1,
-    connectionId: clientHello.connectionId,
-    sequence: 1n,
-    payload: {
-      case: "hello",
-      value: create(HelloSchema, {
-        peerRole: PeerRole.AGENT,
-        supportedVersions: create(ProtocolVersionRangeSchema, { minimum: version(), maximum: version() }),
-        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability],
-        maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
-      }),
-    },
-  }));
+  const agentHello = createAgentHello(clientHello.connectionId, [terminalBinaryOutputCapability, terminalSequencedIoCapability]);
   act(() => socket.message(agentHello.slice().buffer));
 
   await waitFor(() => expect(screen.getByText("Connected")).toBeTruthy());
@@ -253,4 +269,35 @@ test("falls back to JSON resize/end controls when the capability is not negotiat
   await user.click(screen.getByRole("button", { name: "End" }));
   await user.click(screen.getByRole("button", { name: "End session" }));
   expect(socket.sent.at(-1)).toBe(JSON.stringify({ type: "exit" }));
+
+  act(() => socket.message(JSON.stringify({ type: "exit", data: "process exited" })));
+  await waitFor(() => expect(screen.getByText("Closed")).toBeTruthy());
+  expect(terminalState.chunks.at(-1)).toBe("process: process exited\r\n");
+});
+
+test("rejects JSON process exit when the capability is negotiated", async () => {
+  window.history.replaceState({}, "", "/?token=test-token");
+  render(<App />);
+  await screen.findByTestId("terminal-view");
+  await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+  const socket = FakeWebSocket.instances[0];
+  if (!socket) throw new Error("expected WebSocket instance");
+
+  act(() => socket.open());
+  const clientHelloBytes = socket.sent[0];
+  if (!(clientHelloBytes instanceof ArrayBuffer)) throw new Error("expected binary client Hello");
+  const clientHello = fromBinary(EnvelopeSchema, new Uint8Array(clientHelloBytes));
+  const agentHello = createAgentHello(clientHello.connectionId, [
+    terminalBinaryOutputCapability,
+    terminalSequencedIoCapability,
+    sessionProcessExitCapability,
+  ]);
+  act(() => socket.message(agentHello.slice().buffer));
+  await waitFor(() => expect(screen.getByText("Connected")).toBeTruthy());
+
+  act(() => socket.message(JSON.stringify({ type: "exit", data: "private host process failure" })));
+
+  await waitFor(() => expect(screen.getByText("Error")).toBeTruthy());
+  expect(terminalState.chunks.at(-1)).toBe("protocol negotiation failed: Negotiated process exit must use a Protocol V1 envelope\r\n");
+  expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
 });
