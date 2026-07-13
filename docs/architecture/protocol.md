@@ -109,7 +109,10 @@ Current migration behavior:
 - A negotiation failure closes the WebSocket with protocol error code `1002` and does not mutate session state. If the peer does not select `vibebridge.v1`, the existing legacy JSON/raw-binary path remains available during migration.
 - If both peers advertise `terminal.sequenced_io_v1`, terminal input and output use binary protobuf envelopes. Hello is sequence `1` in each direction; subsequent connection-local messages increase monotonically, reject gaps and duplicates, and carry the highest contiguous peer acknowledgement. An explicit `Acknowledgement` payload advances acknowledgement when no data message is available for piggybacking.
 - Agent output is split on actual protobuf envelope size to honor the lower negotiated peer limit without dropping PTY bytes. Terminal input is limited to 32 KiB and every decoder retains the 64 KiB local envelope ceiling.
-- Session identifiers, generations, resume replay, and `RESYNC_REQUIRED` are not yet active. Reconnect creates fresh connection-local sequence state and re-encodes the existing bounded raw replay buffer. Resize, end, ping/pong, exit, and error controls remain on the transitional JSON adapter until their V1 payloads are introduced.
+- If both peers also advertise `session.resume_v1`, the first client stream message is `AttachSession` at sequence `2`, followed by the Agent's `SessionStatus` at sequence `2`. Fresh attachment uses empty session metadata and cursor zero; resume sends the assigned 16-byte session ID, positive generation, and the highest Agent sequence processed on the previous physical connection. Terminal traffic starts at sequence `3` after attachment.
+- Sequence and acknowledgement state is physical-connection-local: each WebSocket restarts with Hello sequence `1`. Detached raw PTY output is re-encoded into new sequence `3+` envelopes rather than preserving old wire sequence numbers.
+- The Agent returns `RESUMED` only for an exact identity, generation, detach-checkpoint, cursor, and complete-replay match. Byte or time eviction makes replay incomplete. A new PTY returns `FRESH`; every other attachment returns `RESYNC_REQUIRED`, causing the browser to reset stale terminal state, explain the truncation, and render any retained replay tail. Each new PTY gets a random protocol session ID and a monotonically increasing in-process generation.
+- Resize, end, ping/pong, process-exit, and error controls remain on the transitional JSON adapter until their V1 payloads are introduced.
 
 Support policy:
 
@@ -134,12 +137,12 @@ Required capabilities are declared before starting a flow. A client must not inf
 
 ## Ordering and Resume
 
-- Each direction has a monotonically increasing 64-bit sequence.
-- Acknowledgements report the highest contiguous sequence processed.
-- Agent keeps a bounded byte-based replay buffer for terminal output.
-- Resume includes session identifier, generation, and last acknowledged sequence.
-- If replay is unavailable, the Agent returns `RESYNC_REQUIRED`; the client clears terminal state and requests a current snapshot or explains that history was truncated.
-- A new PTY increments session generation so stale clients cannot attach to a replacement session using old sequence state.
+- Each direction has a monotonically increasing 64-bit sequence scoped to one physical connection.
+- Acknowledgements report the highest contiguous sequence processed on that connection.
+- The Agent keeps at most the newest 1 MiB and two minutes of detached terminal output; any byte or time eviction marks replay incomplete.
+- Resume includes the prior session identifier, generation, and highest Agent sequence the client processed. The cursor must exactly match the detach checkpoint; the Agent never claims recovery for output whose processing cannot be established.
+- `SessionStatus` is ordered before detached replay and live PTY output. If identity, generation, checkpoint, cursor, or replay completeness does not match, the Agent returns `RESYNC_REQUIRED`; the client clears terminal state and explains that history was truncated before rendering the retained tail.
+- A new PTY receives a new random session ID and increments the in-process session generation so stale clients cannot attach to a replacement session using old state.
 
 ## Error Model
 

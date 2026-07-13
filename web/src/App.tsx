@@ -5,6 +5,7 @@ import { PromptComposer } from "./components/PromptComposer";
 import { ShortcutBar } from "./components/ShortcutBar";
 import { TerminalToolbar } from "./components/TerminalToolbar";
 import type { TerminalViewHandle } from "./components/TerminalView";
+import { ResumeDisposition } from "./gen/vibebridge/v1/envelope_pb";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,6 +24,8 @@ import {
   newProtocolV1ConnectionId,
   ProtocolV1ClientStream,
   protocolV1WebSocketSubprotocol,
+  sessionResumeCapability,
+  type SessionResumeCursor,
   terminalBinaryOutputCapability,
   terminalSequencedIoCapability,
 } from "./lib/protocol-v1";
@@ -77,6 +80,7 @@ export function App() {
   const [now, setNow] = useState(Date.now());
   const socketRef = useRef<WebSocket | null>(null);
   const protocolStreamRef = useRef<ProtocolV1ClientStream | null>(null);
+  const resumeCursorRef = useRef<SessionResumeCursor | undefined>(undefined);
   const terminalRef = useRef<TerminalViewHandle | null>(null);
   const stopReconnectRef = useRef(false);
   const hasConnectedRef = useRef(false);
@@ -258,10 +262,19 @@ export function App() {
               throw new Error(`Agent does not support ${terminalBinaryOutputCapability}`);
             }
             if (negotiated.capabilities.has(terminalSequencedIoCapability)) {
-              protocolStreamRef.current = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes);
+              const sessionResume = negotiated.capabilities.has(sessionResumeCapability);
+              const stream = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes, { sessionResume });
+              protocolStreamRef.current = stream;
+              protocolNegotiated = true;
+              if (sessionResume) {
+                socket.send(stream.createAttachSession(resumeCursorRef.current).slice().buffer);
+              } else {
+                markConnected();
+              }
+            } else {
+              protocolNegotiated = true;
+              markConnected();
             }
-            protocolNegotiated = true;
-            markConnected();
           } catch (error) {
             failProtocol(error instanceof Error ? error.message : "invalid Agent Hello");
           }
@@ -276,7 +289,18 @@ export function App() {
           }
           try {
             const message = protocolStream.acceptAgentMessage(new Uint8Array(payload));
-            if (message.type === "terminal-output") {
+            const resumeCursor = protocolStream.getResumeCursor();
+            if (resumeCursor) {
+              resumeCursorRef.current = resumeCursor;
+            }
+            if (message.type === "session-status") {
+              if (message.disposition === ResumeDisposition.RESYNC_REQUIRED) {
+                terminalRef.current?.reset();
+                setTerminalChunks(["terminal history was truncated; synchronized with the current session\r\n"]);
+                showNotice("Terminal history was truncated");
+              }
+              markConnected();
+            } else if (message.type === "terminal-output") {
               setTerminalChunks((chunks) => [...chunks, message.data]);
               socket.send(protocolStream.createAcknowledgement().slice().buffer);
             }
