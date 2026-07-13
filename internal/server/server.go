@@ -16,6 +16,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/zzemy/VibeBridge/internal/agentlog"
+	protocolv1 "github.com/zzemy/VibeBridge/internal/protocol"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -23,6 +25,7 @@ const (
 	bufferedOutputMaxAge   = 2 * time.Minute
 	pongWait               = 5 * time.Minute
 	pingPeriod             = 4 * time.Minute
+	protocolHelloTimeout   = 5 * time.Second
 )
 
 type Config struct {
@@ -86,6 +89,7 @@ func New(config Config) *Server {
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
+			Subprotocols:    []string{protocolv1.WebSocketSubprotocol},
 		},
 	}
 	server.upgrader.CheckOrigin = server.sameOrigin
@@ -154,6 +158,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writer := &websocketWriter{conn: conn}
+	if conn.Subprotocol() == protocolv1.WebSocketSubprotocol {
+		if err := s.negotiateProtocolV1(writer, conn); err != nil {
+			writeProtocolClose(conn, "Protocol V1 negotiation failed")
+			return
+		}
+	}
+
 	session, err := s.getOrCreateSession()
 	if err != nil {
 		_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
@@ -171,6 +182,41 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	s.readClientMessages(session, writer, conn)
 	writeClose(conn)
+}
+
+func (s *Server) negotiateProtocolV1(writer *websocketWriter, conn *websocket.Conn) error {
+	conn.SetReadLimit(int64(protocolv1.MaxEnvelopeBytes))
+	_ = conn.SetReadDeadline(time.Now().Add(protocolHelloTimeout))
+	messageType, encoded, err := conn.ReadMessage()
+	if err != nil {
+		return fmt.Errorf("read client Hello: %w", err)
+	}
+	if messageType != websocket.BinaryMessage {
+		return errors.New("client Hello must use a binary WebSocket message")
+	}
+
+	negotiated, err := protocolv1.AcceptClientHello(encoded)
+	if err != nil {
+		return err
+	}
+	if !negotiated.HasCapability(protocolv1.CapabilityTerminalBinaryOutput) {
+		return fmt.Errorf("client does not support required capability %q", protocolv1.CapabilityTerminalBinaryOutput)
+	}
+	response, err := protocolv1.NewAgentHello(negotiated.ConnectionID, negotiated.Major, negotiated.Minor, s.clock.Now())
+	if err != nil {
+		return err
+	}
+	responseBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("encode Agent Hello: %w", err)
+	}
+	if len(responseBytes) > int(negotiated.PeerMaxEnvelopeBytes) {
+		return errors.New("Agent Hello exceeds the client envelope limit")
+	}
+	if err := writer.writeBinary(responseBytes); err != nil {
+		return fmt.Errorf("write Agent Hello: %w", err)
+	}
+	return conn.SetReadDeadline(time.Now().Add(pongWait))
 }
 
 func (s *Server) sameOrigin(r *http.Request) bool {
@@ -611,6 +657,14 @@ func (w *websocketWriter) close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	writeClose(w.conn)
+}
+
+func writeProtocolClose(conn *websocket.Conn, message string) {
+	_ = conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseProtocolError, message),
+		time.Now().Add(time.Second),
+	)
 }
 
 func writeClose(conn *websocket.Conn) {

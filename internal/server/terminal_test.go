@@ -3,17 +3,20 @@ package server
 import (
 	"errors"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 type fakeTerminalLauncher struct {
+	calls   atomic.Int32
 	request terminalLaunchRequest
 	launch  terminalLaunch
 	err     error
 }
 
 func (l *fakeTerminalLauncher) Start(request terminalLaunchRequest) (terminalLaunch, error) {
+	l.calls.Add(1)
 	l.request = request
 	l.request.Command = append([]string(nil), request.Command...)
 	l.request.Environment = append([]string(nil), request.Environment...)

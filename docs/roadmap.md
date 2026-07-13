@@ -76,9 +76,10 @@ Exit gate:
 - Current and previous client builds pass compatibility tests.
 - Legacy protocol can be disabled without changing session internals.
 
-Current status (2026-07-12):
+Current status (2026-07-13):
 
-- In progress. The canonical `vibebridge.v1` envelope and Hello capability-advertisement schema, pinned Buf generation, committed Go/TypeScript packages, shared cross-language binary golden vector, schema lint, generated-code drift checks, and future-main breaking checks are in place. The running browser endpoint remains on the legacy JSON/raw-binary adapter while negotiation, sequenced terminal messages, acknowledgements, resume behavior, errors, and limits are implemented incrementally.
+- In progress. The canonical `vibebridge.v1` envelope and Hello capability-advertisement schema, pinned Buf generation, committed Go/TypeScript packages, shared cross-language binary golden vector, schema lint, generated-code drift checks, and future-main breaking checks are in place.
+- The browser and Agent now negotiate `vibebridge.v1` with binary protobuf `Hello` envelopes before PTY creation, validate the selected version, connection ID, peer role, envelope limit, and required `terminal.binary_output` capability, and close incompatible peers without mutating session state. Peers that do not select the subprotocol retain the legacy connection path for staged compatibility. After negotiation, terminal and control traffic still uses the legacy JSON/raw-binary adapter while sequenced messages, acknowledgements, resume behavior, errors, and limits are implemented incrementally.
 
 ## Phase 3: Workspace and Attachments
 
