@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	MinimumVersion = 1
-	CurrentVersion = 2
-	maxConfigBytes = 1024 * 1024
+	MinimumVersion         = 1
+	CurrentVersion         = 2
+	workspaceConfigVersion = 2
+	maxConfigBytes         = 1024 * 1024
 )
 
 var (
@@ -131,8 +132,8 @@ func (c *File) validate(baseDirectory string) error {
 	if c.Version < MinimumVersion || c.Version > CurrentVersion {
 		return fmt.Errorf("unsupported version %d; supported versions are %d through %d", c.Version, MinimumVersion, CurrentVersion)
 	}
-	if c.Version == MinimumVersion && c.usesWorkspaceFields() {
-		return fmt.Errorf("workspaces and workspace_id require config version %d", CurrentVersion)
+	if c.Version < workspaceConfigVersion && c.usesWorkspaceFields() {
+		return fmt.Errorf("workspaces and workspace_id require config version %d", workspaceConfigVersion)
 	}
 	if strings.TrimSpace(c.DefaultProfile) == "" {
 		return errors.New("default_profile must not be empty")

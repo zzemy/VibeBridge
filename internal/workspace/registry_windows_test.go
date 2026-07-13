@@ -51,6 +51,44 @@ func TestRegistryRejectsDuplicateWindowsJunctionRoot(t *testing.T) {
 	}
 }
 
+func TestRegistryKeepsDistinctRootsInWindowsCaseSensitiveDirectory(t *testing.T) {
+	parent := t.TempDir()
+	output, err := exec.Command(
+		"fsutil.exe",
+		"file",
+		"SetCaseSensitiveInfo",
+		parent,
+		"enable",
+	).CombinedOutput()
+	if err != nil {
+		t.Skipf("per-directory case sensitivity is unavailable: %v: %s", err, output)
+	}
+
+	upperRoot := filepath.Join(parent, "Foo")
+	lowerRoot := filepath.Join(parent, "foo")
+	if err := os.Mkdir(upperRoot, 0o700); err != nil {
+		t.Fatalf("create uppercase workspace: %v", err)
+	}
+	if err := os.Mkdir(lowerRoot, 0o700); err != nil {
+		t.Fatalf("create lowercase workspace: %v", err)
+	}
+
+	registry, err := workspace.NewRegistry([]workspace.Definition{
+		{ID: "upper", Label: "Upper", Root: upperRoot},
+		{ID: "lower", Label: "Lower", Root: lowerRoot},
+	}, "")
+	if err != nil {
+		t.Fatalf("register distinct case-sensitive roots: %v", err)
+	}
+	definitions := registry.Definitions()
+	if len(definitions) != 2 {
+		t.Fatalf("got %d workspace definitions, want 2", len(definitions))
+	}
+	if definitions[0].Root == definitions[1].Root {
+		t.Fatalf("case-sensitive roots collapsed to the same canonical path %q", definitions[0].Root)
+	}
+}
+
 func createJunction(t *testing.T, link string, target string) {
 	t.Helper()
 	output, err := exec.Command("cmd.exe", "/d", "/c", "mklink", "/j", link, target).CombinedOutput()
