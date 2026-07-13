@@ -18,48 +18,23 @@
       "id": "shell",
       "label": "PowerShell",
       "executable": "pwsh",
-      "args": [
-        "-NoLogo",
-        "-NoExit",
-        "-NoProfile"
-      ],
+      "args": ["-NoLogo", "-NoExit", "-NoProfile"],
       "workspace_id": "default",
-      "environment_allowlist": [
-        "PATH",
-        "PATHEXT",
-        "SYSTEMROOT",
-        "TEMP",
-        "TMP",
-        "USERPROFILE"
-      ]
+      "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
     },
     {
       "id": "codex",
       "label": "Codex",
       "executable": "codex",
       "workspace_id": "default",
-      "environment_allowlist": [
-        "PATH",
-        "PATHEXT",
-        "SYSTEMROOT",
-        "TEMP",
-        "TMP",
-        "USERPROFILE"
-      ]
+      "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
     },
     {
       "id": "claude",
       "label": "Claude Code",
       "executable": "claude",
       "workspace_id": "default",
-      "environment_allowlist": [
-        "PATH",
-        "PATHEXT",
-        "SYSTEMROOT",
-        "TEMP",
-        "TMP",
-        "USERPROFILE"
-      ]
+      "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
     }
   ]
 }

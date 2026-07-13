@@ -78,6 +78,7 @@ func TestRunDiagnosticsReportsWorkspaceWithoutExposingItsPath(t *testing.T) {
 		command:          []string{os.Args[0]},
 		profileID:        "test-profile",
 		workspaceID:      "private-repo",
+		workspaceRoot:    workingDirectory,
 		workingDirectory: workingDirectory,
 	}
 	if err := runDiagnostics(options, false, &output); err != nil {
@@ -92,13 +93,15 @@ func TestRunDiagnosticsReportsWorkspaceWithoutExposingItsPath(t *testing.T) {
 }
 
 func TestRunDiagnosticsDoesNotExposeUnavailableWorkspacePath(t *testing.T) {
-	workingDirectory := filepath.Join(t.TempDir(), "private-working-directory")
+	workspaceRoot := t.TempDir()
+	workingDirectory := filepath.Join(workspaceRoot, "private-working-directory")
 	var output bytes.Buffer
 	err := runDiagnostics(startupOptions{
 		addr:             "127.0.0.1:0",
 		webDir:           t.TempDir(),
 		command:          []string{os.Args[0]},
 		workspaceID:      "private-repo",
+		workspaceRoot:    workspaceRoot,
 		workingDirectory: workingDirectory,
 	}, false, &output)
 	if err == nil {

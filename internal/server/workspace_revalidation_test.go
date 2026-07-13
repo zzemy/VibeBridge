@@ -76,8 +76,8 @@ func TestWorkspaceSessionRejectsReplacedPathsBeforePTYStart(t *testing.T) {
 			if err := os.MkdirAll(workingDirectory, 0o700); err != nil {
 				t.Fatalf("create workspace: %v", err)
 			}
-			if err := os.Mkdir(outside, 0o700); err != nil {
-				t.Fatalf("create outside directory: %v", err)
+			if err := os.MkdirAll(filepath.Join(outside, "src"), 0o700); err != nil {
+				t.Fatalf("create outside directories: %v", err)
 			}
 			canonicalRoot, canonicalWorkingDirectory := validatedWorkspacePaths(t, root, "src")
 			replace(t, root, workingDirectory, outside)
