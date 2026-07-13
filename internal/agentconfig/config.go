@@ -1,6 +1,7 @@
 package agentconfig
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +16,8 @@ import (
 )
 
 const (
-	CurrentVersion = 1
+	MinimumVersion = 1
+	CurrentVersion = 2
 	maxConfigBytes = 1024 * 1024
 )
 
@@ -34,6 +36,8 @@ type File struct {
 	Workspaces            []workspace.Definition `json:"workspaces,omitempty"`
 	DefaultProfile        string                 `json:"default_profile"`
 	Profiles              []LaunchProfile        `json:"profiles"`
+
+	workspacesConfigured bool
 }
 
 type LaunchProfile struct {
@@ -44,6 +48,8 @@ type LaunchProfile struct {
 	WorkspaceID          string   `json:"workspace_id,omitempty"`
 	WorkingDirectory     string   `json:"working_directory,omitempty"`
 	EnvironmentAllowlist []string `json:"environment_allowlist,omitempty"`
+
+	workspaceIDConfigured bool
 }
 
 func Load(path string) (File, error) {
@@ -60,8 +66,16 @@ func Load(path string) (File, error) {
 		return File{}, fmt.Errorf("config %q exceeds the %d byte limit", path, maxConfigBytes)
 	}
 
+	content, err := io.ReadAll(io.LimitReader(file, maxConfigBytes+1))
+	if err != nil {
+		return File{}, fmt.Errorf("read config %q: %w", path, err)
+	}
+	if len(content) > maxConfigBytes {
+		return File{}, fmt.Errorf("config %q exceeds the %d byte limit", path, maxConfigBytes)
+	}
+
 	var config File
-	decoder := json.NewDecoder(io.LimitReader(file, maxConfigBytes))
+	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&config); err != nil {
 		return File{}, fmt.Errorf("decode config %q: %w", path, err)
@@ -69,10 +83,32 @@ func Load(path string) (File, error) {
 	if err := ensureJSONEnd(decoder); err != nil {
 		return File{}, fmt.Errorf("decode config %q: %w", path, err)
 	}
+	if err := markWorkspaceFieldPresence(content, &config); err != nil {
+		return File{}, fmt.Errorf("decode config %q: %w", path, err)
+	}
 	if err := config.validate(filepath.Dir(path)); err != nil {
 		return File{}, fmt.Errorf("validate config %q: %w", path, err)
 	}
 	return config, nil
+}
+
+func markWorkspaceFieldPresence(content []byte, config *File) error {
+	var fields struct {
+		Workspaces json.RawMessage `json:"workspaces"`
+		Profiles   []struct {
+			WorkspaceID json.RawMessage `json:"workspace_id"`
+		} `json:"profiles"`
+	}
+	if err := json.Unmarshal(content, &fields); err != nil {
+		return err
+	}
+	config.workspacesConfigured = fields.Workspaces != nil
+	for index := range fields.Profiles {
+		if index < len(config.Profiles) {
+			config.Profiles[index].workspaceIDConfigured = fields.Profiles[index].WorkspaceID != nil
+		}
+	}
+	return nil
 }
 
 func ensureJSONEnd(decoder *json.Decoder) error {
@@ -92,8 +128,11 @@ func (c File) Validate() error {
 }
 
 func (c *File) validate(baseDirectory string) error {
-	if c.Version != CurrentVersion {
-		return fmt.Errorf("unsupported version %d; supported version is %d", c.Version, CurrentVersion)
+	if c.Version < MinimumVersion || c.Version > CurrentVersion {
+		return fmt.Errorf("unsupported version %d; supported versions are %d through %d", c.Version, MinimumVersion, CurrentVersion)
+	}
+	if c.Version == MinimumVersion && c.usesWorkspaceFields() {
+		return fmt.Errorf("workspaces and workspace_id require config version %d", CurrentVersion)
 	}
 	if strings.TrimSpace(c.DefaultProfile) == "" {
 		return errors.New("default_profile must not be empty")
@@ -133,6 +172,18 @@ func (c *File) validate(baseDirectory string) error {
 		return fmt.Errorf("default_profile %q does not reference a configured profile", c.DefaultProfile)
 	}
 	return nil
+}
+
+func (c File) usesWorkspaceFields() bool {
+	if c.workspacesConfigured || len(c.Workspaces) > 0 {
+		return true
+	}
+	for _, profile := range c.Profiles {
+		if profile.workspaceIDConfigured || profile.WorkspaceID != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (c File) Profile(id string) (LaunchProfile, bool) {
