@@ -57,6 +57,13 @@ message TerminalResize {
 // EndSession requests idempotent termination of the active PTY session.
 message EndSession {}
 
+// Ping requests an application-level health response. WebSocket control-frame
+// keepalive remains a separate transport concern.
+message Ping {}
+
+// Pong confirms receipt of one ordered application-level Ping.
+message Pong {}
+
 // ErrorCode identifies a stable, user-actionable Agent error without exposing
 // host or implementation details.
 enum ErrorCode {
@@ -132,6 +139,8 @@ message Envelope {
     TerminalResize terminal_resize = 25;
     SessionStatus session_status = 26;
     EndSession end_session = 27;
+    Ping ping = 28;
+    Pong pong = 29;
     Error error = 32;
     Acknowledgement acknowledgement = 33;
     ProcessExit process_exit = 34;

@@ -33,7 +33,7 @@ func TestAgentStreamSequencesTerminalTrafficAndAcknowledgements(t *testing.T) {
 	if input.Kind != ClientStreamMessageTerminalInput || input.Sequence != 2 || !bytes.Equal(input.Data, []byte("yes\r")) {
 		t.Fatalf("decoded terminal input = %#v", input)
 	}
-	if err := stream.CommitClientMessage(input.Sequence); err != nil {
+	if err := stream.CommitClientMessage(input); err != nil {
 		t.Fatalf("commit terminal input: %v", err)
 	}
 
@@ -47,6 +47,42 @@ func TestAgentStreamSequencesTerminalTrafficAndAcknowledgements(t *testing.T) {
 	}
 }
 
+func TestAgentStreamSequencesNegotiatedHealthCheck(t *testing.T) {
+	stream := newTestAgentHealthStream(t, MaxEnvelopeBytes)
+	if _, err := stream.EncodePong(time.Now()); err == nil {
+		t.Fatal("Pong without a committed Ping was encoded")
+	}
+	ping, err := stream.DecodeClientMessage(marshalClientPingEnvelope(t, nil, 0, 2, 1))
+	if err != nil {
+		t.Fatalf("decode Ping: %v", err)
+	}
+	if ping.Kind != ClientStreamMessagePing || !stream.UsesControlHealth() {
+		t.Fatalf("decoded Ping = %#v, health negotiated = %t", ping, stream.UsesControlHealth())
+	}
+	if err := stream.CommitClientMessage(ping); err != nil {
+		t.Fatalf("commit Ping: %v", err)
+	}
+
+	encoded, err := stream.EncodePong(time.Date(2026, time.July, 13, 12, 0, 1, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("encode Pong: %v", err)
+	}
+	pong := unmarshalStreamEnvelope(t, encoded)
+	if pong.Sequence != 2 || pong.Acknowledge != 2 || pong.GetPong() == nil {
+		t.Fatalf("Pong sequence/ack/payload = %d/%d/%T, want 2/2/Pong", pong.Sequence, pong.Acknowledge, pong.Payload)
+	}
+	if _, err := stream.EncodePong(time.Now()); err == nil {
+		t.Fatal("second Pong for one committed Ping was encoded")
+	}
+
+	if _, err := newTestAgentStream(t, MaxEnvelopeBytes).DecodeClientMessage(marshalClientPingEnvelope(t, nil, 0, 2, 1)); err == nil {
+		t.Fatal("unnegotiated Ping was accepted")
+	}
+	if _, err := newTestAgentStream(t, MaxEnvelopeBytes).EncodePong(time.Now()); err == nil {
+		t.Fatal("unnegotiated Pong was encoded")
+	}
+}
+
 func TestAgentStreamDecodesNegotiatedTerminalResizeAndEnd(t *testing.T) {
 	stream := newTestAgentControlStream(t, MaxEnvelopeBytes)
 
@@ -57,7 +93,7 @@ func TestAgentStreamDecodesNegotiatedTerminalResizeAndEnd(t *testing.T) {
 	if resize.Kind != ClientStreamMessageTerminalResize || resize.Columns != 120 || resize.Rows != 40 {
 		t.Fatalf("decoded terminal resize = %#v", resize)
 	}
-	if err := stream.CommitClientMessage(resize.Sequence); err != nil {
+	if err := stream.CommitClientMessage(resize); err != nil {
 		t.Fatalf("commit terminal resize: %v", err)
 	}
 
@@ -158,7 +194,7 @@ func TestAgentStreamEncodesErrorBeforeOrAfterResumeBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode fresh attachment: %v", err)
 	}
-	if err := bound.CommitClientMessage(attach.Sequence); err != nil {
+	if err := bound.CommitClientMessage(attach); err != nil {
 		t.Fatalf("commit fresh attachment: %v", err)
 	}
 	sessionID := []byte("fedcba9876543210")
@@ -191,7 +227,7 @@ func TestAgentStreamBindsSessionAndSequencesResumeTraffic(t *testing.T) {
 	if attach.Kind != ClientStreamMessageAttachSession || attach.LastAcknowledgedSequence != 9 || attach.SessionGeneration != 7 || !bytes.Equal(attach.SessionID, sessionID) {
 		t.Fatalf("decoded attachment = %#v", attach)
 	}
-	if err := stream.CommitClientMessage(attach.Sequence); err != nil {
+	if err := stream.CommitClientMessage(attach); err != nil {
 		t.Fatalf("commit attachment: %v", err)
 	}
 	if err := stream.BindSession(sessionID, 7); err != nil {
@@ -239,7 +275,7 @@ func TestAgentResumeStreamRejectsTrafficBeforeAttachAndMismatchedSessionMetadata
 	if err != nil {
 		t.Fatalf("decode fresh attachment: %v", err)
 	}
-	if err := stream.CommitClientMessage(message.Sequence); err != nil {
+	if err := stream.CommitClientMessage(message); err != nil {
 		t.Fatalf("commit fresh attachment: %v", err)
 	}
 	if err := stream.BindSession(sessionID, 3); err != nil {
@@ -351,6 +387,21 @@ func newTestAgentControlStream(t *testing.T, peerLimit uint32) *AgentStream {
 	return stream
 }
 
+func newTestAgentHealthStream(t *testing.T, peerLimit uint32) *AgentStream {
+	t.Helper()
+	stream, err := NewAgentStream(NegotiatedHello{
+		Major:                CurrentMajor,
+		Minor:                CurrentMinor,
+		PeerMaxEnvelopeBytes: peerLimit,
+		ConnectionID:         []byte("0123456789abcdef"),
+		capabilities:         map[string]struct{}{CapabilityControlHealth: {}},
+	})
+	if err != nil {
+		t.Fatalf("create control-health Agent stream: %v", err)
+	}
+	return stream
+}
+
 func newTestAgentErrorStream(t *testing.T, peerLimit uint32) *AgentStream {
 	t.Helper()
 	stream, err := NewAgentStream(NegotiatedHello{
@@ -418,6 +469,13 @@ func marshalClientTerminalInput(t *testing.T, sessionID []byte, generation, sequ
 	t.Helper()
 	envelope := newClientStreamEnvelope(sessionID, generation, sequence, acknowledge)
 	envelope.Payload = &vibebridgev1.Envelope_TerminalInput{TerminalInput: &vibebridgev1.TerminalInput{Data: append([]byte(nil), data...)}}
+	return marshalClientStreamEnvelope(t, envelope)
+}
+
+func marshalClientPingEnvelope(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64) []byte {
+	t.Helper()
+	envelope := newClientStreamEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_Ping{Ping: &vibebridgev1.Ping{}}
 	return marshalClientStreamEnvelope(t, envelope)
 }
 

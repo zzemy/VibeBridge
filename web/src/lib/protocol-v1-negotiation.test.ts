@@ -12,6 +12,7 @@ import {
 import {
   acceptAgentHello,
   controlErrorCapability,
+  controlHealthCapability,
   createClientHello,
   protocolV1MaxEnvelopeBytes,
   sessionProcessExitCapability,
@@ -62,6 +63,7 @@ describe("Protocol V1 Hello negotiation", () => {
     expect(clientHello.payload.value.capabilities).toContain(sessionProcessExitCapability);
     expect(clientHello.payload.value.capabilities).toContain(sessionResumeCapability);
     expect(clientHello.payload.value.capabilities).toContain(controlErrorCapability);
+    expect(clientHello.payload.value.capabilities).toContain(controlHealthCapability);
   });
 
   test.each([
@@ -71,6 +73,7 @@ describe("Protocol V1 Hello negotiation", () => {
     ["resize/end without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, terminalResizeEndCapability] })],
     ["process exit without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, sessionProcessExitCapability] })],
     ["control error without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, controlErrorCapability] })],
+    ["control health without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, controlHealthCapability] })],
   ])("rejects %s", (_name, encoded) => {
     expect(() => acceptAgentHello(encoded, connectionId)).toThrow();
   });

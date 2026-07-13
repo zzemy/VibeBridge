@@ -393,7 +393,7 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 						_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED)
 						return
 					}
-					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, true); err != nil {
+					if err := writer.commitProtocolV1ClientMessage(streamMessage, true); err != nil {
 						return
 					}
 				case protocolv1.ClientStreamMessageTerminalResize:
@@ -401,18 +401,22 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 						_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED)
 						return
 					}
-					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, true); err != nil {
+					if err := writer.commitProtocolV1ClientMessage(streamMessage, true); err != nil {
 						return
 					}
 				case protocolv1.ClientStreamMessageEndSession:
-					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, false); err != nil {
+					if err := writer.commitProtocolV1ClientMessage(streamMessage, false); err != nil {
 						return
 					}
 					_ = writer.writeBinary([]byte("ending session\r\n"))
 					session.terminateWithReason(agentlog.ReasonExplicitEnd)
 					return
 				case protocolv1.ClientStreamMessageAcknowledgement:
-					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, false); err != nil {
+					if err := writer.commitProtocolV1ClientMessage(streamMessage, false); err != nil {
+						return
+					}
+				case protocolv1.ClientStreamMessagePing:
+					if err := writer.respondProtocolV1Ping(streamMessage); err != nil {
 						return
 					}
 				default:
@@ -427,6 +431,10 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 			}
 			if writer.usesTerminalResizeEnd() && (msg.Type == "resize" || msg.Type == "exit") {
 				writer.closeProtocol("Negotiated resize/end controls must use Protocol V1 envelopes")
+				return
+			}
+			if writer.usesControlHealth() && msg.Type == "ping" {
+				writer.closeProtocol("Negotiated health checks must use Protocol V1 envelopes")
 				return
 			}
 		} else if err := conn.ReadJSON(&msg); err != nil {
@@ -565,7 +573,7 @@ func (s *ptySession) attachProtocolV1(writer *websocketWriter, request protocolv
 	generation := s.generation
 	s.mu.Unlock()
 
-	if err := writer.commitProtocolV1Attach(request.Sequence, sessionID, generation, disposition); err != nil {
+	if err := writer.commitProtocolV1Attach(request, sessionID, generation, disposition); err != nil {
 		return true, err
 	}
 	for _, chunk := range buffered {
@@ -914,6 +922,12 @@ func (w *websocketWriter) usesSessionResume() bool {
 	return w.protocolV1 != nil && w.protocolV1.UsesSessionResume()
 }
 
+func (w *websocketWriter) usesControlHealth() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.protocolV1 != nil && w.protocolV1.UsesControlHealth()
+}
+
 func (w *websocketWriter) usesTerminalResizeEnd() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -932,10 +946,10 @@ func (w *websocketWriter) decodeProtocolV1ClientMessage(encoded []byte) (protoco
 	return w.protocolV1.DecodeClientMessage(encoded)
 }
 
-func (w *websocketWriter) commitProtocolV1Attach(sequence uint64, sessionID []byte, generation uint64, disposition vibebridgev1.ResumeDisposition) error {
+func (w *websocketWriter) commitProtocolV1Attach(message protocolv1.ClientStreamMessage, sessionID []byte, generation uint64, disposition vibebridgev1.ResumeDisposition) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if err := w.protocolV1.CommitClientMessage(sequence); err != nil {
+	if err := w.protocolV1.CommitClientMessage(message); err != nil {
 		return err
 	}
 	if err := w.protocolV1.BindSession(sessionID, generation); err != nil {
@@ -957,10 +971,23 @@ func (w *websocketWriter) highestProtocolV1OutboundSequence() uint64 {
 	return w.protocolV1.HighestOutboundSequence()
 }
 
-func (w *websocketWriter) commitProtocolV1ClientMessage(sequence uint64, sendAcknowledgement bool) error {
+func (w *websocketWriter) respondProtocolV1Ping(message protocolv1.ClientStreamMessage) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if err := w.protocolV1.CommitClientMessage(sequence); err != nil {
+	if err := w.protocolV1.CommitClientMessage(message); err != nil {
+		return err
+	}
+	encoded, err := w.protocolV1.EncodePong(w.currentTime())
+	if err != nil {
+		return err
+	}
+	return w.conn.WriteMessage(websocket.BinaryMessage, encoded)
+}
+
+func (w *websocketWriter) commitProtocolV1ClientMessage(message protocolv1.ClientStreamMessage, sendAcknowledgement bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.protocolV1.CommitClientMessage(message); err != nil {
 		return err
 	}
 	if !sendAcknowledgement {

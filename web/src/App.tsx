@@ -21,6 +21,7 @@ import { isServerMessage, isSessionStatus, type ServerMessage, type SessionStatu
 import {
   acceptAgentHello,
   controlErrorCapability,
+  controlHealthCapability,
   createClientHello,
   newProtocolV1ConnectionId,
   ProtocolV1ClientStream,
@@ -294,11 +295,13 @@ export function App() {
               const sessionProcessExit = negotiated.capabilities.has(sessionProcessExitCapability);
               const terminalResizeEnd = negotiated.capabilities.has(terminalResizeEndCapability);
               const controlError = negotiated.capabilities.has(controlErrorCapability);
+              const controlHealth = negotiated.capabilities.has(controlHealthCapability);
               const stream = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes, {
                 sessionProcessExit,
                 sessionResume,
                 terminalResizeEnd,
                 controlError,
+                controlHealth,
               });
               protocolStreamRef.current = stream;
               protocolNegotiated = true;
@@ -371,6 +374,10 @@ export function App() {
         }
         if (parsed.type === "error" && protocolStreamRef.current?.usesControlError()) {
           failProtocol("Negotiated errors must use a Protocol V1 envelope");
+          return;
+        }
+        if (parsed.type === "pong" && protocolStreamRef.current?.usesControlHealth()) {
+          failProtocol("Negotiated health checks must use Protocol V1 envelopes");
           return;
         }
         handleServerMessage(parsed);

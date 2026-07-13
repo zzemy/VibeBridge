@@ -9,6 +9,7 @@ import {
   ErrorCode,
   HelloSchema,
   PeerRole,
+  PingSchema,
   ProcessExitOutcome,
   ProtocolVersionRangeSchema,
   ResumeDisposition,
@@ -28,6 +29,7 @@ export const terminalResizeEndCapability = "terminal.resize_end_v1";
 export const sessionProcessExitCapability = "session.process_exit_v1";
 export const sessionResumeCapability = "session.resume_v1";
 export const controlErrorCapability = "control.error_v1";
+export const controlHealthCapability = "control.health_v1";
 export const protocolV1MaxTerminalInputBytes = 32 * 1024;
 export const protocolV1MaxTerminalDimension = 65_535;
 
@@ -63,7 +65,7 @@ export function createClientHello(connectionId: Uint8Array, sentAt = new Date())
           minimum: version(),
           maximum: version(),
         }),
-        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, terminalResizeEndCapability, sessionProcessExitCapability, sessionResumeCapability, controlErrorCapability],
+        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, terminalResizeEndCapability, sessionProcessExitCapability, sessionResumeCapability, controlErrorCapability, controlHealthCapability],
         maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
       }),
     },
@@ -125,7 +127,7 @@ export function acceptAgentHello(encoded: Uint8Array, expectedConnectionId: Uint
     }
     capabilities.add(capability);
   }
-  for (const dependent of [terminalResizeEndCapability, sessionProcessExitCapability, controlErrorCapability]) {
+  for (const dependent of [terminalResizeEndCapability, sessionProcessExitCapability, controlErrorCapability, controlHealthCapability]) {
     if (capabilities.has(dependent) && !capabilities.has(terminalSequencedIoCapability)) {
       throw new Error(`${dependent} requires ${terminalSequencedIoCapability}`);
     }
@@ -151,6 +153,7 @@ export type AgentStreamMessage =
   | { type: "terminal-output"; data: Uint8Array }
   | { type: "process-exit"; outcome: ProcessExitOutcome }
   | { type: "error"; code: ErrorCode }
+  | { type: "pong" }
   | { type: "acknowledgement" };
 
 type ProtocolV1ClientStreamOptions = {
@@ -158,6 +161,7 @@ type ProtocolV1ClientStreamOptions = {
   sessionProcessExit?: boolean;
   terminalResizeEnd?: boolean;
   controlError?: boolean;
+  controlHealth?: boolean;
 };
 
 /** Owns connection-local sequence and acknowledgement state after Hello. */
@@ -172,6 +176,8 @@ export class ProtocolV1ClientStream {
   private readonly sessionProcessExit: boolean;
   private readonly terminalResizeEnd: boolean;
   private readonly controlError: boolean;
+  private readonly controlHealth: boolean;
+  private readonly outstandingPingSequences: bigint[] = [];
   private sessionBound = false;
   private sessionId = new Uint8Array();
   private sessionGeneration = 0n;
@@ -187,6 +193,31 @@ export class ProtocolV1ClientStream {
     this.sessionProcessExit = options.sessionProcessExit === true;
     this.terminalResizeEnd = options.terminalResizeEnd === true;
     this.controlError = options.controlError === true;
+    this.controlHealth = options.controlHealth === true;
+  }
+
+  /** Reports whether control.health_v1 was negotiated for this physical connection. */
+  usesControlHealth(): boolean {
+    return this.controlHealth;
+  }
+
+  /**
+   * Encodes an ordered application Ping at `sentAt` (now by default).
+   * Requires control.health_v1 and, for resumable streams, SessionStatus.
+   * The returned bytes are ready for one binary WebSocket message; invalid
+   * capability, stream state, or negotiated size throws without queuing a Ping.
+   */
+  createPing(sentAt = new Date()): Uint8Array {
+    if (!this.controlHealth) {
+      throw new Error("Control health was not negotiated");
+    }
+    const sequence = this.nextOutbound;
+    const encoded = this.encode({
+      case: "ping",
+      value: create(PingSchema),
+    }, sentAt);
+    this.outstandingPingSequences.push(sequence);
+    return encoded;
   }
 
   /** Reports whether control.error_v1 was negotiated for this physical connection. */
@@ -344,6 +375,15 @@ export class ProtocolV1ClientStream {
         }
         message = { type: "error", code: envelope.payload.value.code };
         break;
+      case "pong": {
+        const pingSequence = this.outstandingPingSequences[0];
+        if (!this.controlHealth || pingSequence === undefined || envelope.acknowledge < pingSequence) {
+          throw new Error("Pong must acknowledge an outstanding Ping");
+        }
+        this.outstandingPingSequences.shift();
+        message = { type: "pong" };
+        break;
+      }
       case "acknowledgement":
         message = { type: "acknowledgement" };
         break;

@@ -7,6 +7,7 @@ import {
   ErrorCode,
   ErrorSchema,
   EnvelopeSchema,
+  PongSchema,
   ProcessExitOutcome,
   ProcessExitSchema,
   ResumeDisposition,
@@ -60,6 +61,53 @@ describe("Protocol V1 sequenced terminal stream", () => {
     expect(acknowledgement.sequence).toBe(3n);
     expect(acknowledgement.acknowledge).toBe(2n);
     expect(acknowledgement.payload.case).toBe("acknowledgement");
+  });
+
+  test("sequences a negotiated application health check", () => {
+    const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { controlHealth: true });
+
+    const ping = fromBinary(EnvelopeSchema, stream.createPing(sentAt));
+    expect(ping.sequence).toBe(2n);
+    expect(ping.acknowledge).toBe(1n);
+    expect(ping.payload.case).toBe("ping");
+    expect(stream.usesControlHealth()).toBe(true);
+
+    const pong = agentEnvelope(2n, 2n, {
+      case: "pong",
+      value: create(PongSchema),
+    });
+    expect(stream.acceptAgentMessage(pong)).toEqual({ type: "pong" });
+    expect(() => stream.acceptAgentMessage(agentEnvelope(3n, 2n, {
+      case: "pong",
+      value: create(PongSchema),
+    }))).toThrow("outstanding Ping");
+
+    const insufficientAcknowledgement = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { controlHealth: true });
+    insufficientAcknowledgement.createPing(sentAt);
+    expect(() => insufficientAcknowledgement.acceptAgentMessage(agentEnvelope(2n, 1n, {
+      case: "pong",
+      value: create(PongSchema),
+    }))).toThrow("outstanding Ping");
+
+    const unsolicited = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { controlHealth: true });
+    expect(() => unsolicited.acceptAgentMessage(agentEnvelope(2n, 1n, {
+      case: "pong",
+      value: create(PongSchema),
+    }))).toThrow("outstanding Ping");
+
+    const unnegotiated = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes);
+    expect(() => unnegotiated.createPing(sentAt)).toThrow("not negotiated");
+    expect(() => unnegotiated.acceptAgentMessage(agentEnvelope(2n, 1n, {
+      case: "pong",
+      value: create(PongSchema),
+    }))).toThrow("Pong");
+
+    const resumable = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, {
+      controlHealth: true,
+      sessionResume: true,
+    });
+    resumable.createAttachSession(undefined, sentAt);
+    expect(() => resumable.createPing(sentAt)).toThrow("SessionStatus");
   });
 
   test("sequences negotiated terminal resize and end controls", () => {

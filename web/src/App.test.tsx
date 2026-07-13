@@ -18,6 +18,7 @@ import {
 } from "./gen/vibebridge/v1/envelope_pb";
 import {
   controlErrorCapability,
+  controlHealthCapability,
   protocolV1MaxEnvelopeBytes,
   protocolV1WebSocketSubprotocol,
   sessionProcessExitCapability,
@@ -336,6 +337,33 @@ test("rejects JSON errors when control.error_v1 is negotiated", async () => {
 
   await waitFor(() => expect(screen.getByText("Error")).toBeTruthy());
   expect(terminalState.chunks.at(-1)).toBe("protocol negotiation failed: Negotiated errors must use a Protocol V1 envelope\r\n");
+  expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+});
+
+test("rejects JSON pong when control.health_v1 is negotiated", async () => {
+  window.history.replaceState({}, "", "/?token=test-token");
+  render(<App />);
+  await screen.findByTestId("terminal-view");
+  await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+  const socket = FakeWebSocket.instances[0];
+  if (!socket) throw new Error("expected WebSocket instance");
+
+  act(() => socket.open());
+  const clientHelloBytes = socket.sent[0];
+  if (!(clientHelloBytes instanceof ArrayBuffer)) throw new Error("expected binary client Hello");
+  const clientHello = fromBinary(EnvelopeSchema, new Uint8Array(clientHelloBytes));
+  const agentHello = createAgentHello(clientHello.connectionId, [
+    terminalBinaryOutputCapability,
+    terminalSequencedIoCapability,
+    controlHealthCapability,
+  ]);
+  act(() => socket.message(agentHello.slice().buffer));
+  await waitFor(() => expect(screen.getByText("Connected")).toBeTruthy());
+
+  act(() => socket.message(JSON.stringify({ type: "pong" })));
+
+  await waitFor(() => expect(screen.getByText("Error")).toBeTruthy());
+  expect(terminalState.chunks.at(-1)).toBe("protocol negotiation failed: Negotiated health checks must use Protocol V1 envelopes\r\n");
   expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
 });
 
