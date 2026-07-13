@@ -28,9 +28,8 @@ Exit gate:
 
 Current status (2026-07-12):
 
-- Planning/architecture documents, project policies/templates, CI, dependency/license review, and a real Windows ConPTY process-tree cleanup regression are in place.
-- The repository owner still needs to select a root project license before Phase 0 can be declared complete or a release can be represented as licensed open source.
-- GitHub private vulnerability reporting should be enabled after the security policy lands; changing that repository setting requires an explicit owner action.
+- Complete. Planning/architecture documents, project policies/templates, CI, dependency/license review, and a real Windows ConPTY process-tree cleanup regression are in place.
+- The project is licensed under Apache-2.0 and GitHub private vulnerability reporting is enabled.
 
 ## Phase 1: Local Agent Modularization
 
@@ -50,6 +49,11 @@ Exit gate:
 - Explicit end, process exit, idle expiry, reconnect expiry, and Agent shutdown use one idempotent cleanup path.
 - Windows process-tree tests prove no child remains.
 - Current browser client works through the new Agent boundary.
+
+Current status (2026-07-12):
+
+- In progress. Session lifecycle transitions are explicit and serialized, lifecycle timers have deterministic fake-clock coverage, the session depends on an internal terminal launcher contract, Windows Job Objects and Unix process groups terminate PTY descendants, unsupported process-tree platforms fail explicitly, detached output is byte/time bounded, versioned local configuration provides structured launch profiles with working-directory and environment policies, allowlisted JSON lifecycle logs use opaque session correlation IDs without terminal, command, path, token, or environment content, and diagnostics aggregate command/profile, working-directory, listener, frontend, host-platform, LAN exposure, and firewall checks without starting a PTY.
+- The Windows user-scoped background Agent implementation now provides least-privilege Task Scheduler install/status/uninstall commands, bounded restart behavior, authenticated runtime probing, sensitive user-local runtime state, explicit replacement semantics, and installation diagnostics. A Windows 11 install/start/authenticated-status/QR/forced-replacement/uninstall smoke test passes with native UTF-16LE Task Scheduler XML. A sign-out/sign-in autostart check on a clean non-administrator Windows user remains required before Phase 1 is declared complete. Broader macOS/Linux support still requires the platform gates below, and later phases will expand diagnostics for secure storage, workspaces/staging, protocol/update compatibility, and relay reachability as those capabilities are introduced.
 
 ## Phase 2: Protocol V1
 
@@ -71,6 +75,10 @@ Exit gate:
 - Breaking-change CI is active.
 - Current and previous client builds pass compatibility tests.
 - Legacy protocol can be disabled without changing session internals.
+
+Current status (2026-07-12):
+
+- In progress. The canonical `vibebridge.v1` envelope and Hello capability-advertisement schema, pinned Buf generation, committed Go/TypeScript packages, shared cross-language binary golden vector, schema lint, generated-code drift checks, and future-main breaking checks are in place. The running browser endpoint remains on the legacy JSON/raw-binary adapter while negotiation, sequenced terminal messages, acknowledgements, resume behavior, errors, and limits are implemented incrementally.
 
 ## Phase 3: Workspace and Attachments
 

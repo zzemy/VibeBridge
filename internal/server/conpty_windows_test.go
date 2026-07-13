@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zzemy/VibeBridge/internal/agentlog"
 	"golang.org/x/sys/windows"
 )
 
@@ -29,11 +30,11 @@ func TestWindowsConPTYTerminateClosesProcessTree(t *testing.T) {
 		),
 	}
 
-	session, err := newPTYSession(command, 0, nil)
+	session, err := newPTYSession(terminalLaunchRequest{Command: command}, 0, systemClock{}, ptyTerminalLauncher{}, nil, sessionTelemetry{})
 	if err != nil {
 		t.Fatalf("start Windows ConPTY session: %v", err)
 	}
-	t.Cleanup(session.terminate)
+	t.Cleanup(func() { session.terminateWithReason(agentlog.ReasonAgentShutdown) })
 
 	childPID := waitForChildPID(t, session, 10*time.Second)
 	childHandle, err := windows.OpenProcess(
@@ -55,7 +56,7 @@ func TestWindowsConPTYTerminateClosesProcessTree(t *testing.T) {
 		terminators.Add(1)
 		go func() {
 			defer terminators.Done()
-			session.terminate()
+			session.terminateWithReason(agentlog.ReasonExplicitEnd)
 		}()
 	}
 	terminators.Wait()
@@ -76,7 +77,7 @@ func waitForChildPID(t *testing.T, session *ptySession, timeout time.Duration) i
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		session.mu.Lock()
-		output := string(bytes.Join(session.buffer, nil))
+		output := string(bytes.Join(session.replay.snapshot(), nil))
 		session.mu.Unlock()
 
 		match := childPIDPattern.FindStringSubmatch(output)
