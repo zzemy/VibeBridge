@@ -4,6 +4,7 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   AcknowledgementSchema,
   AttachSessionSchema,
+  EndSessionSchema,
   EnvelopeSchema,
   HelloSchema,
   PeerRole,
@@ -11,6 +12,7 @@ import {
   ResumeDisposition,
   ProtocolVersionSchema,
   TerminalInputSchema,
+  TerminalResizeSchema,
   type Envelope,
 } from "../gen/vibebridge/v1/envelope_pb";
 
@@ -20,8 +22,10 @@ export const protocolV1Minor = 0;
 export const protocolV1MaxEnvelopeBytes = 64 * 1024;
 export const terminalBinaryOutputCapability = "terminal.binary_output";
 export const terminalSequencedIoCapability = "terminal.sequenced_io_v1";
+export const terminalResizeEndCapability = "terminal.resize_end_v1";
 export const sessionResumeCapability = "session.resume_v1";
 export const protocolV1MaxTerminalInputBytes = 32 * 1024;
+export const protocolV1MaxTerminalDimension = 65_535;
 
 const connectionIdBytes = 16;
 const maxCapabilities = 64;
@@ -55,7 +59,7 @@ export function createClientHello(connectionId: Uint8Array, sentAt = new Date())
           minimum: version(),
           maximum: version(),
         }),
-        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, sessionResumeCapability],
+        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, terminalResizeEndCapability, sessionResumeCapability],
         maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
       }),
     },
@@ -117,6 +121,9 @@ export function acceptAgentHello(encoded: Uint8Array, expectedConnectionId: Uint
     }
     capabilities.add(capability);
   }
+  if (capabilities.has(terminalResizeEndCapability) && !capabilities.has(terminalSequencedIoCapability)) {
+    throw new Error(`${terminalResizeEndCapability} requires ${terminalSequencedIoCapability}`);
+  }
 
   return {
     protocolMajor: protocolV1Major,
@@ -140,6 +147,7 @@ export type AgentStreamMessage =
 
 type ProtocolV1ClientStreamOptions = {
   sessionResume?: boolean;
+  terminalResizeEnd?: boolean;
 };
 
 /** Owns connection-local sequence and acknowledgement state after Hello. */
@@ -151,6 +159,7 @@ export class ProtocolV1ClientStream {
   private readonly connectionId: Uint8Array;
   private readonly peerMaxEnvelopeBytes: number;
   private readonly sessionResume: boolean;
+  private readonly terminalResizeEnd: boolean;
   private sessionBound = false;
   private sessionId = new Uint8Array();
   private sessionGeneration = 0n;
@@ -163,6 +172,7 @@ export class ProtocolV1ClientStream {
     this.connectionId = connectionId.slice();
     this.peerMaxEnvelopeBytes = peerMaxEnvelopeBytes;
     this.sessionResume = options.sessionResume === true;
+    this.terminalResizeEnd = options.terminalResizeEnd === true;
   }
 
   createAttachSession(cursor?: SessionResumeCursor, sentAt = new Date()): Uint8Array {
@@ -203,6 +213,34 @@ export class ProtocolV1ClientStream {
     return this.encode({
       case: "terminalInput",
       value: create(TerminalInputSchema, { data: encodedInput }),
+    }, sentAt);
+  }
+
+  /** Reports whether terminal.resize_end_v1 was negotiated for this physical connection. */
+  usesTerminalResizeEnd(): boolean {
+    return this.terminalResizeEnd;
+  }
+
+  createTerminalResize(columns: number, rows: number, sentAt = new Date()): Uint8Array {
+    if (!this.terminalResizeEnd) {
+      throw new Error("Terminal resize/end was not negotiated");
+    }
+    if (!isTerminalDimension(columns) || !isTerminalDimension(rows)) {
+      throw new Error(`Terminal dimensions must be integers between 1 and ${protocolV1MaxTerminalDimension}`);
+    }
+    return this.encode({
+      case: "terminalResize",
+      value: create(TerminalResizeSchema, { columns, rows }),
+    }, sentAt);
+  }
+
+  createEndSession(sentAt = new Date()): Uint8Array {
+    if (!this.terminalResizeEnd) {
+      throw new Error("Terminal resize/end was not negotiated");
+    }
+    return this.encode({
+      case: "endSession",
+      value: create(EndSessionSchema),
     }, sentAt);
   }
 
@@ -311,6 +349,10 @@ export class ProtocolV1ClientStream {
     this.nextOutbound += 1n;
     return encoded;
   }
+}
+
+function isTerminalDimension(value: number) {
+  return Number.isInteger(value) && value > 0 && value <= protocolV1MaxTerminalDimension;
 }
 
 function assertConnectionId(connectionId: Uint8Array) {

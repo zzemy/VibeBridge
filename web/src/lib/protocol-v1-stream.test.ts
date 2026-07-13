@@ -13,6 +13,7 @@ import {
 import {
   ProtocolV1ClientStream,
   protocolV1MaxEnvelopeBytes,
+  protocolV1MaxTerminalDimension,
 } from "./protocol-v1";
 
 const connectionId = Uint8Array.from({ length: 16 }, (_, index) => index);
@@ -57,6 +58,33 @@ describe("Protocol V1 sequenced terminal stream", () => {
     expect(acknowledgement.payload.case).toBe("acknowledgement");
   });
 
+
+  test("sequences negotiated terminal resize and end controls", () => {
+    const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { terminalResizeEnd: true });
+
+    const resize = fromBinary(EnvelopeSchema, stream.createTerminalResize(120, 40, sentAt));
+    expect(resize.sequence).toBe(2n);
+    expect(resize.acknowledge).toBe(1n);
+    expect(resize.payload.case).toBe("terminalResize");
+    if (resize.payload.case !== "terminalResize") throw new Error("expected terminal resize");
+    expect(resize.payload.value).toMatchObject({ columns: 120, rows: 40 });
+
+    const end = fromBinary(EnvelopeSchema, stream.createEndSession(sentAt));
+    expect(end.sequence).toBe(3n);
+    expect(end.acknowledge).toBe(1n);
+    expect(end.payload.case).toBe("endSession");
+  });
+
+  test("rejects unnegotiated and invalid terminal controls", () => {
+    const unnegotiated = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes);
+    expect(() => unnegotiated.createTerminalResize(80, 24, sentAt)).toThrow("not negotiated");
+    expect(() => unnegotiated.createEndSession(sentAt)).toThrow("not negotiated");
+
+    for (const [columns, rows] of [[0, 24], [80, 0], [1.5, 24], [protocolV1MaxTerminalDimension + 1, 24]]) {
+      const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { terminalResizeEnd: true });
+      expect(() => stream.createTerminalResize(columns, rows, sentAt)).toThrow("dimensions");
+    }
+  });
 
   test("attaches and carries a resumable session identity", () => {
     const sessionId = Uint8Array.from({ length: 16 }, (_, index) => 255 - index);

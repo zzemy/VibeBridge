@@ -35,7 +35,7 @@ The system has three participants:
 2. The Go server owns the HTTP/WebSocket endpoints and PTY lifecycle.
 3. The local CLI process performs the actual work on the host machine.
 
-PTY output is sent to the browser as binary WebSocket frames so terminal bytes and ANSI sequences are preserved. When both peers negotiate `terminal.sequenced_io_v1`, terminal input/output and acknowledgements are protobuf envelopes with connection-local ordering. When they also negotiate `session.resume_v1`, `AttachSession` and `SessionStatus` bind each physical connection to a resumable PTY generation. Otherwise the staged legacy path uses raw binary output and JSON input. Structured resize, end, health, process-exit, and error controls currently use JSON text frames in both paths.
+PTY output is sent to the browser as binary WebSocket frames so terminal bytes and ANSI sequences are preserved. When both peers negotiate `terminal.sequenced_io_v1`, terminal input/output and acknowledgements are protobuf envelopes with connection-local ordering. When they also negotiate `session.resume_v1`, `AttachSession` and `SessionStatus` bind each physical connection to a resumable PTY generation. Negotiated `terminal.resize_end_v1` adds ordered resize and explicit end controls; older peers retain their JSON adapters. Otherwise the staged legacy path uses raw binary output and JSON input. Health, process-exit, and error controls currently use JSON text frames in both paths.
 
 ## Session Lifecycle
 
@@ -76,16 +76,16 @@ Only one browser may attach at a time. A reconnect must reuse the existing PTY r
 
 ## Protocol Contract
 
-The browser offers WebSocket subprotocol `vibebridge.v1`. When selected, both peers exchange protobuf `Hello` envelopes before PTY creation. If both advertise `terminal.sequenced_io_v1`, binary protobuf envelopes carry `TerminalInput`, `TerminalOutput`, and `Acknowledgement` payloads with monotonically increasing connection-local sequence numbers. If both also advertise `session.resume_v1`, the client sends `AttachSession` as sequence 2 and waits for the Agent's sequence-2 `SessionStatus` before terminal traffic. A fresh request carries no session identity and cursor zero; a reconnect carries the previously assigned 16-byte session ID, positive generation, and the highest Agent sequence successfully processed on the previous physical connection. Hello and stream sequence state restart on every WebSocket; detached output is re-encoded from sequence 3 on the new connection.
+The browser offers WebSocket subprotocol `vibebridge.v1`. When selected, both peers exchange protobuf `Hello` envelopes before PTY creation. If both advertise `terminal.sequenced_io_v1`, binary protobuf envelopes carry `TerminalInput`, `TerminalOutput`, and `Acknowledgement` payloads with monotonically increasing connection-local sequence numbers. If both also advertise `terminal.resize_end_v1`, `TerminalResize` and `EndSession` use that ordered stream; columns and rows must be integers from 1 through 65,535. If both advertise `session.resume_v1`, the client sends `AttachSession` as sequence 2 and waits for the Agent's sequence-2 `SessionStatus` before terminal traffic. A fresh request carries no session identity and cursor zero; a reconnect carries the previously assigned 16-byte session ID, positive generation, and the highest Agent sequence successfully processed on the previous physical connection. Hello and stream sequence state restart on every WebSocket; detached output is re-encoded from sequence 3 on the new connection.
 
 A reconnect is `RESUMED` only when the identity and generation match the retained PTY, a prior detach checkpoint exists, the resume cursor exactly equals the Agent's previous highest outbound sequence, and the byte/time-bounded replay is complete. A newly created PTY returns `FRESH`. Every other attachment returns `RESYNC_REQUIRED`; the browser resets its terminal view, explains that history was truncated, and then renders any retained replay tail. Each newly created PTY receives a new random session ID and a monotonically increasing in-process generation, so stale identities cannot silently attach to a replacement. Older peers fall back to the staged legacy terminal adapter after Hello, and connections without the subprotocol remain fully legacy-compatible.
 
 Transitional browser-to-server JSON controls:
 
 - `input`: terminal input data, only on the legacy terminal path.
-- `resize`: positive terminal columns and rows.
-- `exit`: explicit PTY termination request.
-- `ping`: application-level health check.
+- `resize`: terminal columns and rows when `terminal.resize_end_v1` is not negotiated.
+- `exit`: explicit PTY termination request when `terminal.resize_end_v1` is not negotiated.
+- `ping`: application-level health check until a V1 health-control capability is introduced.
 
 Transitional server-to-browser messages:
 

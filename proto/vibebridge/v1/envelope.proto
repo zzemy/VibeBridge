@@ -47,6 +47,16 @@ message TerminalOutput {
   bytes data = 1;
 }
 
+// TerminalResize changes the PTY dimensions. Both values must be in the
+// inclusive range 1..65535.
+message TerminalResize {
+  uint32 columns = 1;
+  uint32 rows = 2;
+}
+
+// EndSession requests idempotent termination of the active PTY session.
+message EndSession {}
+
 // AttachSession starts a fresh attachment or resumes a previously attached
 // session. The cursor refers to the highest Agent sequence processed on the
 // previous physical connection.
@@ -89,7 +99,9 @@ message Envelope {
     AttachSession attach_session = 22;
     TerminalInput terminal_input = 23;
     TerminalOutput terminal_output = 24;
+    TerminalResize terminal_resize = 25;
     SessionStatus session_status = 26;
+    EndSession end_session = 27;
     Acknowledgement acknowledgement = 33;
   }
 }

@@ -396,6 +396,21 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, true); err != nil {
 						return
 					}
+				case protocolv1.ClientStreamMessageTerminalResize:
+					if err := session.resize(int(streamMessage.Columns), int(streamMessage.Rows)); err != nil {
+						_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
+						return
+					}
+					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, true); err != nil {
+						return
+					}
+				case protocolv1.ClientStreamMessageEndSession:
+					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, false); err != nil {
+						return
+					}
+					_ = writer.writeBinary([]byte("ending session\r\n"))
+					session.terminateWithReason(agentlog.ReasonExplicitEnd)
+					return
 				case protocolv1.ClientStreamMessageAcknowledgement:
 					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, false); err != nil {
 						return
@@ -408,6 +423,10 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 			}
 			if messageType != websocket.TextMessage || json.Unmarshal(encoded, &msg) != nil || msg.Type == "input" {
 				writer.closeProtocol("Invalid transitional control message")
+				return
+			}
+			if writer.usesTerminalResizeEnd() && (msg.Type == "resize" || msg.Type == "exit") {
+				writer.closeProtocol("Negotiated resize/end controls must use Protocol V1 envelopes")
 				return
 			}
 		} else if err := conn.ReadJSON(&msg); err != nil {
@@ -425,7 +444,7 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 			session.terminateWithReason(agentlog.ReasonExplicitEnd)
 			return
 		case "resize":
-			if msg.Cols > 0 && msg.Rows > 0 {
+			if msg.Cols > 0 && msg.Cols <= protocolv1.MaxTerminalDimension && msg.Rows > 0 && msg.Rows <= protocolv1.MaxTerminalDimension {
 				if err := session.resize(msg.Cols, msg.Rows); err != nil {
 					_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
 					return
@@ -841,6 +860,12 @@ func (w *websocketWriter) usesSessionResume() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.protocolV1 != nil && w.protocolV1.UsesSessionResume()
+}
+
+func (w *websocketWriter) usesTerminalResizeEnd() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.protocolV1 != nil && w.protocolV1.UsesTerminalResizeEnd()
 }
 
 func (w *websocketWriter) usesProtocolV1() bool {

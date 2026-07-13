@@ -27,6 +27,7 @@ import {
   sessionResumeCapability,
   type SessionResumeCursor,
   terminalBinaryOutputCapability,
+  terminalResizeEndCapability,
   terminalSequencedIoCapability,
 } from "./lib/protocol-v1";
 import { terminalKeys } from "./lib/terminalKeys";
@@ -263,7 +264,8 @@ export function App() {
             }
             if (negotiated.capabilities.has(terminalSequencedIoCapability)) {
               const sessionResume = negotiated.capabilities.has(sessionResumeCapability);
-              const stream = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes, { sessionResume });
+              const terminalResizeEnd = negotiated.capabilities.has(terminalResizeEndCapability);
+              const stream = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes, { sessionResume, terminalResizeEnd });
               protocolStreamRef.current = stream;
               protocolNegotiated = true;
               if (sessionResume) {
@@ -329,7 +331,7 @@ export function App() {
         if (socketRef.current === socket) {
           socketRef.current = null;
           protocolStreamRef.current = null;
-        }
+            }
         if (fatalProtocolError || (!protocolNegotiated && socket.protocol === protocolV1WebSocketSubprotocol && event.code === 1002)) {
           stopReconnectRef.current = true;
           setConnectionState("error");
@@ -389,10 +391,19 @@ export function App() {
 
   const sendResize = useCallback((cols: number, rows: number) => {
     const socket = socketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "resize", cols, rows }));
+    if (socket?.readyState !== WebSocket.OPEN) {
+      return;
     }
-  }, []);
+    try {
+      const protocolStream = protocolStreamRef.current;
+      const payload = protocolStream?.usesTerminalResizeEnd()
+        ? protocolStream.createTerminalResize(cols, rows).slice().buffer
+        : JSON.stringify({ type: "resize", cols, rows });
+      socket.send(payload);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Invalid terminal dimensions");
+    }
+  }, [showNotice]);
 
   const retryConnection = useCallback(() => {
     stopReconnectRef.current = false;
@@ -403,12 +414,21 @@ export function App() {
     const socket = socketRef.current;
     stopReconnectRef.current = true;
     if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "exit" }));
+      try {
+        const protocolStream = protocolStreamRef.current;
+        const payload = protocolStream?.usesTerminalResizeEnd()
+          ? protocolStream.createEndSession().slice().buffer
+          : JSON.stringify({ type: "exit" });
+        socket.send(payload);
+      } catch (error) {
+        stopReconnectRef.current = false;
+        showNotice(error instanceof Error ? error.message : "Could not end the session");
+      }
       return;
     }
     socket?.close();
     setConnectionState("closed");
-  }, []);
+  }, [showNotice]);
 
   const copySelection = useCallback(async () => {
     const copied = await terminalRef.current?.copySelection();

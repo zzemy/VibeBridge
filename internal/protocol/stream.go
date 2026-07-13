@@ -14,8 +14,10 @@ import (
 
 const (
 	CapabilityTerminalSequencedIO = "terminal.sequenced_io_v1"
+	CapabilityTerminalResizeEnd   = "terminal.resize_end_v1"
 	CapabilitySessionResume       = "session.resume_v1"
 	MaxTerminalInputBytes         = 32 * 1024
+	MaxTerminalDimension          = 65_535
 )
 
 type ClientStreamMessageKind uint8
@@ -23,6 +25,8 @@ type ClientStreamMessageKind uint8
 const (
 	ClientStreamMessageAttachSession ClientStreamMessageKind = iota + 1
 	ClientStreamMessageTerminalInput
+	ClientStreamMessageTerminalResize
+	ClientStreamMessageEndSession
 	ClientStreamMessageAcknowledgement
 )
 
@@ -33,6 +37,8 @@ type ClientStreamMessage struct {
 	SessionID                []byte
 	SessionGeneration        uint64
 	LastAcknowledgedSequence uint64
+	Columns                  uint32
+	Rows                     uint32
 }
 
 // AgentStream owns connection-local ordering state after Hello negotiation and,
@@ -47,6 +53,7 @@ type AgentStream struct {
 	highestInbound      uint64
 	highestPeerAck      uint64
 	sessionResume       bool
+	terminalResizeEnd   bool
 	sessionBound        bool
 	sessionID           []byte
 	sessionGeneration   uint64
@@ -66,6 +73,7 @@ func NewAgentStream(negotiated NegotiatedHello) (*AgentStream, error) {
 		nextInbound:         2,
 		highestInbound:      1,
 		sessionResume:       negotiated.HasCapability(CapabilitySessionResume),
+		terminalResizeEnd:   negotiated.HasCapability(CapabilityTerminalResizeEnd),
 	}, nil
 }
 
@@ -100,6 +108,22 @@ func (s *AgentStream) DecodeClientMessage(encoded []byte) (ClientStreamMessage, 
 		}
 		message.Kind = ClientStreamMessageTerminalInput
 		message.Data = append([]byte(nil), payload.TerminalInput.Data...)
+	case *vibebridgev1.Envelope_TerminalResize:
+		if !s.terminalResizeEnd {
+			return ClientStreamMessage{}, errors.New("terminal resize/end was not negotiated")
+		}
+		if payload.TerminalResize.Columns == 0 || payload.TerminalResize.Columns > MaxTerminalDimension ||
+			payload.TerminalResize.Rows == 0 || payload.TerminalResize.Rows > MaxTerminalDimension {
+			return ClientStreamMessage{}, fmt.Errorf("terminal dimensions must be between 1 and %d", MaxTerminalDimension)
+		}
+		message.Kind = ClientStreamMessageTerminalResize
+		message.Columns = payload.TerminalResize.Columns
+		message.Rows = payload.TerminalResize.Rows
+	case *vibebridgev1.Envelope_EndSession:
+		if !s.terminalResizeEnd {
+			return ClientStreamMessage{}, errors.New("terminal resize/end was not negotiated")
+		}
+		message.Kind = ClientStreamMessageEndSession
 	case *vibebridgev1.Envelope_Acknowledgement:
 		message.Kind = ClientStreamMessageAcknowledgement
 	default:
@@ -220,6 +244,14 @@ func (s *AgentStream) EncodeSessionStatus(disposition vibebridgev1.ResumeDisposi
 	return s.encodeLocked(&vibebridgev1.Envelope{Payload: &vibebridgev1.Envelope_SessionStatus{SessionStatus: &vibebridgev1.SessionStatus{
 		ResumeDisposition: disposition,
 	}}}, sentAt)
+}
+
+// UsesTerminalResizeEnd reports whether terminal.resize_end_v1 was negotiated
+// for this physical connection.
+func (s *AgentStream) UsesTerminalResizeEnd() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.terminalResizeEnd
 }
 
 // UsesSessionResume reports whether session.resume_v1 was negotiated for this
