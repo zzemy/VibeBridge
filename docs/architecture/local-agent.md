@@ -67,11 +67,12 @@ Platform adapters must define process-tree semantics. Windows uses ConPTY plus a
 
 ## Workspaces and Launch Profiles
 
-- Workspace paths are explicit and canonicalized.
-- Launch profiles define executable, argument templates, working-directory policy, environment allowlist, and tool adapter.
-- No remote client supplies an unchecked executable path or environment.
-- User-created profiles are stored locally and validated before launch.
-- Sensitive environment values remain local and are never returned to clients.
+- Version 1 configuration registers workspaces by a stable local ID, display label, and existing directory root. Relative roots are resolved from the configuration directory.
+- Registry construction resolves symlinks and Windows junctions to canonical absolute paths, rejects duplicate IDs and canonical roots, and uses case-insensitive root identity on Windows.
+- A launch profile may bind to a workspace. Its working directory defaults to that root or resolves beneath it; traversal and link escapes are rejected before PTY creation. Profiles without a workspace binding retain the compatibility working-directory behavior.
+- This startup validation is a registry snapshot, not authorization for later writes. Attachment storage must re-check canonical containment before every file operation and use no-follow creation/cleanup behavior to address path replacement races.
+- Launch profiles define executable, argument templates, working-directory policy, environment allowlist, and tool adapter. No remote client supplies an unchecked executable path or environment.
+- User-created profiles are stored locally and validated before launch. Sensitive environment values remain local and are never returned to clients.
 
 ## User-Scoped Background Installation
 
@@ -112,7 +113,7 @@ Use SQLite only when structured migrations, concurrent reads, or durable device/
 
 ## Diagnostics
 
-The current local-only `--diagnose` preflight checks the host PTY support status, user-scoped background Agent installation, launch executable, working directory, HTTP listener, frontend assets, LAN exposure, and platform firewall guidance. It reports all independent failures in one run without creating a session token or starting a PTY.
+The current local-only `--diagnose` preflight checks the host PTY support status, user-scoped background Agent installation, launch executable, selected workspace/working directory, HTTP listener, frontend assets, LAN exposure, and platform firewall guidance. It reports all independent failures in one run without creating a session token or starting a PTY.
 
 As later phases add identity, workspaces, updates, and relay transport, diagnostics expand with those boundaries. The target command form is:
 
