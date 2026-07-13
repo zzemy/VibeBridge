@@ -31,6 +31,8 @@ License names were checked from module/package metadata and bundled license file
 | `golang.org/x/term` | `v0.43.0` | Transitive terminal support | BSD-3-Clause |
 | `rsc.io/qr` | `v0.2.0` | Transitive QR encoding | BSD-3-Clause |
 
+The generated protocol package uses `google.golang.org/protobuf` `v1.36.11` (BSD-3-Clause). It is not yet reachable from the current Agent executable while the legacy adapter remains active, but it is exercised by protocol compatibility tests.
+
 `github.com/creack/pty` and `github.com/u-root/u-root` are reachable only in Unix builds; Windows builds use the ConPTY implementation and `golang.org/x/sys/windows`. The table is the union of Windows and Linux `go list -deps` results.
 
 ## Web production dependencies
@@ -43,6 +45,9 @@ License names were checked from module/package metadata and bundled license file
 | `lucide-react` | Icons | ISC |
 | `class-variance-authority` | Component variants | Apache-2.0 |
 | `clsx`, `tailwind-merge` | Class composition | MIT |
+| `@bufbuild/protobuf` | Generated Protocol V1 TypeScript runtime | Apache-2.0 AND BSD-3-Clause |
+
+`@bufbuild/buf` `1.71.0` is an Apache-2.0 development-only schema lint and generation tool. Its platform-specific official binary installer is the only dependency build script allowlisted in `web/pnpm-workspace.yaml`; Go and TypeScript generator plugin versions are pinned in `buf.gen.yaml`.
 
 The production web dependency closure currently reports only MIT, ISC, Apache-2.0, and 0BSD license families. Build/test-only dependencies additionally include BSD-3-Clause, CC0-1.0, BlueOak-1.0.0, and MPL-2.0 packages; the MPL-2.0 Lightning CSS tooling is not shipped as source in the generated web bundle.
 
@@ -55,4 +60,4 @@ On 2026-07-12, `govulncheck` reported zero reachable vulnerabilities (with findi
 - No dependency with a known strong-copyleft license is reachable in the current distributed Go executable or web runtime.
 - Current dependency licenses are permissive or file-level weak-copyleft build tooling and present no identified blocker for normal binary/web distribution.
 - PTY and Windows process cleanup remain high-risk dependencies and require real ConPTY regression coverage on Windows CI.
-- The repository itself has no root `LICENSE` yet. The project owner must select the project license before a release or external contribution can be represented as licensed open-source distribution; this review does not choose that policy.
+- The repository is distributed under the Apache License 2.0. Dependency notices and source-level obligations must continue to be reviewed when dependencies change.
