@@ -106,6 +106,11 @@ Exit gate:
 - No file is referenced before checksum verification.
 - Session cleanup removes partial and final temporary data according to policy.
 
+Current status (2026-07-14):
+
+- In progress. Version 1 local configuration now includes a validated workspace registry with stable IDs, labels, canonical absolute roots, duplicate-root detection, Windows case-insensitive identity, and symlink/junction resolution. Launch profiles can opt into a workspace boundary; their default, relative, or absolute working directory must resolve inside that root before PTY creation, while profiles without `workspace_id` remain compatible.
+- Traversal, Unicode, symlink, and Windows junction workspace-policy tests are in place. Session staging, attachment protocol/state, checksum/quota/cleanup, client UX, and tool adapters remain to be implemented before the phase exit gate is met.
+
 ## Phase 4: Device Identity and Pairing
 
 Goal: replace URL bearer identity with revocable paired devices.

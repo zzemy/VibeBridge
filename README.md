@@ -13,7 +13,7 @@ Control local AI CLI sessions such as Codex and Claude Code from your phone over
 - Mobile terminal access with ANSI and raw PTY output preserved over WebSocket binary frames.
 - Prompt composition, direct keyboard input, clipboard paste, search, reconnect feedback, and portrait/landscape layouts.
 - Short-disconnect resume, byte/time-bounded replay, idle cleanup, and idempotent PTY process-tree termination.
-- Versioned launch profiles, privacy-safe lifecycle logs, and local diagnostics.
+- Versioned workspace roots and launch profiles, privacy-safe lifecycle logs, and local diagnostics.
 - A least-privilege, user-scoped Windows background Agent installed through Task Scheduler.
 - Canonical Protocol V1 Protobuf schemas, generated Go/TypeScript packages, golden vectors, and compatibility CI.
 
@@ -69,7 +69,7 @@ go run ./cmd/vibebridge --diagnose
 
 Set `--idle-timeout 0` to disable idle cleanup.
 
-`--diagnose` reports the host PTY support status, user-scoped background Agent installation, configured command or launch profile, working directory, HTTP listen port, frontend build, listener exposure, private LAN addresses, and platform-appropriate firewall guidance without starting a PTY or generating a session token. It runs all independent checks before returning a failure summary, so one run can reveal multiple configuration problems.
+`--diagnose` reports the host PTY support status, user-scoped background Agent installation, configured command or launch profile, selected workspace/working directory, HTTP listen port, frontend build, listener exposure, private LAN addresses, and platform-appropriate firewall guidance without starting a PTY or generating a session token. It runs all independent checks before returning a failure summary, so one run can reveal multiple configuration problems.
 
 ## Local Configuration and Launch Profiles
 
@@ -82,11 +82,11 @@ go run ./cmd/vibebridge --config config.local.json --profile codex
 go run ./cmd/vibebridge --config config.local.json --profile claude --diagnose
 ```
 
-The configuration format is explicitly versioned. Version 1 supports listener/static-asset settings, reconnect and idle durations, the optional `disable_legacy_protocol` migration gate, a default profile, and structured launch profiles. Each profile declares an executable, an argument array, an optional working directory, and an environment-variable allowlist. Arguments are passed directly to the executable without shell interpolation. Relative working directories are resolved relative to the configuration file.
+The configuration format is explicitly versioned. Version 1 supports listener/static-asset settings, reconnect and idle durations, the optional `disable_legacy_protocol` migration gate, a local workspace registry, a default profile, and structured launch profiles. Each workspace declares a stable lowercase ID, display label, and existing directory root. Relative roots are resolved from the configuration file, symlinks and Windows junctions are resolved to a canonical absolute root, and duplicate canonical roots are rejected.
 
-Profile sessions inherit only environment variables named in `environment_allowlist`; missing variables are omitted. Include variables required by the selected tool, such as `PATH`, `PATHEXT`, `SYSTEMROOT`, `TEMP`, `TMP`, and `USERPROFILE` on Windows. The example is Windows-oriented; change the shell executable and environment names for another supported platform.
+A profile may bind to a configured workspace with `workspace_id`. Its empty `working_directory` defaults to that root; a relative value is resolved from the workspace, and an absolute value is accepted only when its canonical directory remains inside the workspace. Profiles without `workspace_id` retain the previous behavior, including resolving relative working directories from the configuration file. Arguments are passed directly to the executable without shell interpolation. Profile sessions inherit only environment variables named in `environment_allowlist`; missing variables are omitted. Include variables required by the selected tool, such as `PATH`, `PATHEXT`, `SYSTEMROOT`, `TEMP`, `TMP`, and `USERPROFILE` on Windows.
 
-Unknown fields, unsupported versions, duplicate profile IDs, invalid durations, missing default profiles, invalid environment names, and configuration files larger than 1 MiB are rejected. Command-line `--addr`, `--web-dir`, `--reconnect-timeout`, `--idle-timeout`, and explicit `--disable-legacy-protocol=true|false` values override configured values. An explicit `--cmd` preserves the legacy flow and overrides the configured default profile; `--cmd` and `--profile` cannot be combined.
+Unknown fields, unsupported versions, duplicate profile/workspace IDs, duplicate canonical workspace roots, missing or non-directory workspace roots, workspace boundary escapes, invalid durations, missing default profiles, invalid environment names, and configuration files larger than 1 MiB are rejected. Command-line `--addr`, `--web-dir`, `--reconnect-timeout`, `--idle-timeout`, and explicit `--disable-legacy-protocol=true|false` values override configured values. An explicit `--cmd` preserves the legacy flow and overrides the configured default profile; `--cmd` and `--profile` cannot be combined.
 
 Legacy compatibility is enabled by default. Set `disable_legacy_protocol` to `true` or pass `--disable-legacy-protocol` only after all deployed clients support the complete current Protocol V1 capability set. In that mode, clients without the `vibebridge.v1` WebSocket subprotocol receive HTTP `426` and V1 clients missing a required current capability receive WebSocket close `1002`; both checks happen before PTY/session creation.
 

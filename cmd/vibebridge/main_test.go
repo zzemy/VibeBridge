@@ -69,6 +69,28 @@ func TestRunDiagnosticsReportsExpandedPreflight(t *testing.T) {
 	}
 }
 
+func TestRunDiagnosticsReportsWorkspaceWithoutExposingItsPath(t *testing.T) {
+	workingDirectory := t.TempDir()
+	var output bytes.Buffer
+	options := startupOptions{
+		addr:             "127.0.0.1:0",
+		webDir:           t.TempDir(),
+		command:          []string{os.Args[0]},
+		profileID:        "test-profile",
+		workspaceID:      "private-repo",
+		workingDirectory: workingDirectory,
+	}
+	if err := runDiagnostics(options, false, &output); err != nil {
+		t.Fatalf("run diagnostics: %v", err)
+	}
+	if !strings.Contains(output.String(), `workspace "private-repo" root and launch working directory are available`) {
+		t.Fatalf("workspace diagnostic was not reported:\n%s", output.String())
+	}
+	if strings.Contains(output.String(), workingDirectory) {
+		t.Fatalf("workspace path was exposed in diagnostic output:\n%s", output.String())
+	}
+}
+
 func TestNetworkDiagnosticsUsesPlatformFirewallGuidance(t *testing.T) {
 	checks := networkDiagnostics("192.168.1.10:8787")
 	if len(checks) != 2 {
@@ -146,13 +168,14 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 		"reconnect_timeout": "2m",
 		"idle_timeout": "0s",
 		"disable_legacy_protocol": true,
+		"workspaces": [{"id":"repo","label":"Repository","root":"` + filepath.ToSlash(workspace) + `"}],
 		"default_profile": "codex",
 		"profiles": [{
 			"id": "codex",
 			"label": "Codex",
 			"executable": "codex",
 			"args": ["--model", "gpt 5"],
-			"working_directory": "` + filepath.ToSlash(workspace) + `",
+			"workspace_id": "repo",
 			"environment_allowlist": ["PATH", "MISSING"]
 		}]
 	}`
@@ -176,8 +199,8 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 	if !reflect.DeepEqual(options.command, []string{"codex", "--model", "gpt 5"}) {
 		t.Fatalf("command = %q, want structured profile arguments", options.command)
 	}
-	if options.profileID != "codex" {
-		t.Fatalf("profile ID = %q, want codex", options.profileID)
+	if options.profileID != "codex" || options.workspaceID != "repo" {
+		t.Fatalf("profile/workspace ID = %q/%q, want codex/repo", options.profileID, options.workspaceID)
 	}
 	if options.workingDirectory != workspace {
 		t.Fatalf("working directory = %q, want %q", options.workingDirectory, workspace)

@@ -28,7 +28,8 @@ Default location:
 - `.vibebridge/` is added to Git ignore guidance.
 - The Agent generates the physical name.
 - Original name is display metadata and never used directly for path construction.
-- Canonical resolved path must remain under the session staging root.
+- Workspace roots come only from the validated local registry; the remote client selects an advertised opaque ID and never supplies a filesystem root.
+- Canonical resolved paths must remain under the session staging root. Registry validation at startup does not replace containment and no-follow checks before every attachment file operation.
 - Partial files use a non-executable temporary suffix.
 - No archive extraction in V1.
 

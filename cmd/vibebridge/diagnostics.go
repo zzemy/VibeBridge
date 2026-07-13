@@ -50,7 +50,9 @@ func collectDiagnostics(options startupOptions, hasEmbeddedAssets bool) []diagno
 	})
 
 	workingDirectoryMessage := "launch working directory uses the current directory"
-	if options.workingDirectory != "" {
+	if options.workspaceID != "" {
+		workingDirectoryMessage = fmt.Sprintf("workspace %q root and launch working directory are available", options.workspaceID)
+	} else if options.workingDirectory != "" {
 		workingDirectoryMessage = "launch working directory is available"
 	}
 	checks = append(checks, diagnosticCheck{
