@@ -18,6 +18,7 @@ const (
 	CapabilitySessionProcessExit  = "session.process_exit_v1"
 	CapabilitySessionResume       = "session.resume_v1"
 	CapabilityControlError        = "control.error_v1"
+	CapabilityControlHealth       = "control.health_v1"
 	MaxTerminalInputBytes         = 32 * 1024
 	MaxTerminalDimension          = 65_535
 )
@@ -30,6 +31,7 @@ const (
 	ClientStreamMessageTerminalResize
 	ClientStreamMessageEndSession
 	ClientStreamMessageAcknowledgement
+	ClientStreamMessagePing
 )
 
 type ClientStreamMessage struct {
@@ -48,19 +50,21 @@ type ClientStreamMessage struct {
 type AgentStream struct {
 	mu sync.Mutex
 
-	connectionID        []byte
-	peerMaxEnvelopeSize uint32
-	nextOutbound        uint64
-	nextInbound         uint64
-	highestInbound      uint64
-	highestPeerAck      uint64
-	sessionResume       bool
-	terminalResizeEnd   bool
-	sessionProcessExit  bool
-	controlError        bool
-	sessionBound        bool
-	sessionID           []byte
-	sessionGeneration   uint64
+	connectionID         []byte
+	peerMaxEnvelopeSize  uint32
+	nextOutbound         uint64
+	nextInbound          uint64
+	highestInbound       uint64
+	highestPeerAck       uint64
+	pendingPingSequences []uint64
+	sessionResume        bool
+	terminalResizeEnd    bool
+	sessionProcessExit   bool
+	controlError         bool
+	controlHealth        bool
+	sessionBound         bool
+	sessionID            []byte
+	sessionGeneration    uint64
 }
 
 func NewAgentStream(negotiated NegotiatedHello) (*AgentStream, error) {
@@ -80,6 +84,7 @@ func NewAgentStream(negotiated NegotiatedHello) (*AgentStream, error) {
 		terminalResizeEnd:   negotiated.HasCapability(CapabilityTerminalResizeEnd),
 		sessionProcessExit:  negotiated.HasCapability(CapabilitySessionProcessExit),
 		controlError:        negotiated.HasCapability(CapabilityControlError),
+		controlHealth:       negotiated.HasCapability(CapabilityControlHealth),
 	}, nil
 }
 
@@ -132,6 +137,11 @@ func (s *AgentStream) DecodeClientMessage(encoded []byte) (ClientStreamMessage, 
 		message.Kind = ClientStreamMessageEndSession
 	case *vibebridgev1.Envelope_Acknowledgement:
 		message.Kind = ClientStreamMessageAcknowledgement
+	case *vibebridgev1.Envelope_Ping:
+		if !s.controlHealth {
+			return ClientStreamMessage{}, errors.New("control health was not negotiated")
+		}
+		message.Kind = ClientStreamMessagePing
 	default:
 		return ClientStreamMessage{}, errors.New("client envelope contains an unsupported payload")
 	}
@@ -142,14 +152,19 @@ func (s *AgentStream) DecodeClientMessage(encoded []byte) (ClientStreamMessage, 
 	return message, nil
 }
 
-func (s *AgentStream) CommitClientMessage(sequence uint64) error {
+// CommitClientMessage advances ordering after the caller successfully applies
+// the side effect of a message returned by DecodeClientMessage.
+func (s *AgentStream) CommitClientMessage(message ClientStreamMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sequence != s.nextInbound {
-		return fmt.Errorf("client sequence %d cannot be committed; expected %d", sequence, s.nextInbound)
+	if message.Sequence != s.nextInbound {
+		return fmt.Errorf("client sequence %d cannot be committed; expected %d", message.Sequence, s.nextInbound)
 	}
-	s.highestInbound = sequence
+	s.highestInbound = message.Sequence
 	s.nextInbound++
+	if message.Kind == ClientStreamMessagePing {
+		s.pendingPingSequences = append(s.pendingPingSequences, message.Sequence)
+	}
 	return nil
 }
 
@@ -298,6 +313,36 @@ func (s *AgentStream) EncodeError(code vibebridgev1.ErrorCode, sentAt time.Time)
 	return s.encodeLocked(&vibebridgev1.Envelope{Payload: &vibebridgev1.Envelope_Error{Error: &vibebridgev1.Error{
 		Code: code,
 	}}}, sentAt)
+}
+
+// EncodePong responds to one committed ordered Ping. It rejects unnegotiated
+// streams and resumable streams that have not bound a session.
+func (s *AgentStream) EncodePong(sentAt time.Time) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.controlHealth {
+		return nil, errors.New("control health was not negotiated")
+	}
+	if s.sessionResume && !s.sessionBound {
+		return nil, errors.New("session must be bound before Pong")
+	}
+	if len(s.pendingPingSequences) == 0 {
+		return nil, errors.New("Pong requires a committed Ping")
+	}
+	encoded, err := s.encodeLocked(&vibebridgev1.Envelope{Payload: &vibebridgev1.Envelope_Pong{Pong: &vibebridgev1.Pong{}}}, sentAt)
+	if err != nil {
+		return nil, err
+	}
+	s.pendingPingSequences = s.pendingPingSequences[1:]
+	return encoded, nil
+}
+
+// UsesControlHealth reports whether control.health_v1 was negotiated for this
+// physical connection.
+func (s *AgentStream) UsesControlHealth() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.controlHealth
 }
 
 // UsesControlError reports whether control.error_v1 was negotiated for this

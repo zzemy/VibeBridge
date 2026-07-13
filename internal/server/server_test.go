@@ -521,6 +521,89 @@ func TestProtocolV1SequencesTerminalInputOutputAndAcknowledgement(t *testing.T) 
 	app.Close()
 }
 
+func TestProtocolV1UsesSequencedApplicationHealthCheck(t *testing.T) {
+	wait := make(chan struct{})
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    &recordingPTY{writes: make(chan []byte, 1)},
+		processTree: &countingProcessTree{},
+		cancel:      func() {},
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilityControlHealth,
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection) // Agent Hello.
+	initialOutput := readProtocolEnvelope(t, connection)
+
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientPing(t, nil, 0, 2, initialOutput.Sequence)); err != nil {
+		t.Fatalf("send Ping: %v", err)
+	}
+	pong := readProtocolEnvelope(t, connection)
+	if pong.Sequence != initialOutput.Sequence+1 || pong.Acknowledge != 2 || pong.GetPong() == nil {
+		t.Fatalf("Pong sequence/ack/payload = %d/%d/%T", pong.Sequence, pong.Acknowledge, pong.Payload)
+	}
+
+	if err := connection.WriteJSON(ClientMessage{Type: "ping"}); err != nil {
+		t.Fatalf("send negotiated JSON ping: %v", err)
+	}
+	_, _, err := connection.ReadMessage()
+	var closeError *websocket.CloseError
+	if !errors.As(err, &closeError) || closeError.Code != websocket.CloseProtocolError {
+		t.Fatalf("negotiated JSON ping close error = %v, want protocol close", err)
+	}
+
+	close(wait)
+	app.Close()
+}
+
+func TestProtocolV1RetainsJSONHealthAdapterWithoutCapability(t *testing.T) {
+	wait := make(chan struct{})
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    &recordingPTY{writes: make(chan []byte, 1)},
+		processTree: &countingProcessTree{},
+		cancel:      func() {},
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{protocolv1.CapabilityTerminalBinaryOutput, protocolv1.CapabilityTerminalSequencedIO}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection) // Agent Hello.
+	_ = readProtocolEnvelope(t, connection) // Initial terminal output.
+
+	if err := connection.WriteJSON(ClientMessage{Type: "ping"}); err != nil {
+		t.Fatalf("send transitional JSON ping: %v", err)
+	}
+	var pong ServerMessage
+	if err := connection.ReadJSON(&pong); err != nil {
+		t.Fatalf("read transitional JSON pong: %v", err)
+	}
+	if pong.Type != "pong" {
+		t.Fatalf("transitional health response = %#v, want pong", pong)
+	}
+
+	close(wait)
+	app.Close()
+}
+
 func TestProtocolV1UsesSequencedResizeAndEndControls(t *testing.T) {
 	wait := make(chan struct{})
 	var cancelOnce sync.Once
@@ -1011,6 +1094,13 @@ func (p *recordingPTY) Resize(columns, rows int) error {
 func (p *recordingPTY) Write(data []byte) (int, error) {
 	p.writes <- append([]byte(nil), data...)
 	return len(data), nil
+}
+
+func marshalClientPing(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64) []byte {
+	t.Helper()
+	envelope := newClientProtocolEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_Ping{Ping: &vibebridgev1.Ping{}}
+	return marshalClientProtocolEnvelope(t, envelope)
 }
 
 func marshalClientAttach(t *testing.T, sessionID []byte, generation, lastAcknowledgedSequence uint64) []byte {
