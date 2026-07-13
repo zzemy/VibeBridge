@@ -86,6 +86,8 @@ message Envelope {
     AttachmentComplete attachment_complete = 30;
     AttachmentCancel attachment_cancel = 31;
     Error error = 32;
+    Acknowledgement acknowledgement = 33;
+    ProcessExit process_exit = 34;
   }
 }
 ```
@@ -113,7 +115,8 @@ Current migration behavior:
 - Sequence and acknowledgement state is physical-connection-local: each WebSocket restarts with Hello sequence `1`. Detached raw PTY output is re-encoded into new sequence `3+` envelopes rather than preserving old wire sequence numbers.
 - The Agent returns `RESUMED` only for an exact identity, generation, detach-checkpoint, cursor, and complete-replay match. Byte or time eviction makes replay incomplete. A new PTY returns `FRESH`; every other attachment returns `RESYNC_REQUIRED`, causing the browser to reset stale terminal state, explain the truncation, and render any retained replay tail. Each new PTY gets a random protocol session ID and a monotonically increasing in-process generation.
 - If both peers also advertise `terminal.resize_end_v1`, client resize and explicit end controls use ordered `TerminalResize` and `EndSession` envelopes. Advertising it without `terminal.sequenced_io_v1` is an invalid capability combination. Columns and rows are integers from 1 through 65,535. Once negotiated, JSON resize/end controls are protocol errors; without the capability, their transitional JSON adapter remains available for older peers.
-- Application ping/pong, process-exit, and error controls remain on the transitional JSON adapter until their V1 payloads are introduced.
+- If both peers also advertise `session.process_exit_v1`, the Agent reports terminal completion as an ordered `ProcessExit` with a `SUCCESS` or `FAILURE` outcome. Advertising it without `terminal.sequenced_io_v1` is invalid. The outcome follows the final session lifecycle state, so an explicit end remains successful even if process termination returns an expected host error; raw host errors are never included. Without the capability, process exit retains its transitional JSON adapter.
+- Application ping/pong and error controls remain on the transitional JSON adapter until their V1 payloads are introduced.
 
 Support policy:
 
@@ -130,6 +133,7 @@ Examples:
 - `terminal.binary_output`
 - `terminal.sequenced_io_v1`
 - `terminal.resize_end_v1`
+- `session.process_exit_v1`
 - `session.resume_v1`
 - `attachment.chunked_v1`
 - `attachment.image_preview_v1`

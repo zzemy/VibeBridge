@@ -57,6 +57,19 @@ message TerminalResize {
 // EndSession requests idempotent termination of the active PTY session.
 message EndSession {}
 
+// ProcessExitOutcome reports the final PTY lifecycle result without exposing
+// host process errors.
+enum ProcessExitOutcome {
+  PROCESS_EXIT_OUTCOME_UNSPECIFIED = 0;
+  PROCESS_EXIT_OUTCOME_SUCCESS = 1;
+  PROCESS_EXIT_OUTCOME_FAILURE = 2;
+}
+
+// ProcessExit reports that the PTY process and session have ended.
+message ProcessExit {
+  ProcessExitOutcome outcome = 1;
+}
+
 // AttachSession starts a fresh attachment or resumes a previously attached
 // session. The cursor refers to the highest Agent sequence processed on the
 // previous physical connection.
@@ -103,5 +116,6 @@ message Envelope {
     SessionStatus session_status = 26;
     EndSession end_session = 27;
     Acknowledgement acknowledgement = 33;
+    ProcessExit process_exit = 34;
   }
 }

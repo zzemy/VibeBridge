@@ -5,7 +5,7 @@ import { PromptComposer } from "./components/PromptComposer";
 import { ShortcutBar } from "./components/ShortcutBar";
 import { TerminalToolbar } from "./components/TerminalToolbar";
 import type { TerminalViewHandle } from "./components/TerminalView";
-import { ResumeDisposition } from "./gen/vibebridge/v1/envelope_pb";
+import { ProcessExitOutcome, ResumeDisposition } from "./gen/vibebridge/v1/envelope_pb";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +24,7 @@ import {
   newProtocolV1ConnectionId,
   ProtocolV1ClientStream,
   protocolV1WebSocketSubprotocol,
+  sessionProcessExitCapability,
   sessionResumeCapability,
   type SessionResumeCursor,
   terminalBinaryOutputCapability,
@@ -156,6 +157,12 @@ export function App() {
     };
   }, [statusUrl]);
 
+  const handleProcessExit = useCallback((message: string) => {
+    stopReconnectRef.current = true;
+    setTerminalChunks((chunks) => [...chunks, `process: ${message}\r\n`]);
+    setConnectionState("closed");
+  }, []);
+
   const handleServerMessage = useCallback((message: ServerMessage) => {
     switch (message.type) {
       case "error":
@@ -168,14 +175,12 @@ export function App() {
         setTerminalChunks((chunks) => [...chunks, `error: ${message.data ?? "unknown"}\r\n`]);
         break;
       case "exit":
-        stopReconnectRef.current = true;
-        setTerminalChunks((chunks) => [...chunks, `process: ${message.data ?? "exited"}\r\n`]);
-        setConnectionState("closed");
+        handleProcessExit(message.data ?? "exited");
         break;
       case "pong":
         break;
     }
-  }, []);
+  }, [handleProcessExit]);
 
   useEffect(() => {
     if (!wsUrl) {
@@ -264,8 +269,13 @@ export function App() {
             }
             if (negotiated.capabilities.has(terminalSequencedIoCapability)) {
               const sessionResume = negotiated.capabilities.has(sessionResumeCapability);
+              const sessionProcessExit = negotiated.capabilities.has(sessionProcessExitCapability);
               const terminalResizeEnd = negotiated.capabilities.has(terminalResizeEndCapability);
-              const stream = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes, { sessionResume, terminalResizeEnd });
+              const stream = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes, {
+                sessionProcessExit,
+                sessionResume,
+                terminalResizeEnd,
+              });
               protocolStreamRef.current = stream;
               protocolNegotiated = true;
               if (sessionResume) {
@@ -305,6 +315,8 @@ export function App() {
             } else if (message.type === "terminal-output") {
               setTerminalChunks((chunks) => [...chunks, message.data]);
               socket.send(protocolStream.createAcknowledgement().slice().buffer);
+            } else if (message.type === "process-exit") {
+              handleProcessExit(message.outcome === ProcessExitOutcome.SUCCESS ? "exited" : "failed");
             }
           } catch (error) {
             failProtocol(error instanceof Error ? error.message : "invalid Protocol V1 stream message");
@@ -322,6 +334,10 @@ export function App() {
 
         if (!isServerMessage(parsed)) {
           setTerminalChunks((chunks) => [...chunks, "received malformed server message\r\n"]);
+          return;
+        }
+        if (parsed.type === "exit" && protocolStreamRef.current?.usesSessionProcessExit()) {
+          failProtocol("Negotiated process exit must use a Protocol V1 envelope");
           return;
         }
         handleServerMessage(parsed);
@@ -372,7 +388,7 @@ export function App() {
       socketRef.current = null;
       protocolStreamRef.current = null;
     };
-  }, [handleServerMessage, retryTrigger, showNotice, wsUrl]);
+  }, [handleProcessExit, handleServerMessage, retryTrigger, showNotice, wsUrl]);
 
   const sendInput = useCallback((data: string) => {
     const socket = socketRef.current;

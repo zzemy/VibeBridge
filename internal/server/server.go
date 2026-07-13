@@ -754,9 +754,11 @@ func (s *ptySession) touchActivity() {
 func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 	err := cmd.Wait()
 
+	s.outputMu.Lock()
 	s.mu.Lock()
 	if !s.lifecycle.finish(err) {
 		s.mu.Unlock()
+		s.outputMu.Unlock()
 		return
 	}
 	if s.detachTimer != nil {
@@ -774,20 +776,23 @@ func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 		reason = agentlog.ReasonProcessExit
 	}
 	outcome := agentlog.OutcomeSuccess
+	processExitOutcome := vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_SUCCESS
 	if s.lifecycle.state == sessionStateFailed {
 		outcome = agentlog.OutcomeFailure
+		processExitOutcome = vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_FAILURE
 	}
 	s.logEvent(agentlog.EventSessionEnded, agentlog.State(s.lifecycle.state), reason, outcome)
 	s.mu.Unlock()
 
 	if client != nil {
+		legacyMessage := "process exited"
 		if err != nil {
-			_ = client.writeJSON(ServerMessage{Type: "exit", Data: err.Error()})
-		} else {
-			_ = client.writeJSON(ServerMessage{Type: "exit", Data: "process exited"})
+			legacyMessage = err.Error()
 		}
+		_ = client.writeProcessExit(processExitOutcome, legacyMessage)
 		client.close()
 	}
+	s.outputMu.Unlock()
 
 	_ = s.closeResources()
 	close(s.done)
@@ -829,6 +834,19 @@ func (w *websocketWriter) writeJSON(value ServerMessage) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.conn.WriteJSON(value)
+}
+
+func (w *websocketWriter) writeProcessExit(outcome vibebridgev1.ProcessExitOutcome, legacyMessage string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.protocolV1 == nil || !w.protocolV1.UsesSessionProcessExit() {
+		return w.conn.WriteJSON(ServerMessage{Type: "exit", Data: legacyMessage})
+	}
+	encoded, err := w.protocolV1.EncodeProcessExit(outcome, w.currentTime())
+	if err != nil {
+		return err
+	}
+	return w.conn.WriteMessage(websocket.BinaryMessage, encoded)
 }
 
 func (w *websocketWriter) writeBinary(value []byte) error {

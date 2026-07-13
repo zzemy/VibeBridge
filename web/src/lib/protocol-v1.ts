@@ -8,6 +8,7 @@ import {
   EnvelopeSchema,
   HelloSchema,
   PeerRole,
+  ProcessExitOutcome,
   ProtocolVersionRangeSchema,
   ResumeDisposition,
   ProtocolVersionSchema,
@@ -23,6 +24,7 @@ export const protocolV1MaxEnvelopeBytes = 64 * 1024;
 export const terminalBinaryOutputCapability = "terminal.binary_output";
 export const terminalSequencedIoCapability = "terminal.sequenced_io_v1";
 export const terminalResizeEndCapability = "terminal.resize_end_v1";
+export const sessionProcessExitCapability = "session.process_exit_v1";
 export const sessionResumeCapability = "session.resume_v1";
 export const protocolV1MaxTerminalInputBytes = 32 * 1024;
 export const protocolV1MaxTerminalDimension = 65_535;
@@ -59,7 +61,7 @@ export function createClientHello(connectionId: Uint8Array, sentAt = new Date())
           minimum: version(),
           maximum: version(),
         }),
-        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, terminalResizeEndCapability, sessionResumeCapability],
+        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, terminalResizeEndCapability, sessionProcessExitCapability, sessionResumeCapability],
         maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
       }),
     },
@@ -121,8 +123,10 @@ export function acceptAgentHello(encoded: Uint8Array, expectedConnectionId: Uint
     }
     capabilities.add(capability);
   }
-  if (capabilities.has(terminalResizeEndCapability) && !capabilities.has(terminalSequencedIoCapability)) {
-    throw new Error(`${terminalResizeEndCapability} requires ${terminalSequencedIoCapability}`);
+  for (const dependent of [terminalResizeEndCapability, sessionProcessExitCapability]) {
+    if (capabilities.has(dependent) && !capabilities.has(terminalSequencedIoCapability)) {
+      throw new Error(`${dependent} requires ${terminalSequencedIoCapability}`);
+    }
   }
 
   return {
@@ -143,10 +147,12 @@ export type SessionResumeCursor = {
 export type AgentStreamMessage =
   | { type: "session-status"; disposition: ResumeDisposition; sessionId: Uint8Array; sessionGeneration: bigint }
   | { type: "terminal-output"; data: Uint8Array }
+  | { type: "process-exit"; outcome: ProcessExitOutcome }
   | { type: "acknowledgement" };
 
 type ProtocolV1ClientStreamOptions = {
   sessionResume?: boolean;
+  sessionProcessExit?: boolean;
   terminalResizeEnd?: boolean;
 };
 
@@ -159,6 +165,7 @@ export class ProtocolV1ClientStream {
   private readonly connectionId: Uint8Array;
   private readonly peerMaxEnvelopeBytes: number;
   private readonly sessionResume: boolean;
+  private readonly sessionProcessExit: boolean;
   private readonly terminalResizeEnd: boolean;
   private sessionBound = false;
   private sessionId = new Uint8Array();
@@ -172,6 +179,7 @@ export class ProtocolV1ClientStream {
     this.connectionId = connectionId.slice();
     this.peerMaxEnvelopeBytes = peerMaxEnvelopeBytes;
     this.sessionResume = options.sessionResume === true;
+    this.sessionProcessExit = options.sessionProcessExit === true;
     this.terminalResizeEnd = options.terminalResizeEnd === true;
   }
 
@@ -214,6 +222,11 @@ export class ProtocolV1ClientStream {
       case: "terminalInput",
       value: create(TerminalInputSchema, { data: encodedInput }),
     }, sentAt);
+  }
+
+  /** Reports whether session.process_exit_v1 was negotiated for this physical connection. */
+  usesSessionProcessExit(): boolean {
+    return this.sessionProcessExit;
   }
 
   /** Reports whether terminal.resize_end_v1 was negotiated for this physical connection. */
@@ -302,6 +315,12 @@ export class ProtocolV1ClientStream {
         }
         message = { type: "terminal-output", data: envelope.payload.value.data.slice() };
         break;
+      case "processExit":
+        if (!this.sessionProcessExit || !isKnownProcessExitOutcome(envelope.payload.value.outcome)) {
+          throw new Error("ProcessExit is not valid for this stream state");
+        }
+        message = { type: "process-exit", outcome: envelope.payload.value.outcome };
+        break;
       case "acknowledgement":
         message = { type: "acknowledgement" };
         break;
@@ -365,6 +384,10 @@ function assertSessionIdentity(sessionId: Uint8Array, generation: bigint) {
   if (sessionId.byteLength !== connectionIdBytes || generation <= 0n) {
     throw new Error(`Session ID must be ${connectionIdBytes} bytes and generation must be positive`);
   }
+}
+
+function isKnownProcessExitOutcome(outcome: ProcessExitOutcome) {
+  return outcome === ProcessExitOutcome.SUCCESS || outcome === ProcessExitOutcome.FAILURE;
 }
 
 function isKnownResumeDisposition(disposition: ResumeDisposition) {

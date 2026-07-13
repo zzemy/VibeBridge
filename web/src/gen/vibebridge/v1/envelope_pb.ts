@@ -13,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file vibebridge/v1/envelope.proto.
  */
 export const file_vibebridge_v1_envelope: GenFile = /*@__PURE__*/
-  fileDesc("Chx2aWJlYnJpZGdlL3YxL2VudmVsb3BlLnByb3RvEg12aWJlYnJpZGdlLnYxIi8KD1Byb3RvY29sVmVyc2lvbhINCgVtYWpvchgBIAEoDRINCgVtaW5vchgCIAEoDSJ4ChRQcm90b2NvbFZlcnNpb25SYW5nZRIvCgdtaW5pbXVtGAEgASgLMh4udmliZWJyaWRnZS52MS5Qcm90b2NvbFZlcnNpb24SLwoHbWF4aW11bRgCIAEoCzIeLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uIqYBCgVIZWxsbxIqCglwZWVyX3JvbGUYASABKA4yFy52aWJlYnJpZGdlLnYxLlBlZXJSb2xlEj8KEnN1cHBvcnRlZF92ZXJzaW9ucxgCIAEoCzIjLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uUmFuZ2USFAoMY2FwYWJpbGl0aWVzGAMgAygJEhoKEm1heF9lbnZlbG9wZV9ieXRlcxgEIAEoDSIdCg1UZXJtaW5hbElucHV0EgwKBGRhdGEYASABKAwiHgoOVGVybWluYWxPdXRwdXQSDAoEZGF0YRgBIAEoDCIvCg5UZXJtaW5hbFJlc2l6ZRIPCgdjb2x1bW5zGAEgASgNEgwKBHJvd3MYAiABKA0iDAoKRW5kU2Vzc2lvbiIzCg1BdHRhY2hTZXNzaW9uEiIKGmxhc3RfYWNrbm93bGVkZ2VkX3NlcXVlbmNlGAEgASgEIk0KDVNlc3Npb25TdGF0dXMSPAoScmVzdW1lX2Rpc3Bvc2l0aW9uGAEgASgOMiAudmliZWJyaWRnZS52MS5SZXN1bWVEaXNwb3NpdGlvbiIRCg9BY2tub3dsZWRnZW1lbnQikAUKCEVudmVsb3BlEhYKDnByb3RvY29sX21ham9yGAEgASgNEhYKDnByb3RvY29sX21pbm9yGAIgASgNEhUKDWNvbm5lY3Rpb25faWQYAyABKAwSEgoKc2Vzc2lvbl9pZBgEIAEoDBIaChJzZXNzaW9uX2dlbmVyYXRpb24YBSABKAQSEAoIc2VxdWVuY2UYBiABKAQSEwoLYWNrbm93bGVkZ2UYByABKAQSKwoHc2VudF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJQoFaGVsbG8YFCABKAsyFC52aWJlYnJpZGdlLnYxLkhlbGxvSAASNgoOYXR0YWNoX3Nlc3Npb24YFiABKAsyHC52aWJlYnJpZGdlLnYxLkF0dGFjaFNlc3Npb25IABI2Cg50ZXJtaW5hbF9pbnB1dBgXIAEoCzIcLnZpYmVicmlkZ2UudjEuVGVybWluYWxJbnB1dEgAEjgKD3Rlcm1pbmFsX291dHB1dBgYIAEoCzIdLnZpYmVicmlkZ2UudjEuVGVybWluYWxPdXRwdXRIABI4Cg90ZXJtaW5hbF9yZXNpemUYGSABKAsyHS52aWJlYnJpZGdlLnYxLlRlcm1pbmFsUmVzaXplSAASNgoOc2Vzc2lvbl9zdGF0dXMYGiABKAsyHC52aWJlYnJpZGdlLnYxLlNlc3Npb25TdGF0dXNIABIwCgtlbmRfc2Vzc2lvbhgbIAEoCzIZLnZpYmVicmlkZ2UudjEuRW5kU2Vzc2lvbkgAEjkKD2Fja25vd2xlZGdlbWVudBghIAEoCzIeLnZpYmVicmlkZ2UudjEuQWNrbm93bGVkZ2VtZW50SABCCQoHcGF5bG9hZCplCghQZWVyUm9sZRIZChVQRUVSX1JPTEVfVU5TUEVDSUZJRUQQABITCg9QRUVSX1JPTEVfQUdFTlQQARIUChBQRUVSX1JPTEVfQ0xJRU5UEAISEwoPUEVFUl9ST0xFX1JFTEFZEAMqnQEKEVJlc3VtZURpc3Bvc2l0aW9uEiIKHlJFU1VNRV9ESVNQT1NJVElPTl9VTlNQRUNJRklFRBAAEhwKGFJFU1VNRV9ESVNQT1NJVElPTl9GUkVTSBABEh4KGlJFU1VNRV9ESVNQT1NJVElPTl9SRVNVTUVEEAISJgoiUkVTVU1FX0RJU1BPU0lUSU9OX1JFU1lOQ19SRVFVSVJFRBADQj9aPWdpdGh1Yi5jb20venplbXkvVmliZUJyaWRnZS9nZW4vZ28vdmliZWJyaWRnZS92MTt2aWJlYnJpZGdldjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("Chx2aWJlYnJpZGdlL3YxL2VudmVsb3BlLnByb3RvEg12aWJlYnJpZGdlLnYxIi8KD1Byb3RvY29sVmVyc2lvbhINCgVtYWpvchgBIAEoDRINCgVtaW5vchgCIAEoDSJ4ChRQcm90b2NvbFZlcnNpb25SYW5nZRIvCgdtaW5pbXVtGAEgASgLMh4udmliZWJyaWRnZS52MS5Qcm90b2NvbFZlcnNpb24SLwoHbWF4aW11bRgCIAEoCzIeLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uIqYBCgVIZWxsbxIqCglwZWVyX3JvbGUYASABKA4yFy52aWJlYnJpZGdlLnYxLlBlZXJSb2xlEj8KEnN1cHBvcnRlZF92ZXJzaW9ucxgCIAEoCzIjLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uUmFuZ2USFAoMY2FwYWJpbGl0aWVzGAMgAygJEhoKEm1heF9lbnZlbG9wZV9ieXRlcxgEIAEoDSIdCg1UZXJtaW5hbElucHV0EgwKBGRhdGEYASABKAwiHgoOVGVybWluYWxPdXRwdXQSDAoEZGF0YRgBIAEoDCIvCg5UZXJtaW5hbFJlc2l6ZRIPCgdjb2x1bW5zGAEgASgNEgwKBHJvd3MYAiABKA0iDAoKRW5kU2Vzc2lvbiJBCgtQcm9jZXNzRXhpdBIyCgdvdXRjb21lGAEgASgOMiEudmliZWJyaWRnZS52MS5Qcm9jZXNzRXhpdE91dGNvbWUiMwoNQXR0YWNoU2Vzc2lvbhIiChpsYXN0X2Fja25vd2xlZGdlZF9zZXF1ZW5jZRgBIAEoBCJNCg1TZXNzaW9uU3RhdHVzEjwKEnJlc3VtZV9kaXNwb3NpdGlvbhgBIAEoDjIgLnZpYmVicmlkZ2UudjEuUmVzdW1lRGlzcG9zaXRpb24iEQoPQWNrbm93bGVkZ2VtZW50IsQFCghFbnZlbG9wZRIWCg5wcm90b2NvbF9tYWpvchgBIAEoDRIWCg5wcm90b2NvbF9taW5vchgCIAEoDRIVCg1jb25uZWN0aW9uX2lkGAMgASgMEhIKCnNlc3Npb25faWQYBCABKAwSGgoSc2Vzc2lvbl9nZW5lcmF0aW9uGAUgASgEEhAKCHNlcXVlbmNlGAYgASgEEhMKC2Fja25vd2xlZGdlGAcgASgEEisKB3NlbnRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiUKBWhlbGxvGBQgASgLMhQudmliZWJyaWRnZS52MS5IZWxsb0gAEjYKDmF0dGFjaF9zZXNzaW9uGBYgASgLMhwudmliZWJyaWRnZS52MS5BdHRhY2hTZXNzaW9uSAASNgoOdGVybWluYWxfaW5wdXQYFyABKAsyHC52aWJlYnJpZGdlLnYxLlRlcm1pbmFsSW5wdXRIABI4Cg90ZXJtaW5hbF9vdXRwdXQYGCABKAsyHS52aWJlYnJpZGdlLnYxLlRlcm1pbmFsT3V0cHV0SAASOAoPdGVybWluYWxfcmVzaXplGBkgASgLMh0udmliZWJyaWRnZS52MS5UZXJtaW5hbFJlc2l6ZUgAEjYKDnNlc3Npb25fc3RhdHVzGBogASgLMhwudmliZWJyaWRnZS52MS5TZXNzaW9uU3RhdHVzSAASMAoLZW5kX3Nlc3Npb24YGyABKAsyGS52aWJlYnJpZGdlLnYxLkVuZFNlc3Npb25IABI5Cg9hY2tub3dsZWRnZW1lbnQYISABKAsyHi52aWJlYnJpZGdlLnYxLkFja25vd2xlZGdlbWVudEgAEjIKDHByb2Nlc3NfZXhpdBgiIAEoCzIaLnZpYmVicmlkZ2UudjEuUHJvY2Vzc0V4aXRIAEIJCgdwYXlsb2FkKmUKCFBlZXJSb2xlEhkKFVBFRVJfUk9MRV9VTlNQRUNJRklFRBAAEhMKD1BFRVJfUk9MRV9BR0VOVBABEhQKEFBFRVJfUk9MRV9DTElFTlQQAhITCg9QRUVSX1JPTEVfUkVMQVkQAyp+ChJQcm9jZXNzRXhpdE91dGNvbWUSJAogUFJPQ0VTU19FWElUX09VVENPTUVfVU5TUEVDSUZJRUQQABIgChxQUk9DRVNTX0VYSVRfT1VUQ09NRV9TVUNDRVNTEAESIAocUFJPQ0VTU19FWElUX09VVENPTUVfRkFJTFVSRRACKp0BChFSZXN1bWVEaXNwb3NpdGlvbhIiCh5SRVNVTUVfRElTUE9TSVRJT05fVU5TUEVDSUZJRUQQABIcChhSRVNVTUVfRElTUE9TSVRJT05fRlJFU0gQARIeChpSRVNVTUVfRElTUE9TSVRJT05fUkVTVU1FRBACEiYKIlJFU1VNRV9ESVNQT1NJVElPTl9SRVNZTkNfUkVRVUlSRUQQA0I/Wj1naXRodWIuY29tL3p6ZW15L1ZpYmVCcmlkZ2UvZ2VuL2dvL3ZpYmVicmlkZ2UvdjE7dmliZWJyaWRnZXYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * ProtocolVersion identifies one application-protocol revision.
@@ -178,6 +178,25 @@ export const EndSessionSchema: GenMessage<EndSession> = /*@__PURE__*/
   messageDesc(file_vibebridge_v1_envelope, 6);
 
 /**
+ * ProcessExit reports that the PTY process and session have ended.
+ *
+ * @generated from message vibebridge.v1.ProcessExit
+ */
+export type ProcessExit = Message<"vibebridge.v1.ProcessExit"> & {
+  /**
+   * @generated from field: vibebridge.v1.ProcessExitOutcome outcome = 1;
+   */
+  outcome: ProcessExitOutcome;
+};
+
+/**
+ * Describes the message vibebridge.v1.ProcessExit.
+ * Use `create(ProcessExitSchema)` to create a new message.
+ */
+export const ProcessExitSchema: GenMessage<ProcessExit> = /*@__PURE__*/
+  messageDesc(file_vibebridge_v1_envelope, 7);
+
+/**
  * AttachSession starts a fresh attachment or resumes a previously attached
  * session. The cursor refers to the highest Agent sequence processed on the
  * previous physical connection.
@@ -196,7 +215,7 @@ export type AttachSession = Message<"vibebridge.v1.AttachSession"> & {
  * Use `create(AttachSessionSchema)` to create a new message.
  */
 export const AttachSessionSchema: GenMessage<AttachSession> = /*@__PURE__*/
-  messageDesc(file_vibebridge_v1_envelope, 7);
+  messageDesc(file_vibebridge_v1_envelope, 8);
 
 /**
  * SessionStatus binds the connection to the session identity carried by its
@@ -216,7 +235,7 @@ export type SessionStatus = Message<"vibebridge.v1.SessionStatus"> & {
  * Use `create(SessionStatusSchema)` to create a new message.
  */
 export const SessionStatusSchema: GenMessage<SessionStatus> = /*@__PURE__*/
-  messageDesc(file_vibebridge_v1_envelope, 8);
+  messageDesc(file_vibebridge_v1_envelope, 9);
 
 /**
  * Acknowledgement advances the peer acknowledgement when there is no other
@@ -232,7 +251,7 @@ export type Acknowledgement = Message<"vibebridge.v1.Acknowledgement"> & {
  * Use `create(AcknowledgementSchema)` to create a new message.
  */
 export const AcknowledgementSchema: GenMessage<Acknowledgement> = /*@__PURE__*/
-  messageDesc(file_vibebridge_v1_envelope, 9);
+  messageDesc(file_vibebridge_v1_envelope, 10);
 
 /**
  * Envelope carries one typed V1 application message. Sequence and acknowledge
@@ -332,6 +351,12 @@ export type Envelope = Message<"vibebridge.v1.Envelope"> & {
      */
     value: Acknowledgement;
     case: "acknowledgement";
+  } | {
+    /**
+     * @generated from field: vibebridge.v1.ProcessExit process_exit = 34;
+     */
+    value: ProcessExit;
+    case: "processExit";
   } | { case: undefined; value?: undefined };
 };
 
@@ -340,7 +365,7 @@ export type Envelope = Message<"vibebridge.v1.Envelope"> & {
  * Use `create(EnvelopeSchema)` to create a new message.
  */
 export const EnvelopeSchema: GenMessage<Envelope> = /*@__PURE__*/
-  messageDesc(file_vibebridge_v1_envelope, 10);
+  messageDesc(file_vibebridge_v1_envelope, 11);
 
 /**
  * PeerRole identifies the protocol responsibility of a peer. It does not grant
@@ -377,6 +402,35 @@ export const PeerRoleSchema: GenEnum<PeerRole> = /*@__PURE__*/
   enumDesc(file_vibebridge_v1_envelope, 0);
 
 /**
+ * ProcessExitOutcome reports the final PTY lifecycle result without exposing
+ * host process errors.
+ *
+ * @generated from enum vibebridge.v1.ProcessExitOutcome
+ */
+export enum ProcessExitOutcome {
+  /**
+   * @generated from enum value: PROCESS_EXIT_OUTCOME_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: PROCESS_EXIT_OUTCOME_SUCCESS = 1;
+   */
+  SUCCESS = 1,
+
+  /**
+   * @generated from enum value: PROCESS_EXIT_OUTCOME_FAILURE = 2;
+   */
+  FAILURE = 2,
+}
+
+/**
+ * Describes the enum vibebridge.v1.ProcessExitOutcome.
+ */
+export const ProcessExitOutcomeSchema: GenEnum<ProcessExitOutcome> = /*@__PURE__*/
+  enumDesc(file_vibebridge_v1_envelope, 1);
+
+/**
  * ResumeDisposition reports whether the Agent could preserve terminal history.
  *
  * @generated from enum vibebridge.v1.ResumeDisposition
@@ -407,5 +461,5 @@ export enum ResumeDisposition {
  * Describes the enum vibebridge.v1.ResumeDisposition.
  */
 export const ResumeDispositionSchema: GenEnum<ResumeDisposition> = /*@__PURE__*/
-  enumDesc(file_vibebridge_v1_envelope, 1);
+  enumDesc(file_vibebridge_v1_envelope, 2);
 
