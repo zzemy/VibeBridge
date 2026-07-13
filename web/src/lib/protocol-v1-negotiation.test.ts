@@ -1,4 +1,4 @@
-import { create, toBinary } from "@bufbuild/protobuf";
+import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { describe, expect, test } from "vitest";
 
@@ -14,6 +14,7 @@ import {
   createClientHello,
   protocolV1MaxEnvelopeBytes,
   terminalBinaryOutputCapability,
+  terminalSequencedIoCapability,
 } from "./protocol-v1";
 
 const connectionId = Uint8Array.from({ length: 16 }, (_, index) => index);
@@ -49,7 +50,10 @@ describe("Protocol V1 Hello negotiation", () => {
       maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
     });
     expect(negotiated.capabilities.has(terminalBinaryOutputCapability)).toBe(true);
-    expect(createClientHello(connectionId, new Date("2026-07-13T10:00:00Z"))).toBeInstanceOf(Uint8Array);
+    const clientHello = fromBinary(EnvelopeSchema, createClientHello(connectionId, new Date("2026-07-13T10:00:00Z")));
+    expect(clientHello.payload.case).toBe("hello");
+    if (clientHello.payload.case !== "hello") throw new Error("expected client Hello");
+    expect(clientHello.payload.value.capabilities).toContain(terminalSequencedIoCapability);
   });
 
   test.each([

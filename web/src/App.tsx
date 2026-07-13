@@ -21,8 +21,10 @@ import {
   acceptAgentHello,
   createClientHello,
   newProtocolV1ConnectionId,
+  ProtocolV1ClientStream,
   protocolV1WebSocketSubprotocol,
   terminalBinaryOutputCapability,
+  terminalSequencedIoCapability,
 } from "./lib/protocol-v1";
 import { terminalKeys } from "./lib/terminalKeys";
 
@@ -74,6 +76,7 @@ export function App() {
   const [notice, setNotice] = useState("");
   const [now, setNow] = useState(Date.now());
   const socketRef = useRef<WebSocket | null>(null);
+  const protocolStreamRef = useRef<ProtocolV1ClientStream | null>(null);
   const terminalRef = useRef<TerminalViewHandle | null>(null);
   const stopReconnectRef = useRef(false);
   const hasConnectedRef = useRef(false);
@@ -208,6 +211,7 @@ export function App() {
       let fatalProtocolError = false;
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
+      protocolStreamRef.current = null;
 
       const markConnected = () => {
         if (hasConnectedRef.current) {
@@ -253,6 +257,9 @@ export function App() {
             if (!negotiated.capabilities.has(terminalBinaryOutputCapability)) {
               throw new Error(`Agent does not support ${terminalBinaryOutputCapability}`);
             }
+            if (negotiated.capabilities.has(terminalSequencedIoCapability)) {
+              protocolStreamRef.current = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes);
+            }
             protocolNegotiated = true;
             markConnected();
           } catch (error) {
@@ -262,7 +269,20 @@ export function App() {
         }
 
         if (typeof payload !== "string") {
-          setTerminalChunks((chunks) => [...chunks, new Uint8Array(payload)]);
+          const protocolStream = protocolStreamRef.current;
+          if (!protocolStream) {
+            setTerminalChunks((chunks) => [...chunks, new Uint8Array(payload)]);
+            return;
+          }
+          try {
+            const message = protocolStream.acceptAgentMessage(new Uint8Array(payload));
+            if (message.type === "terminal-output") {
+              setTerminalChunks((chunks) => [...chunks, message.data]);
+              socket.send(protocolStream.createAcknowledgement().slice().buffer);
+            }
+          } catch (error) {
+            failProtocol(error instanceof Error ? error.message : "invalid Protocol V1 stream message");
+          }
           return;
         }
 
@@ -284,6 +304,7 @@ export function App() {
       socket.addEventListener("close", (event) => {
         if (socketRef.current === socket) {
           socketRef.current = null;
+          protocolStreamRef.current = null;
         }
         if (fatalProtocolError || (!protocolNegotiated && socket.protocol === protocolV1WebSocketSubprotocol && event.code === 1002)) {
           stopReconnectRef.current = true;
@@ -323,6 +344,7 @@ export function App() {
       if (countdownTimer !== undefined) window.clearInterval(countdownTimer);
       socketRef.current?.close();
       socketRef.current = null;
+      protocolStreamRef.current = null;
     };
   }, [handleServerMessage, retryTrigger, showNotice, wsUrl]);
 
@@ -332,7 +354,13 @@ export function App() {
       showNotice("Terminal is not connected");
       return;
     }
-    socket.send(JSON.stringify({ type: "input", data }));
+    try {
+      const protocolStream = protocolStreamRef.current;
+      const payload = protocolStream ? protocolStream.createTerminalInput(data).slice().buffer : JSON.stringify({ type: "input", data });
+      socket.send(payload);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Invalid terminal input");
+    }
   }, [showNotice]);
 
   const sendResize = useCallback((cols: number, rows: number) => {

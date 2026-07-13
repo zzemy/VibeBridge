@@ -35,7 +35,7 @@ The system has three participants:
 2. The Go server owns the HTTP/WebSocket endpoints and PTY lifecycle.
 3. The local CLI process performs the actual work on the host machine.
 
-PTY output is sent to the browser as binary WebSocket frames so terminal bytes and ANSI sequences are preserved. Structured control messages use JSON text frames.
+PTY output is sent to the browser as binary WebSocket frames so terminal bytes and ANSI sequences are preserved. When both peers negotiate `terminal.sequenced_io_v1`, terminal input/output and acknowledgements are protobuf envelopes with connection-local ordering; otherwise the staged legacy path uses raw binary output and JSON input. Structured resize, end, health, exit, and error controls currently use JSON text frames in both paths.
 
 ## Session Lifecycle
 
@@ -76,16 +76,18 @@ Only one browser may attach at a time. A reconnect must reuse the existing PTY r
 
 ## Protocol Contract
 
-Browser to server JSON messages:
+The browser offers WebSocket subprotocol `vibebridge.v1`. When selected, both peers exchange protobuf `Hello` envelopes before PTY creation. If both advertise `terminal.sequenced_io_v1`, binary protobuf envelopes carry `TerminalInput`, `TerminalOutput`, and `Acknowledgement` payloads with monotonically increasing connection-local sequence numbers. Older peers fall back to the staged legacy terminal adapter after Hello, and connections without the subprotocol remain fully legacy-compatible.
 
-- `input`: terminal input data.
+Transitional browser-to-server JSON controls:
+
+- `input`: terminal input data, only on the legacy terminal path.
 - `resize`: positive terminal columns and rows.
 - `exit`: explicit PTY termination request.
 - `ping`: application-level health check.
 
-Server to browser messages:
+Transitional server-to-browser messages:
 
-- Binary frames: raw PTY output.
+- Binary frames: raw PTY output only on the legacy terminal path.
 - `error`: stable user-facing error information.
 - `exit`: process exit state.
 - `pong`: response to an application-level ping.

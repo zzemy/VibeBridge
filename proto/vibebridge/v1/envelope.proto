@@ -37,6 +37,20 @@ message Hello {
   uint32 max_envelope_bytes = 4;
 }
 
+// TerminalInput carries bytes written to the local PTY.
+message TerminalInput {
+  bytes data = 1;
+}
+
+// TerminalOutput carries bytes read from the local PTY.
+message TerminalOutput {
+  bytes data = 1;
+}
+
+// Acknowledgement advances the peer acknowledgement when there is no other
+// outbound payload on which it can be piggybacked.
+message Acknowledgement {}
+
 // Envelope carries one typed V1 application message. Sequence and acknowledge
 // are direction-local counters; zero acknowledge means no message is confirmed.
 message Envelope {
@@ -51,5 +65,8 @@ message Envelope {
 
   oneof payload {
     Hello hello = 20;
+    TerminalInput terminal_input = 23;
+    TerminalOutput terminal_output = 24;
+    Acknowledgement acknowledgement = 33;
   }
 }

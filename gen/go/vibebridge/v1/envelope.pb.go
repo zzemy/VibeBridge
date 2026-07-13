@@ -253,6 +253,134 @@ func (x *Hello) GetMaxEnvelopeBytes() uint32 {
 	return 0
 }
 
+// TerminalInput carries bytes written to the local PTY.
+type TerminalInput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalInput) Reset() {
+	*x = TerminalInput{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalInput) ProtoMessage() {}
+
+func (x *TerminalInput) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalInput.ProtoReflect.Descriptor instead.
+func (*TerminalInput) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *TerminalInput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+// TerminalOutput carries bytes read from the local PTY.
+type TerminalOutput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalOutput) Reset() {
+	*x = TerminalOutput{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalOutput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalOutput) ProtoMessage() {}
+
+func (x *TerminalOutput) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalOutput.ProtoReflect.Descriptor instead.
+func (*TerminalOutput) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *TerminalOutput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+// Acknowledgement advances the peer acknowledgement when there is no other
+// outbound payload on which it can be piggybacked.
+type Acknowledgement struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Acknowledgement) Reset() {
+	*x = Acknowledgement{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Acknowledgement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Acknowledgement) ProtoMessage() {}
+
+func (x *Acknowledgement) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Acknowledgement.ProtoReflect.Descriptor instead.
+func (*Acknowledgement) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{5}
+}
+
 // Envelope carries one typed V1 application message. Sequence and acknowledge
 // are direction-local counters; zero acknowledge means no message is confirmed.
 type Envelope struct {
@@ -268,6 +396,9 @@ type Envelope struct {
 	// Types that are valid to be assigned to Payload:
 	//
 	//	*Envelope_Hello
+	//	*Envelope_TerminalInput
+	//	*Envelope_TerminalOutput
+	//	*Envelope_Acknowledgement
 	Payload       isEnvelope_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -275,7 +406,7 @@ type Envelope struct {
 
 func (x *Envelope) Reset() {
 	*x = Envelope{}
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[3]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -287,7 +418,7 @@ func (x *Envelope) String() string {
 func (*Envelope) ProtoMessage() {}
 
 func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[3]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -300,7 +431,7 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
 func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{3}
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Envelope) GetProtocolMajor() uint32 {
@@ -375,6 +506,33 @@ func (x *Envelope) GetHello() *Hello {
 	return nil
 }
 
+func (x *Envelope) GetTerminalInput() *TerminalInput {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_TerminalInput); ok {
+			return x.TerminalInput
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetTerminalOutput() *TerminalOutput {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_TerminalOutput); ok {
+			return x.TerminalOutput
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAcknowledgement() *Acknowledgement {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_Acknowledgement); ok {
+			return x.Acknowledgement
+		}
+	}
+	return nil
+}
+
 type isEnvelope_Payload interface {
 	isEnvelope_Payload()
 }
@@ -383,7 +541,25 @@ type Envelope_Hello struct {
 	Hello *Hello `protobuf:"bytes,20,opt,name=hello,proto3,oneof"`
 }
 
+type Envelope_TerminalInput struct {
+	TerminalInput *TerminalInput `protobuf:"bytes,23,opt,name=terminal_input,json=terminalInput,proto3,oneof"`
+}
+
+type Envelope_TerminalOutput struct {
+	TerminalOutput *TerminalOutput `protobuf:"bytes,24,opt,name=terminal_output,json=terminalOutput,proto3,oneof"`
+}
+
+type Envelope_Acknowledgement struct {
+	Acknowledgement *Acknowledgement `protobuf:"bytes,33,opt,name=acknowledgement,proto3,oneof"`
+}
+
 func (*Envelope_Hello) isEnvelope_Payload() {}
+
+func (*Envelope_TerminalInput) isEnvelope_Payload() {}
+
+func (*Envelope_TerminalOutput) isEnvelope_Payload() {}
+
+func (*Envelope_Acknowledgement) isEnvelope_Payload() {}
 
 var File_vibebridge_v1_envelope_proto protoreflect.FileDescriptor
 
@@ -400,7 +576,12 @@ const file_vibebridge_v1_envelope_proto_rawDesc = "" +
 	"\tpeer_role\x18\x01 \x01(\x0e2\x17.vibebridge.v1.PeerRoleR\bpeerRole\x12R\n" +
 	"\x12supported_versions\x18\x02 \x01(\v2#.vibebridge.v1.ProtocolVersionRangeR\x11supportedVersions\x12\"\n" +
 	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\x12,\n" +
-	"\x12max_envelope_bytes\x18\x04 \x01(\rR\x10maxEnvelopeBytes\"\xf7\x02\n" +
+	"\x12max_envelope_bytes\x18\x04 \x01(\rR\x10maxEnvelopeBytes\"#\n" +
+	"\rTerminalInput\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"$\n" +
+	"\x0eTerminalOutput\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"\x11\n" +
+	"\x0fAcknowledgement\"\xd4\x04\n" +
 	"\bEnvelope\x12%\n" +
 	"\x0eprotocol_major\x18\x01 \x01(\rR\rprotocolMajor\x12%\n" +
 	"\x0eprotocol_minor\x18\x02 \x01(\rR\rprotocolMinor\x12#\n" +
@@ -411,7 +592,10 @@ const file_vibebridge_v1_envelope_proto_rawDesc = "" +
 	"\bsequence\x18\x06 \x01(\x04R\bsequence\x12 \n" +
 	"\vacknowledge\x18\a \x01(\x04R\vacknowledge\x123\n" +
 	"\asent_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x06sentAt\x12,\n" +
-	"\x05hello\x18\x14 \x01(\v2\x14.vibebridge.v1.HelloH\x00R\x05helloB\t\n" +
+	"\x05hello\x18\x14 \x01(\v2\x14.vibebridge.v1.HelloH\x00R\x05hello\x12E\n" +
+	"\x0eterminal_input\x18\x17 \x01(\v2\x1c.vibebridge.v1.TerminalInputH\x00R\rterminalInput\x12H\n" +
+	"\x0fterminal_output\x18\x18 \x01(\v2\x1d.vibebridge.v1.TerminalOutputH\x00R\x0eterminalOutput\x12J\n" +
+	"\x0facknowledgement\x18! \x01(\v2\x1e.vibebridge.v1.AcknowledgementH\x00R\x0facknowledgementB\t\n" +
 	"\apayload*e\n" +
 	"\bPeerRole\x12\x19\n" +
 	"\x15PEER_ROLE_UNSPECIFIED\x10\x00\x12\x13\n" +
@@ -432,27 +616,33 @@ func file_vibebridge_v1_envelope_proto_rawDescGZIP() []byte {
 }
 
 var file_vibebridge_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_vibebridge_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_vibebridge_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_vibebridge_v1_envelope_proto_goTypes = []any{
 	(PeerRole)(0),                 // 0: vibebridge.v1.PeerRole
 	(*ProtocolVersion)(nil),       // 1: vibebridge.v1.ProtocolVersion
 	(*ProtocolVersionRange)(nil),  // 2: vibebridge.v1.ProtocolVersionRange
 	(*Hello)(nil),                 // 3: vibebridge.v1.Hello
-	(*Envelope)(nil),              // 4: vibebridge.v1.Envelope
-	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
+	(*TerminalInput)(nil),         // 4: vibebridge.v1.TerminalInput
+	(*TerminalOutput)(nil),        // 5: vibebridge.v1.TerminalOutput
+	(*Acknowledgement)(nil),       // 6: vibebridge.v1.Acknowledgement
+	(*Envelope)(nil),              // 7: vibebridge.v1.Envelope
+	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
 }
 var file_vibebridge_v1_envelope_proto_depIdxs = []int32{
 	1, // 0: vibebridge.v1.ProtocolVersionRange.minimum:type_name -> vibebridge.v1.ProtocolVersion
 	1, // 1: vibebridge.v1.ProtocolVersionRange.maximum:type_name -> vibebridge.v1.ProtocolVersion
 	0, // 2: vibebridge.v1.Hello.peer_role:type_name -> vibebridge.v1.PeerRole
 	2, // 3: vibebridge.v1.Hello.supported_versions:type_name -> vibebridge.v1.ProtocolVersionRange
-	5, // 4: vibebridge.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
+	8, // 4: vibebridge.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
 	3, // 5: vibebridge.v1.Envelope.hello:type_name -> vibebridge.v1.Hello
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	4, // 6: vibebridge.v1.Envelope.terminal_input:type_name -> vibebridge.v1.TerminalInput
+	5, // 7: vibebridge.v1.Envelope.terminal_output:type_name -> vibebridge.v1.TerminalOutput
+	6, // 8: vibebridge.v1.Envelope.acknowledgement:type_name -> vibebridge.v1.Acknowledgement
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_vibebridge_v1_envelope_proto_init() }
@@ -460,8 +650,11 @@ func file_vibebridge_v1_envelope_proto_init() {
 	if File_vibebridge_v1_envelope_proto != nil {
 		return
 	}
-	file_vibebridge_v1_envelope_proto_msgTypes[3].OneofWrappers = []any{
+	file_vibebridge_v1_envelope_proto_msgTypes[6].OneofWrappers = []any{
 		(*Envelope_Hello)(nil),
+		(*Envelope_TerminalInput)(nil),
+		(*Envelope_TerminalOutput)(nil),
+		(*Envelope_Acknowledgement)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -469,7 +662,7 @@ func file_vibebridge_v1_envelope_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vibebridge_v1_envelope_proto_rawDesc), len(file_vibebridge_v1_envelope_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   4,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
