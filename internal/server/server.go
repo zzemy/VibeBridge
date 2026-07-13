@@ -157,7 +157,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
-	writer := &websocketWriter{conn: conn}
+	writer := &websocketWriter{conn: conn, now: s.clock.Now}
 	if conn.Subprotocol() == protocolv1.WebSocketSubprotocol {
 		if err := s.negotiateProtocolV1(writer, conn); err != nil {
 			writeProtocolClose(conn, "Protocol V1 negotiation failed")
@@ -215,6 +215,13 @@ func (s *Server) negotiateProtocolV1(writer *websocketWriter, conn *websocket.Co
 	}
 	if err := writer.writeBinary(responseBytes); err != nil {
 		return fmt.Errorf("write Agent Hello: %w", err)
+	}
+	if negotiated.HasCapability(protocolv1.CapabilityTerminalSequencedIO) {
+		stream, err := protocolv1.NewAgentStream(negotiated)
+		if err != nil {
+			return fmt.Errorf("initialize Protocol V1 stream: %w", err)
+		}
+		writer.enableProtocolV1(stream)
 	}
 	return conn.SetReadDeadline(time.Now().Add(pongWait))
 }
@@ -314,7 +321,41 @@ func (s *Server) clearSession(session *ptySession) {
 func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter, conn *websocket.Conn) {
 	for {
 		var msg ClientMessage
-		if err := conn.ReadJSON(&msg); err != nil {
+		if writer.usesProtocolV1() {
+			messageType, encoded, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if messageType == websocket.BinaryMessage {
+				streamMessage, err := writer.decodeProtocolV1ClientMessage(encoded)
+				if err != nil {
+					writer.closeProtocol("Invalid Protocol V1 message")
+					return
+				}
+				switch streamMessage.Kind {
+				case protocolv1.ClientStreamMessageTerminalInput:
+					if err := session.writeInputBytes(streamMessage.Data); err != nil {
+						_ = writer.writeJSON(ServerMessage{Type: "error", Data: err.Error()})
+						return
+					}
+					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, true); err != nil {
+						return
+					}
+				case protocolv1.ClientStreamMessageAcknowledgement:
+					if err := writer.commitProtocolV1ClientMessage(streamMessage.Sequence, false); err != nil {
+						return
+					}
+				default:
+					writer.closeProtocol("Unsupported Protocol V1 message")
+					return
+				}
+				continue
+			}
+			if messageType != websocket.TextMessage || json.Unmarshal(encoded, &msg) != nil || msg.Type == "input" {
+				writer.closeProtocol("Invalid transitional control message")
+				return
+			}
+		} else if err := conn.ReadJSON(&msg); err != nil {
 			return
 		}
 
@@ -471,12 +512,23 @@ func (s *ptySession) isEnded() bool {
 }
 
 func (s *ptySession) writeInput(input string) error {
-	_, err := io.WriteString(s.terminal, input)
-	if err == nil {
-		s.touchActivity()
-		s.resetIdleTimer()
+	return s.writeInputBytes([]byte(input))
+}
+
+func (s *ptySession) writeInputBytes(input []byte) error {
+	for len(input) > 0 {
+		written, err := s.terminal.Write(input)
+		if err != nil {
+			return err
+		}
+		if written <= 0 || written > len(input) {
+			return io.ErrShortWrite
+		}
+		input = input[written:]
 	}
-	return err
+	s.touchActivity()
+	s.resetIdleTimer()
+	return nil
 }
 
 func (s *ptySession) resize(cols int, rows int) error {
@@ -631,8 +683,10 @@ func (s *ptySession) expireIdle() {
 }
 
 type websocketWriter struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn       *websocket.Conn
+	mu         sync.Mutex
+	now        func() time.Time
+	protocolV1 *protocolv1.AgentStream
 }
 
 func (w *websocketWriter) writeJSON(value ServerMessage) error {
@@ -644,7 +698,67 @@ func (w *websocketWriter) writeJSON(value ServerMessage) error {
 func (w *websocketWriter) writeBinary(value []byte) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.conn.WriteMessage(websocket.BinaryMessage, value)
+	if w.protocolV1 == nil {
+		return w.conn.WriteMessage(websocket.BinaryMessage, value)
+	}
+	for len(value) > 0 {
+		encoded, consumed, err := w.protocolV1.EncodeTerminalOutputChunk(value, w.currentTime())
+		if err != nil {
+			return err
+		}
+		if err := w.conn.WriteMessage(websocket.BinaryMessage, encoded); err != nil {
+			return err
+		}
+		value = value[consumed:]
+	}
+	return nil
+}
+
+func (w *websocketWriter) enableProtocolV1(stream *protocolv1.AgentStream) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.protocolV1 = stream
+}
+
+func (w *websocketWriter) usesProtocolV1() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.protocolV1 != nil
+}
+
+func (w *websocketWriter) decodeProtocolV1ClientMessage(encoded []byte) (protocolv1.ClientStreamMessage, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.protocolV1.DecodeClientMessage(encoded)
+}
+
+func (w *websocketWriter) commitProtocolV1ClientMessage(sequence uint64, sendAcknowledgement bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.protocolV1.CommitClientMessage(sequence); err != nil {
+		return err
+	}
+	if !sendAcknowledgement {
+		return nil
+	}
+	encoded, err := w.protocolV1.EncodeAcknowledgement(w.currentTime())
+	if err != nil {
+		return err
+	}
+	return w.conn.WriteMessage(websocket.BinaryMessage, encoded)
+}
+
+func (w *websocketWriter) closeProtocol(message string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	writeProtocolClose(w.conn, message)
+}
+
+func (w *websocketWriter) currentTime() time.Time {
+	if w.now == nil {
+		return time.Now()
+	}
+	return w.now()
 }
 
 func (w *websocketWriter) writePing() error {

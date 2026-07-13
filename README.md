@@ -17,7 +17,7 @@ Control local AI CLI sessions such as Codex and Claude Code from your phone over
 - A least-privilege, user-scoped Windows background Agent installed through Task Scheduler.
 - Canonical Protocol V1 Protobuf schemas, generated Go/TypeScript packages, golden vectors, and compatibility CI.
 
-The browser endpoint still uses the legacy JSON/raw-binary adapter while Protocol V1 negotiation, sequencing, acknowledgements, and resume behavior are integrated incrementally.
+The browser endpoint now negotiates Protocol V1. When both peers support sequenced I/O, terminal input, terminal output, and acknowledgements use ordered Protobuf envelopes; session resume and the remaining control messages are still being migrated incrementally. The legacy adapter remains available during this staged transition.
 
 ## Platform Status
 
@@ -125,7 +125,7 @@ The background Agent stores its current PID, start time, listener, and random pe
 - Sending `Ctrl+C` to the VibeBridge process or receiving `SIGTERM` closes the active PTY before the HTTP server exits.
 - `GET /status?token=...` reports the session state, start time, last activity time, and configured timeouts without exposing terminal output or the configured command.
 
-Terminal output is sent as WebSocket binary frames so ANSI sequences and raw PTY bytes are preserved. Structured input, resize, exit, error, and status messages use JSON text frames.
+Terminal bytes and ANSI sequences are preserved in WebSocket binary frames. Negotiated Protocol V1 peers carry terminal input, terminal output, and acknowledgements in binary Protobuf envelopes; resize, exit, error, and status controls remain JSON text messages during the staged migration. Legacy peers continue to use raw binary output and JSON input.
 
 ## Privacy-Safe Lifecycle Logs
 
@@ -184,7 +184,7 @@ The resulting binary contains the React frontend and does not require `web/dist`
 
 - One browser client can control a session at a time.
 - Access uses a per-run token in the QR URL, but transport is not encrypted by VibeBridge itself.
-- The runtime browser protocol remains the legacy JSON/raw-binary adapter during the Protocol V1 migration.
+- Session resume/`RESYNC_REQUIRED` and stable V1 control/error messages are not active yet; the legacy adapter remains available during the Protocol V1 migration.
 - Public relay, native mobile clients, file attachments, and packaged releases are roadmap work, not current features.
 
 ## License

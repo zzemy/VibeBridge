@@ -276,8 +276,9 @@ func (p *countingPTY) Write(data []byte) (int, error) { return len(data), nil }
 
 func TestProtocolV1NegotiatesBeforeStartingSession(t *testing.T) {
 	wait := make(chan struct{})
+	terminal := &recordingPTY{writes: make(chan []byte, 1)}
 	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
-		terminal:    &countingPTY{},
+		terminal:    terminal,
 		processTree: &countingProcessTree{},
 		cancel:      func() {},
 		waiter:      blockingWaiter{done: wait},
@@ -311,6 +312,25 @@ func TestProtocolV1NegotiatesBeforeStartingSession(t *testing.T) {
 		t.Fatalf("Agent Hello peer role = %v, want Agent", envelope.GetHello().GetPeerRole())
 	}
 
+	messageType, legacyOutput, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read legacy output after negotiated Hello: %v", err)
+	}
+	if messageType != websocket.BinaryMessage || !strings.Contains(string(legacyOutput), "started PTY shell") {
+		t.Fatalf("legacy output type/data = %d/%q", messageType, legacyOutput)
+	}
+	if err := connection.WriteJSON(ClientMessage{Type: "input", Data: "legacy\r"}); err != nil {
+		t.Fatalf("send legacy input after negotiated Hello: %v", err)
+	}
+	select {
+	case written := <-terminal.writes:
+		if string(written) != "legacy\r" {
+			t.Fatalf("legacy PTY input = %q, want legacy\\r", written)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("legacy terminal input was not written to the PTY")
+	}
+
 	deadline := time.Now().Add(time.Second)
 	for launcher.calls.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
@@ -321,6 +341,71 @@ func TestProtocolV1NegotiatesBeforeStartingSession(t *testing.T) {
 	connection.Close()
 	app.Close()
 	close(wait)
+}
+
+func TestProtocolV1SequencesTerminalInputOutputAndAcknowledgement(t *testing.T) {
+	wait := make(chan struct{})
+	terminal := &recordingPTY{writes: make(chan []byte, 1)}
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    terminal,
+		processTree: &countingProcessTree{},
+		cancel:      func() {},
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	capabilities := []string{protocolv1.CapabilityTerminalBinaryOutput, protocolv1.CapabilityTerminalSequencedIO}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection) // Agent Hello.
+
+	output := readProtocolEnvelope(t, connection)
+	if output.Sequence != 2 || output.Acknowledge != 1 {
+		t.Fatalf("terminal output sequence/ack = %d/%d, want 2/1", output.Sequence, output.Acknowledge)
+	}
+	if output.GetTerminalOutput() == nil {
+		t.Fatalf("first stream payload = %T, want terminal output", output.Payload)
+	}
+
+	input := &vibebridgev1.Envelope{
+		ProtocolMajor: 1,
+		ConnectionId:  []byte("0123456789abcdef"),
+		Sequence:      2,
+		Acknowledge:   2,
+		Payload: &vibebridgev1.Envelope_TerminalInput{TerminalInput: &vibebridgev1.TerminalInput{
+			Data: []byte("continue\r"),
+		}},
+	}
+	encoded, err := proto.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal terminal input: %v", err)
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, encoded); err != nil {
+		t.Fatalf("send terminal input: %v", err)
+	}
+
+	select {
+	case written := <-terminal.writes:
+		if string(written) != "continue\r" {
+			t.Fatalf("PTY input = %q, want continue\\r", written)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("terminal input was not written to the PTY")
+	}
+
+	acknowledgement := readProtocolEnvelope(t, connection)
+	if acknowledgement.Sequence != 3 || acknowledgement.Acknowledge != 2 || acknowledgement.GetAcknowledgement() == nil {
+		t.Fatalf("ack sequence/ack/payload = %d/%d/%T, want 3/2/Acknowledgement", acknowledgement.Sequence, acknowledgement.Acknowledge, acknowledgement.Payload)
+	}
+
+	connection.Close()
+	close(wait)
+	app.Close()
 }
 
 func TestProtocolV1RejectsInvalidHelloWithoutStartingSession(t *testing.T) {
@@ -355,6 +440,34 @@ func TestProtocolV1RejectsInvalidHelloWithoutStartingSession(t *testing.T) {
 			}
 		})
 	}
+}
+
+type recordingPTY struct {
+	writes chan []byte
+}
+
+func (p *recordingPTY) Close() error             { return nil }
+func (p *recordingPTY) Read([]byte) (int, error) { return 0, io.EOF }
+func (p *recordingPTY) Resize(int, int) error    { return nil }
+func (p *recordingPTY) Write(data []byte) (int, error) {
+	p.writes <- append([]byte(nil), data...)
+	return len(data), nil
+}
+
+func readProtocolEnvelope(t *testing.T, connection *websocket.Conn) *vibebridgev1.Envelope {
+	t.Helper()
+	messageType, encoded, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read Protocol V1 envelope: %v", err)
+	}
+	if messageType != websocket.BinaryMessage {
+		t.Fatalf("Protocol V1 message type = %d, want binary", messageType)
+	}
+	envelope := new(vibebridgev1.Envelope)
+	if err := proto.Unmarshal(encoded, envelope); err != nil {
+		t.Fatalf("decode Protocol V1 envelope: %v", err)
+	}
+	return envelope
 }
 
 func dialProtocolV1(t *testing.T, serverURL string) *websocket.Conn {
