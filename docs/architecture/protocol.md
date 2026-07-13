@@ -102,6 +102,13 @@ Exact fields are finalized in `proto/vibebridge/v1` and reviewed through ADRs an
 - Removed fields are reserved by number and name.
 - CI compares the schema against the latest stable release and rejects accidental breaking changes.
 
+Current migration behavior:
+
+- The browser offers the `vibebridge.v1` WebSocket subprotocol. If the Agent selects it, the client sends a binary protobuf `Hello` as the first message and the Agent returns its binary `Hello` before any PTY is created.
+- Both peers validate protocol version `1.0`, the 16-byte connection identifier, peer role, sequence metadata, advertised envelope limit, and capability names. The Agent additionally requires `terminal.binary_output` before starting or attaching a session.
+- A negotiation failure closes the WebSocket with protocol error code `1002` and does not mutate session state. If the peer does not select `vibebridge.v1`, the existing legacy JSON/raw-binary path remains available during migration.
+- A successful `Hello` currently negotiates the boundary only; subsequent terminal and control messages still use the legacy adapter until the sequenced V1 message types are introduced.
+
 Support policy:
 
 - Stable clients support the current major version and at least the previous two minor releases.
