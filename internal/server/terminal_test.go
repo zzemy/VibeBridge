@@ -43,7 +43,7 @@ func TestNewPTYSessionUsesTerminalLauncherContract(t *testing.T) {
 	}}
 	command := []string{"codex", "--help"}
 
-	session, err := newPTYSession(terminalLaunchRequest{Command: command, WorkingDirectory: `C:\workspace`, Environment: []string{"PATH=test"}}, 0, systemClock{}, launcher, nil, sessionTelemetry{})
+	session, err := newPTYSession(terminalLaunchRequest{Command: command, WorkingDirectory: `C:\workspace`, Environment: []string{"PATH=test"}}, 0, systemClock{}, launcher, nil, nil, sessionTelemetry{})
 	if err != nil {
 		t.Fatalf("start session: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestNewPTYSessionReturnsLauncherFailure(t *testing.T) {
 	wantErr := errors.New("launch failed")
 	launcher := &fakeTerminalLauncher{err: wantErr}
 
-	session, err := newPTYSession(terminalLaunchRequest{Command: []string{"codex"}}, 0, systemClock{}, launcher, nil, sessionTelemetry{})
+	session, err := newPTYSession(terminalLaunchRequest{Command: []string{"codex"}}, 0, systemClock{}, launcher, nil, nil, sessionTelemetry{})
 	if session != nil {
 		t.Fatal("session created after launcher failure")
 	}

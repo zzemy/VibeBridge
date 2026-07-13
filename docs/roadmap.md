@@ -109,7 +109,7 @@ Exit gate:
 Current status (2026-07-14):
 
 - In progress. Version 2 local configuration now includes a validated workspace registry with stable IDs, labels, canonical absolute roots, duplicate-root detection, case-preserving Windows final-path identity, and symlink/junction resolution. Launch profiles can opt into a workspace boundary; their default, relative, or absolute working directory must resolve inside that root during configuration and immediately before PTY launch, while profiles without `workspace_id` remain compatible.
-- Traversal, Unicode, symlink, and Windows junction workspace-policy tests are in place. Session staging, attachment protocol/state, checksum/quota/cleanup, client UX, and tool adapters remain to be implemented before the phase exit gate is met.
+- Traversal, Unicode, symlink, and Windows junction workspace-policy tests are in place. Workspace-bound PTY sessions now reserve an ignored `.vibebridge/uploads/<session-id>/` staging directory named from the Agent-generated opaque session ID; startup rollback and session-end cleanup are idempotent, and creation/cleanup reject link escapes without exposing local paths. Attachment protocol/state, per-file no-follow operations, checksum/quota/crash recovery, no-workspace sandbox staging, client UX, and tool adapters remain to be implemented before the phase exit gate is met.
 
 ## Phase 4: Device Identity and Pairing
 

@@ -24,7 +24,7 @@ func TestUnixPTYTerminateClosesProcessGroup(t *testing.T) {
 		`sleep 120 & child=$!; printf 'VIBEBRIDGE_CHILD_PID=%s\n' "$child"; wait "$child"`,
 	}
 
-	session, err := newPTYSession(terminalLaunchRequest{Command: command}, 0, systemClock{}, ptyTerminalLauncher{}, nil, sessionTelemetry{})
+	session, err := newPTYSession(terminalLaunchRequest{Command: command}, 0, systemClock{}, ptyTerminalLauncher{}, nil, nil, sessionTelemetry{})
 	if err != nil {
 		t.Fatalf("start Unix PTY session: %v", err)
 	}

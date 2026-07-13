@@ -18,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 	"github.com/zzemy/VibeBridge/internal/agentlog"
+	"github.com/zzemy/VibeBridge/internal/attachment"
 	protocolv1 "github.com/zzemy/VibeBridge/internal/protocol"
 	"github.com/zzemy/VibeBridge/internal/workspace"
 	"google.golang.org/protobuf/proto"
@@ -384,15 +385,28 @@ func (s *Server) getOrCreateSession() (*ptySession, bool, error) {
 	if err != nil {
 		return nil, false, fmt.Errorf("create protocol session ID: %w", err)
 	}
+	var staging *attachment.SessionStaging
+	if s.config.WorkspaceRoot != "" {
+		staging, err = attachment.CreateSessionStaging(s.config.WorkspaceRoot, protocolSessionID)
+		if err != nil {
+			return nil, false, fmt.Errorf("create session attachment staging: %w", err)
+		}
+	}
 	session, err := newPTYSession(
 		terminalLaunchRequest{Command: s.config.Command, WorkingDirectory: workingDirectory, Environment: s.config.Environment},
 		s.config.IdleTimeout,
 		s.clock,
 		s.launcher,
+		staging,
 		s.clearSession,
 		sessionTelemetry{correlationID: correlationID, logger: s.logger},
 	)
 	if err != nil {
+		if staging != nil {
+			if cleanupErr := staging.Cleanup(); cleanupErr != nil {
+				return nil, false, errors.Join(err, cleanupErr)
+			}
+		}
 		return nil, false, err
 	}
 
@@ -544,10 +558,11 @@ type ptySession struct {
 	resourcesCloseOnce sync.Once
 	resourcesCloseErr  error
 	telemetry          sessionTelemetry
+	staging            *attachment.SessionStaging
 	endReason          agentlog.Reason
 }
 
-func newPTYSession(request terminalLaunchRequest, idleTimeout time.Duration, sessionClock clock, launcher terminalLauncher, onDone func(*ptySession), telemetry sessionTelemetry) (*ptySession, error) {
+func newPTYSession(request terminalLaunchRequest, idleTimeout time.Duration, sessionClock clock, launcher terminalLauncher, staging *attachment.SessionStaging, onDone func(*ptySession), telemetry sessionTelemetry) (*ptySession, error) {
 	if sessionClock == nil {
 		sessionClock = systemClock{}
 	}
@@ -574,6 +589,7 @@ func newPTYSession(request terminalLaunchRequest, idleTimeout time.Duration, ses
 		lastActivityAt: now,
 		clock:          sessionClock,
 		telemetry:      telemetry,
+		staging:        staging,
 	}
 	session.lifecycle.started()
 	session.logEvent(agentlog.EventSessionStarted, agentlog.State(session.lifecycle.state), "", "")
@@ -851,6 +867,9 @@ func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 	s.outputMu.Unlock()
 
 	_ = s.closeResources()
+	if s.staging != nil {
+		_ = s.staging.Cleanup()
+	}
 	close(s.done)
 	if s.onDone != nil {
 		s.onDone(s)
