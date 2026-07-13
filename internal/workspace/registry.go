@@ -51,7 +51,7 @@ func NewRegistry(definitions []Definition, baseDirectory string) (Registry, erro
 			return Registry{}, fmt.Errorf("workspaces[%d] %q: invalid root: %w", index, definition.ID, err)
 		}
 		definition.Root = root
-		rootKey := comparablePath(root)
+		rootKey := filepath.Clean(root)
 		if existingID, exists := seenRoots[rootKey]; exists {
 			return Registry{}, fmt.Errorf("workspace %q duplicates the canonical root of workspace %q", definition.ID, existingID)
 		}
@@ -71,10 +71,10 @@ func RevalidateDirectory(root string, path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("revalidate workspace root: %w", err)
 	}
-	if comparablePath(currentRoot) != comparablePath(root) {
+	if filepath.Clean(currentRoot) != filepath.Clean(root) {
 		return "", errors.New("workspace root changed since configuration")
 	}
-	if path == "" || comparablePath(path) == comparablePath(root) {
+	if path == "" || filepath.Clean(path) == filepath.Clean(root) {
 		return currentRoot, nil
 	}
 	currentDirectory, err := canonicalDirectory(path, "")
@@ -157,8 +157,8 @@ func canonicalDirectory(path string, baseDirectory string) (string, error) {
 }
 
 func containsCanonicalPath(root string, candidate string) bool {
-	root = comparablePath(root)
-	candidate = comparablePath(candidate)
+	root = filepath.Clean(root)
+	candidate = filepath.Clean(candidate)
 	if candidate == root {
 		return true
 	}
@@ -166,10 +166,6 @@ func containsCanonicalPath(root string, candidate string) bool {
 		root += string(filepath.Separator)
 	}
 	return strings.HasPrefix(candidate, root)
-}
-
-func comparablePath(path string) string {
-	return filepath.Clean(path)
 }
 
 type pathOperationError struct {
