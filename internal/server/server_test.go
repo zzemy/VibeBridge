@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	pty "github.com/aymanbagabas/go-pty"
 	"github.com/gorilla/websocket"
+	"github.com/zzemy/VibeBridge/internal/agentlog"
 )
 
 func TestHandlerHealthAndRejectsInvalidToken(t *testing.T) {
@@ -53,7 +52,7 @@ func TestStatusRequiresTokenAndReportsSessionState(t *testing.T) {
 		IdleTimeout:      10 * time.Minute,
 	})
 	now := time.Date(2026, time.July, 12, 8, 30, 0, 0, time.UTC)
-	app.session = &ptySession{startedAt: now, lastActivityAt: now.Add(time.Minute)}
+	app.session = &ptySession{startedAt: now, lastActivityAt: now.Add(time.Minute), lifecycle: sessionLifecycle{state: sessionStateDetached}}
 	testServer := httptest.NewServer(app.Handler())
 	defer testServer.Close()
 
@@ -210,6 +209,31 @@ func TestKeepConnectionAliveSendsPing(t *testing.T) {
 	}
 }
 
+func TestTerminateUsesSingleLifecycleAndCleanupPath(t *testing.T) {
+	terminal := &countingPTY{}
+	processTree := &countingProcessTree{}
+	done := make(chan struct{})
+	close(done)
+	session := &ptySession{
+		terminal:    terminal,
+		processTree: processTree,
+		cancel:      func() {},
+		done:        done,
+		clock:       systemClock{},
+		lifecycle:   sessionLifecycle{state: sessionStateDetached},
+	}
+
+	session.terminateWithReason(agentlog.ReasonAgentShutdown)
+	session.terminateWithReason(agentlog.ReasonAgentShutdown)
+
+	if session.lifecycle.state != sessionStateEnding {
+		t.Fatalf("state = %q, want ending until process exit is observed", session.lifecycle.state)
+	}
+	if terminal.closeCalls != 1 || processTree.closeCalls != 1 {
+		t.Fatalf("cleanup calls = terminal %d, process tree %d; want 1 each", terminal.closeCalls, processTree.closeCalls)
+	}
+}
+
 func TestCloseResourcesIsIdempotent(t *testing.T) {
 	terminal := &countingPTY{}
 	processTree := &countingProcessTree{}
@@ -242,11 +266,7 @@ type countingPTY struct {
 	closeCalls int
 }
 
-func (p *countingPTY) Close() error                                               { p.closeCalls++; return nil }
-func (p *countingPTY) Command(string, ...string) *pty.Cmd                         { return nil }
-func (p *countingPTY) CommandContext(context.Context, string, ...string) *pty.Cmd { return nil }
-func (p *countingPTY) Fd() uintptr                                                { return 0 }
-func (p *countingPTY) Name() string                                               { return "counting" }
-func (p *countingPTY) Read([]byte) (int, error)                                   { return 0, io.EOF }
-func (p *countingPTY) Resize(int, int) error                                      { return nil }
-func (p *countingPTY) Write(data []byte) (int, error)                             { return len(data), nil }
+func (p *countingPTY) Close() error                   { p.closeCalls++; return nil }
+func (p *countingPTY) Read([]byte) (int, error)       { return 0, io.EOF }
+func (p *countingPTY) Resize(int, int) error          { return nil }
+func (p *countingPTY) Write(data []byte) (int, error) { return len(data), nil }

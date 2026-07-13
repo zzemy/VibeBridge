@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "listen_address": "0.0.0.0:8787",
+  "web_directory": "web/dist",
+  "reconnect_timeout": "90s",
+  "idle_timeout": "30m",
+  "default_profile": "shell",
+  "profiles": [
+    {
+      "id": "shell",
+      "label": "PowerShell",
+      "executable": "pwsh",
+      "args": ["-NoLogo", "-NoExit", "-NoProfile"],
+      "working_directory": ".",
+      "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
+    },
+    {
+      "id": "codex",
+      "label": "Codex",
+      "executable": "codex",
+      "working_directory": ".",
+      "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
+    },
+    {
+      "id": "claude",
+      "label": "Claude Code",
+      "executable": "claude",
+      "working_directory": ".",
+      "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
+    }
+  ]
+}
