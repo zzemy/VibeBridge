@@ -19,6 +19,7 @@ Requirements:
 
 ```powershell
 pnpm --dir web install --frozen-lockfile
+pnpm --dir web proto:lint
 pnpm --dir web build
 go test ./...
 go run ./cmd/vibebridge --diagnose
@@ -38,11 +39,14 @@ go run ./cmd/vibebridge --diagnose
 go mod verify
 go vet ./...
 go test ./...
+pnpm --dir web proto:lint
+pnpm --dir web proto:generate
+git status --short -- gen/go web/src/gen # expected: no output
 pnpm --dir web test
 pnpm --dir web build
 ```
 
-On Windows, `go test ./...` includes a real ConPTY process-tree cleanup regression. UI changes must also be checked on relevant portrait and landscape viewports. Changes to pairing, reconnect, terminal input, or cleanup require the real-device path in the README.
+Generated protocol packages are committed and must match `proto/vibebridge/v1`. Update the shared binary vector only for an intentional wire-contract change by running `$env:VIBEBRIDGE_UPDATE_GOLDEN = "1"; go test ./internal/protocol; Remove-Item Env:\VIBEBRIDGE_UPDATE_GOLDEN`, then review the schema and fixture together. On Windows, `go test ./...` includes a real ConPTY process-tree cleanup regression. UI changes must also be checked on relevant portrait and landscape viewports. Changes to pairing, reconnect, terminal input, or cleanup require the real-device path in the README.
 
 ## Pull requests
 

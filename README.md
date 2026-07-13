@@ -13,6 +13,13 @@ pnpm --dir web install
 pnpm --dir web build
 ```
 
+Protocol V1 schemas are canonical under `proto/vibebridge/v1`; generated Go and TypeScript files are committed but never edited manually. Regenerate them with the pinned project-local Buf tool:
+
+```powershell
+pnpm --dir web proto:lint
+pnpm --dir web proto:generate
+```
+
 Run the Go server:
 
 ```powershell
@@ -122,6 +129,9 @@ Events cover Agent startup/shutdown and session start, attach, detach, ending, a
 
 ```powershell
 go test ./...
+pnpm --dir web proto:lint
+pnpm --dir web proto:generate
+git status --short -- gen/go web/src/gen # expected: no output
 pnpm --dir web test
 pnpm --dir web build
 ```
