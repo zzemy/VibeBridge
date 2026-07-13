@@ -25,9 +25,7 @@ func TestAgentStreamSequencesTerminalTrafficAndAcknowledgements(t *testing.T) {
 		t.Fatalf("terminal output = %q", got)
 	}
 
-	inputBytes := marshalClientStreamEnvelope(t, 2, 2, &vibebridgev1.Envelope_TerminalInput{
-		TerminalInput: &vibebridgev1.TerminalInput{Data: []byte("yes\r")},
-	})
+	inputBytes := marshalClientTerminalInput(t, nil, 0, 2, 2, []byte("yes\r"))
 	input, err := stream.DecodeClientMessage(inputBytes)
 	if err != nil {
 		t.Fatalf("decode terminal input: %v", err)
@@ -49,12 +47,50 @@ func TestAgentStreamSequencesTerminalTrafficAndAcknowledgements(t *testing.T) {
 	}
 }
 
+func TestAgentStreamDecodesNegotiatedTerminalResizeAndEnd(t *testing.T) {
+	stream := newTestAgentControlStream(t, MaxEnvelopeBytes)
+
+	resize, err := stream.DecodeClientMessage(marshalClientResizeEnvelope(t, nil, 0, 2, 1, 120, 40))
+	if err != nil {
+		t.Fatalf("decode terminal resize: %v", err)
+	}
+	if resize.Kind != ClientStreamMessageTerminalResize || resize.Columns != 120 || resize.Rows != 40 {
+		t.Fatalf("decoded terminal resize = %#v", resize)
+	}
+	if err := stream.CommitClientMessage(resize.Sequence); err != nil {
+		t.Fatalf("commit terminal resize: %v", err)
+	}
+
+	end, err := stream.DecodeClientMessage(marshalClientEndEnvelope(t, nil, 0, 3, 1))
+	if err != nil {
+		t.Fatalf("decode EndSession: %v", err)
+	}
+	if end.Kind != ClientStreamMessageEndSession {
+		t.Fatalf("decoded EndSession = %#v", end)
+	}
+}
+
+func TestAgentStreamRejectsUnnegotiatedOrInvalidTerminalResize(t *testing.T) {
+	if _, err := newTestAgentStream(t, MaxEnvelopeBytes).DecodeClientMessage(
+		marshalClientResizeEnvelope(t, nil, 0, 2, 1, 80, 24),
+	); err == nil {
+		t.Fatal("unnegotiated terminal resize was accepted")
+	}
+
+	for _, dimensions := range [][2]uint32{{0, 24}, {80, 0}, {MaxTerminalDimension + 1, 24}, {80, MaxTerminalDimension + 1}} {
+		stream := newTestAgentControlStream(t, MaxEnvelopeBytes)
+		if _, err := stream.DecodeClientMessage(
+			marshalClientResizeEnvelope(t, nil, 0, 2, 1, dimensions[0], dimensions[1]),
+		); err == nil {
+			t.Fatalf("invalid terminal dimensions %v were accepted", dimensions)
+		}
+	}
+}
+
 func TestAgentStreamBindsSessionAndSequencesResumeTraffic(t *testing.T) {
 	stream := newTestAgentResumeStream(t, MaxEnvelopeBytes)
 	sessionID := []byte("fedcba9876543210")
-	attachBytes := marshalClientSessionEnvelope(t, nil, 0, 2, 1, &vibebridgev1.Envelope_AttachSession{
-		AttachSession: &vibebridgev1.AttachSession{LastAcknowledgedSequence: 9},
-	})
+	attachBytes := marshalClientAttachEnvelope(t, nil, 0, 2, 1, 9)
 	attachEnvelope := unmarshalStreamEnvelope(t, attachBytes)
 	attachEnvelope.SessionId = append([]byte(nil), sessionID...)
 	attachEnvelope.SessionGeneration = 7
@@ -104,15 +140,13 @@ func TestAgentStreamBindsSessionAndSequencesResumeTraffic(t *testing.T) {
 
 func TestAgentResumeStreamRejectsTrafficBeforeAttachAndMismatchedSessionMetadata(t *testing.T) {
 	stream := newTestAgentResumeStream(t, MaxEnvelopeBytes)
-	terminalInput := marshalClientStreamEnvelope(t, 2, 1, &vibebridgev1.Envelope_TerminalInput{
-		TerminalInput: &vibebridgev1.TerminalInput{Data: []byte("x")},
-	})
+	terminalInput := marshalClientTerminalInput(t, nil, 0, 2, 1, []byte("x"))
 	if _, err := stream.DecodeClientMessage(terminalInput); err == nil {
 		t.Fatal("terminal input before AttachSession was accepted")
 	}
 
 	sessionID := []byte("fedcba9876543210")
-	attach := marshalClientSessionEnvelope(t, nil, 0, 2, 1, &vibebridgev1.Envelope_AttachSession{AttachSession: &vibebridgev1.AttachSession{}})
+	attach := marshalClientAttachEnvelope(t, nil, 0, 2, 1, 0)
 	message, err := stream.DecodeClientMessage(attach)
 	if err != nil {
 		t.Fatalf("decode fresh attachment: %v", err)
@@ -133,7 +167,7 @@ func TestAgentResumeStreamRejectsTrafficBeforeAttachAndMismatchedSessionMetadata
 		{name: "generation mismatch", sessionID: sessionID, generation: 2},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			encoded := marshalClientSessionEnvelope(t, testCase.sessionID, testCase.generation, 3, 1, &vibebridgev1.Envelope_Acknowledgement{Acknowledgement: &vibebridgev1.Acknowledgement{}})
+			encoded := marshalClientAcknowledgementEnvelope(t, testCase.sessionID, testCase.generation, 3, 1)
 			if _, err := stream.DecodeClientMessage(encoded); err == nil {
 				t.Fatal("mismatched session metadata was accepted")
 			}
@@ -155,9 +189,7 @@ func TestAgentStreamRejectsDuplicateOutOfOrderAndInvalidAcknowledgement(t *testi
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			stream := newTestAgentStream(t, MaxEnvelopeBytes)
-			encoded := marshalClientStreamEnvelope(t, testCase.sequence, testCase.ack, &vibebridgev1.Envelope_TerminalInput{
-				TerminalInput: &vibebridgev1.TerminalInput{Data: []byte("x")},
-			})
+			encoded := marshalClientTerminalInput(t, nil, 0, testCase.sequence, testCase.ack, []byte("x"))
 			if _, err := stream.DecodeClientMessage(encoded); err == nil {
 				t.Fatal("invalid client envelope was accepted")
 			}
@@ -216,6 +248,21 @@ func newTestAgentStream(t *testing.T, peerLimit uint32) *AgentStream {
 	return stream
 }
 
+func newTestAgentControlStream(t *testing.T, peerLimit uint32) *AgentStream {
+	t.Helper()
+	stream, err := NewAgentStream(NegotiatedHello{
+		Major:                CurrentMajor,
+		Minor:                CurrentMinor,
+		PeerMaxEnvelopeBytes: peerLimit,
+		ConnectionID:         []byte("0123456789abcdef"),
+		capabilities:         map[string]struct{}{CapabilityTerminalResizeEnd: {}},
+	})
+	if err != nil {
+		t.Fatalf("create terminal-control Agent stream: %v", err)
+	}
+	return stream
+}
+
 func newTestAgentResumeStream(t *testing.T, peerLimit uint32) *AgentStream {
 	t.Helper()
 	stream, err := NewAgentStream(NegotiatedHello{
@@ -231,14 +278,43 @@ func newTestAgentResumeStream(t *testing.T, peerLimit uint32) *AgentStream {
 	return stream
 }
 
-func marshalClientStreamEnvelope(t *testing.T, sequence, acknowledge uint64, payload any) []byte {
+func marshalClientTerminalInput(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64, data []byte) []byte {
 	t.Helper()
-	return marshalClientSessionEnvelope(t, nil, 0, sequence, acknowledge, payload)
+	envelope := newClientStreamEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_TerminalInput{TerminalInput: &vibebridgev1.TerminalInput{Data: append([]byte(nil), data...)}}
+	return marshalClientStreamEnvelope(t, envelope)
 }
 
-func marshalClientSessionEnvelope(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64, payload any) []byte {
+func marshalClientAttachEnvelope(t *testing.T, sessionID []byte, generation, sequence, acknowledge, cursor uint64) []byte {
 	t.Helper()
-	envelope := &vibebridgev1.Envelope{
+	envelope := newClientStreamEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_AttachSession{AttachSession: &vibebridgev1.AttachSession{LastAcknowledgedSequence: cursor}}
+	return marshalClientStreamEnvelope(t, envelope)
+}
+
+func marshalClientAcknowledgementEnvelope(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64) []byte {
+	t.Helper()
+	envelope := newClientStreamEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_Acknowledgement{Acknowledgement: &vibebridgev1.Acknowledgement{}}
+	return marshalClientStreamEnvelope(t, envelope)
+}
+
+func marshalClientResizeEnvelope(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64, columns, rows uint32) []byte {
+	t.Helper()
+	envelope := newClientStreamEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_TerminalResize{TerminalResize: &vibebridgev1.TerminalResize{Columns: columns, Rows: rows}}
+	return marshalClientStreamEnvelope(t, envelope)
+}
+
+func marshalClientEndEnvelope(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64) []byte {
+	t.Helper()
+	envelope := newClientStreamEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_EndSession{EndSession: &vibebridgev1.EndSession{}}
+	return marshalClientStreamEnvelope(t, envelope)
+}
+
+func newClientStreamEnvelope(sessionID []byte, generation, sequence, acknowledge uint64) *vibebridgev1.Envelope {
+	return &vibebridgev1.Envelope{
 		ProtocolMajor:     CurrentMajor,
 		ProtocolMinor:     CurrentMinor,
 		ConnectionId:      []byte("0123456789abcdef"),
@@ -247,16 +323,10 @@ func marshalClientSessionEnvelope(t *testing.T, sessionID []byte, generation, se
 		Sequence:          sequence,
 		Acknowledge:       acknowledge,
 	}
-	switch value := payload.(type) {
-	case *vibebridgev1.Envelope_AttachSession:
-		envelope.Payload = value
-	case *vibebridgev1.Envelope_TerminalInput:
-		envelope.Payload = value
-	case *vibebridgev1.Envelope_Acknowledgement:
-		envelope.Payload = value
-	default:
-		t.Fatalf("unsupported test payload %T", payload)
-	}
+}
+
+func marshalClientStreamEnvelope(t *testing.T, envelope *vibebridgev1.Envelope) []byte {
+	t.Helper()
 	encoded, err := proto.Marshal(envelope)
 	if err != nil {
 		t.Fatalf("marshal client stream envelope: %v", err)

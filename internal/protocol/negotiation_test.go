@@ -64,6 +64,12 @@ func TestAcceptClientHelloRejectsWrongRoleAndMalformedRange(t *testing.T) {
 				envelope.GetHello().Capabilities = append(envelope.GetHello().Capabilities, CapabilityTerminalBinaryOutput)
 			},
 		},
+		{
+			name: "resize end without sequenced I/O",
+			mutate: func(envelope *vibebridgev1.Envelope) {
+				envelope.GetHello().Capabilities = append(envelope.GetHello().Capabilities, CapabilityTerminalResizeEnd)
+			},
+		},
 	}
 
 	for _, testCase := range tests {
@@ -95,21 +101,18 @@ func TestNewAgentHelloUsesNegotiatedVersion(t *testing.T) {
 	if envelope.Sequence != 1 {
 		t.Fatalf("sequence = %d, want 1", envelope.Sequence)
 	}
-	foundSequencedIO := false
-	foundSessionResume := false
-	for _, capability := range envelope.GetHello().GetCapabilities() {
-		if capability == CapabilityTerminalSequencedIO {
-			foundSequencedIO = true
+	wantCapabilities := []string{CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionResume}
+	for _, want := range wantCapabilities {
+		found := false
+		for _, capability := range envelope.GetHello().GetCapabilities() {
+			if capability == want {
+				found = true
+				break
+			}
 		}
-		if capability == CapabilitySessionResume {
-			foundSessionResume = true
+		if !found {
+			t.Fatalf("Agent Hello capabilities = %v, missing %q", envelope.GetHello().GetCapabilities(), want)
 		}
-	}
-	if !foundSequencedIO {
-		t.Fatalf("Agent Hello capabilities = %v, missing %q", envelope.GetHello().GetCapabilities(), CapabilityTerminalSequencedIO)
-	}
-	if !foundSessionResume {
-		t.Fatalf("Agent Hello capabilities = %v, missing %q", envelope.GetHello().GetCapabilities(), CapabilitySessionResume)
 	}
 }
 

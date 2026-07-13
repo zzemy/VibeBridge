@@ -17,12 +17,14 @@ import {
   protocolV1WebSocketSubprotocol,
   sessionResumeCapability,
   terminalBinaryOutputCapability,
+  terminalResizeEndCapability,
   terminalSequencedIoCapability,
 } from "./lib/protocol-v1";
 
 type TerminalState = {
   chunks: Array<string | Uint8Array>;
   resets: number;
+  resize?: (columns: number, rows: number) => void;
 };
 
 const terminalState = vi.hoisted<TerminalState>(() => ({
@@ -32,9 +34,10 @@ const terminalState = vi.hoisted<TerminalState>(() => ({
 
 vi.mock("./components/TerminalView", async () => {
   const React = await import("react");
-  type MockProps = { chunks: Array<string | Uint8Array> };
-  const TerminalView = React.forwardRef(function MockTerminalView({ chunks }: MockProps, ref) {
+  type MockProps = { chunks: Array<string | Uint8Array>; onResize: (columns: number, rows: number) => void };
+  const TerminalView = React.forwardRef(function MockTerminalView({ chunks, onResize }: MockProps, ref) {
     terminalState.chunks = chunks;
+    terminalState.resize = onResize;
     React.useImperativeHandle(ref, () => ({
       clear() {},
       reset() { terminalState.resets += 1; },
@@ -109,6 +112,7 @@ beforeEach(() => {
   FakeWebSocket.instances = [];
   terminalState.chunks = [];
   terminalState.resets = 0;
+  terminalState.resize = undefined;
   vi.stubGlobal("WebSocket", FakeWebSocket);
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true,
@@ -133,7 +137,7 @@ test("requires confirmation before ending a session", async () => {
   expect(screen.queryByRole("heading", { name: "End this terminal session?" })).toBeNull();
 });
 
-test("waits for SessionStatus and clears stale terminal history on RESYNC_REQUIRED", async () => {
+test("waits for SessionStatus, resets stale history, and sends negotiated resize/end controls", async () => {
   window.history.replaceState({}, "", "/?token=test-token");
   render(<App />);
   await screen.findByTestId("terminal-view");
@@ -157,7 +161,7 @@ test("waits for SessionStatus and clears stale terminal history on RESYNC_REQUIR
       value: create(HelloSchema, {
         peerRole: PeerRole.AGENT,
         supportedVersions: create(ProtocolVersionRangeSchema, { minimum: version(), maximum: version() }),
-        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, sessionResumeCapability],
+        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, terminalResizeEndCapability, sessionResumeCapability],
         maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
       }),
     },
@@ -188,4 +192,65 @@ test("waits for SessionStatus and clears stale terminal history on RESYNC_REQUIR
   await waitFor(() => expect(screen.getByText("Connected")).toBeTruthy());
   expect(terminalState.resets).toBe(1);
   expect(terminalState.chunks).toEqual(["terminal history was truncated; synchronized with the current session\r\n"]);
+
+  act(() => terminalState.resize?.(120, 40));
+  const resizeBytes = socket.sent.at(-1);
+  if (!(resizeBytes instanceof ArrayBuffer)) throw new Error("expected binary TerminalResize");
+  const resize = fromBinary(EnvelopeSchema, new Uint8Array(resizeBytes));
+  expect(resize.sequence).toBe(3n);
+  expect(resize.sessionId).toEqual(sessionId);
+  expect(resize.sessionGeneration).toBe(4n);
+  expect(resize.payload.case).toBe("terminalResize");
+  if (resize.payload.case !== "terminalResize") throw new Error("expected TerminalResize");
+  expect(resize.payload.value).toMatchObject({ columns: 120, rows: 40 });
+
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "End" }));
+  await user.click(screen.getByRole("button", { name: "End session" }));
+  const endBytes = socket.sent.at(-1);
+  if (!(endBytes instanceof ArrayBuffer)) throw new Error("expected binary EndSession");
+  const end = fromBinary(EnvelopeSchema, new Uint8Array(endBytes));
+  expect(end.sequence).toBe(4n);
+  expect(end.sessionId).toEqual(sessionId);
+  expect(end.sessionGeneration).toBe(4n);
+  expect(end.payload.case).toBe("endSession");
+});
+
+test("falls back to JSON resize/end controls when the capability is not negotiated", async () => {
+  window.history.replaceState({}, "", "/?token=test-token");
+  render(<App />);
+  await screen.findByTestId("terminal-view");
+  await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+  const socket = FakeWebSocket.instances[0];
+  if (!socket) throw new Error("expected WebSocket instance");
+
+  act(() => socket.open());
+  const clientHelloBytes = socket.sent[0];
+  if (!(clientHelloBytes instanceof ArrayBuffer)) throw new Error("expected binary client Hello");
+  const clientHello = fromBinary(EnvelopeSchema, new Uint8Array(clientHelloBytes));
+  const version = () => create(ProtocolVersionSchema, { major: 1, minor: 0 });
+  const agentHello = toBinary(EnvelopeSchema, create(EnvelopeSchema, {
+    protocolMajor: 1,
+    connectionId: clientHello.connectionId,
+    sequence: 1n,
+    payload: {
+      case: "hello",
+      value: create(HelloSchema, {
+        peerRole: PeerRole.AGENT,
+        supportedVersions: create(ProtocolVersionRangeSchema, { minimum: version(), maximum: version() }),
+        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability],
+        maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
+      }),
+    },
+  }));
+  act(() => socket.message(agentHello.slice().buffer));
+
+  await waitFor(() => expect(screen.getByText("Connected")).toBeTruthy());
+  act(() => terminalState.resize?.(90, 30));
+  expect(socket.sent.at(-1)).toBe(JSON.stringify({ type: "resize", cols: 90, rows: 30 }));
+
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "End" }));
+  await user.click(screen.getByRole("button", { name: "End session" }));
+  expect(socket.sent.at(-1)).toBe(JSON.stringify({ type: "exit" }));
 });

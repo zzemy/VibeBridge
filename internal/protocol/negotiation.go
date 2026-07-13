@@ -91,6 +91,11 @@ func AcceptClientHello(encoded []byte) (NegotiatedHello, error) {
 		}
 		capabilities[capability] = struct{}{}
 	}
+	if _, hasResizeEnd := capabilities[CapabilityTerminalResizeEnd]; hasResizeEnd {
+		if _, hasSequencedIO := capabilities[CapabilityTerminalSequencedIO]; !hasSequencedIO {
+			return NegotiatedHello{}, errors.New("terminal.resize_end_v1 requires terminal.sequenced_io_v1")
+		}
+	}
 
 	return NegotiatedHello{
 		Major:                CurrentMajor,
@@ -121,7 +126,7 @@ func NewAgentHello(connectionID []byte, major, minor uint32, sentAt time.Time) (
 				Minimum: &vibebridgev1.ProtocolVersion{Major: CurrentMajor, Minor: CurrentMinor},
 				Maximum: &vibebridgev1.ProtocolVersion{Major: CurrentMajor, Minor: CurrentMinor},
 			},
-			Capabilities:     []string{CapabilityTerminalBinaryOutput, CapabilityTerminalSequencedIO, CapabilitySessionResume},
+			Capabilities:     []string{CapabilityTerminalBinaryOutput, CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionResume},
 			MaxEnvelopeBytes: MaxEnvelopeBytes,
 		}},
 	}, nil

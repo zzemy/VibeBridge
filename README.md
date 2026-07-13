@@ -17,7 +17,7 @@ Control local AI CLI sessions such as Codex and Claude Code from your phone over
 - A least-privilege, user-scoped Windows background Agent installed through Task Scheduler.
 - Canonical Protocol V1 Protobuf schemas, generated Go/TypeScript packages, golden vectors, and compatibility CI.
 
-The browser endpoint now negotiates Protocol V1. When both peers support sequenced I/O and `session.resume_v1`, terminal traffic, acknowledgements, session attachment, and bounded reconnect replay use ordered Protobuf envelopes with explicit `FRESH`, `RESUMED`, or `RESYNC_REQUIRED` results. The remaining control messages are still being migrated, and the legacy adapter remains available during this staged transition.
+The browser endpoint now negotiates Protocol V1. When both peers support sequenced I/O and `session.resume_v1`, terminal traffic, acknowledgements, session attachment, and bounded reconnect replay use ordered Protobuf envelopes with explicit `FRESH`, `RESUMED`, or `RESYNC_REQUIRED` results. Peers that also negotiate `terminal.resize_end_v1` carry terminal resize and explicit end controls in the same ordered stream; older peers retain the JSON adapter during this staged transition.
 
 ## Platform Status
 
@@ -125,7 +125,7 @@ The background Agent stores its current PID, start time, listener, and random pe
 - Sending `Ctrl+C` to the VibeBridge process or receiving `SIGTERM` closes the active PTY before the HTTP server exits.
 - `GET /status?token=...` reports the session state, start time, last activity time, and configured timeouts without exposing terminal output or the configured command.
 
-Terminal bytes and ANSI sequences are preserved in WebSocket binary frames. Negotiated Protocol V1 peers carry terminal input, terminal output, acknowledgements, `AttachSession`, and `SessionStatus` in binary Protobuf envelopes. Every physical WebSocket starts new sequence state; a reconnect supplies the prior session identity, generation, and highest processed Agent sequence. If the exact checkpoint or complete bounded replay is unavailable, the Agent returns `RESYNC_REQUIRED` and the browser clears stale terminal history before showing the retained tail. Resize, explicit exit, process-exit notification, error, and application ping/pong controls remain JSON text messages during the staged migration. Legacy peers continue to use raw binary output and JSON input.
+Terminal bytes and ANSI sequences are preserved in WebSocket binary frames. Negotiated Protocol V1 peers carry terminal input, terminal output, acknowledgements, `AttachSession`, and `SessionStatus` in binary Protobuf envelopes. Every physical WebSocket starts new sequence state; a reconnect supplies the prior session identity, generation, and highest processed Agent sequence. If the exact checkpoint or complete bounded replay is unavailable, the Agent returns `RESYNC_REQUIRED` and the browser clears stale terminal history before showing the retained tail. Peers that negotiate `terminal.resize_end_v1` also send `TerminalResize` and `EndSession` as ordered Protobuf envelopes; dimensions must be integers from 1 through 65,535. Without that capability, resize and explicit end retain their JSON adapter. Process-exit notification, error, and application ping/pong remain JSON text messages during the staged migration. Legacy peers continue to use raw binary output and JSON input.
 
 ## Privacy-Safe Lifecycle Logs
 
@@ -184,7 +184,7 @@ The resulting binary contains the React frontend and does not require `web/dist`
 
 - One browser client can control a session at a time.
 - Access uses a per-run token in the QR URL, but transport is not encrypted by VibeBridge itself.
-- Stable V1 resize/end/ping/pong/exit/error messages are not active yet; these controls and the removable legacy adapter remain migration work.
+- Stable V1 process-exit, error, and application ping/pong messages are not active yet; previous-client compatibility coverage and the removable legacy adapter also remain migration work.
 - Public relay, native mobile clients, file attachments, and packaged releases are roadmap work, not current features.
 
 ## License

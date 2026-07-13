@@ -15,12 +15,13 @@ import {
   protocolV1MaxEnvelopeBytes,
   sessionResumeCapability,
   terminalBinaryOutputCapability,
+  terminalResizeEndCapability,
   terminalSequencedIoCapability,
 } from "./protocol-v1";
 
 const connectionId = Uint8Array.from({ length: 16 }, (_, index) => index);
 
-function agentHello(overrides?: { role?: PeerRole; connectionId?: Uint8Array; minimumMinor?: number }) {
+function agentHello(overrides?: { role?: PeerRole; connectionId?: Uint8Array; minimumMinor?: number; capabilities?: string[] }) {
   const version = (minor = 0) => create(ProtocolVersionSchema, { major: 1, minor });
   return toBinary(EnvelopeSchema, create(EnvelopeSchema, {
     protocolMajor: 1,
@@ -35,7 +36,7 @@ function agentHello(overrides?: { role?: PeerRole; connectionId?: Uint8Array; mi
           minimum: version(overrides?.minimumMinor),
           maximum: version(overrides?.minimumMinor),
         }),
-        capabilities: [terminalBinaryOutputCapability],
+        capabilities: overrides?.capabilities ?? [terminalBinaryOutputCapability],
         maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
       }),
     },
@@ -55,6 +56,7 @@ describe("Protocol V1 Hello negotiation", () => {
     expect(clientHello.payload.case).toBe("hello");
     if (clientHello.payload.case !== "hello") throw new Error("expected client Hello");
     expect(clientHello.payload.value.capabilities).toContain(terminalSequencedIoCapability);
+    expect(clientHello.payload.value.capabilities).toContain(terminalResizeEndCapability);
     expect(clientHello.payload.value.capabilities).toContain(sessionResumeCapability);
   });
 
@@ -62,6 +64,7 @@ describe("Protocol V1 Hello negotiation", () => {
     ["wrong peer role", agentHello({ role: PeerRole.CLIENT })],
     ["connection ID mismatch", agentHello({ connectionId: Uint8Array.from({ length: 16 }, () => 255) })],
     ["incompatible version", agentHello({ minimumMinor: 1 })],
+    ["resize/end without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, terminalResizeEndCapability] })],
   ])("rejects %s", (_name, encoded) => {
     expect(() => acceptAgentHello(encoded, connectionId)).toThrow();
   });

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -276,7 +277,7 @@ func (p *countingPTY) Write(data []byte) (int, error) { return len(data), nil }
 
 func TestProtocolV1NegotiatesBeforeStartingSession(t *testing.T) {
 	wait := make(chan struct{})
-	terminal := &recordingPTY{writes: make(chan []byte, 1)}
+	terminal := &recordingPTY{writes: make(chan []byte, 1), resizes: make(chan terminalDimensions, 1)}
 	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
 		terminal:    terminal,
 		processTree: &countingProcessTree{},
@@ -329,6 +330,20 @@ func TestProtocolV1NegotiatesBeforeStartingSession(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("legacy terminal input was not written to the PTY")
+	}
+	if err := connection.WriteJSON(ClientMessage{Type: "resize", Cols: protocolv1.MaxTerminalDimension + 1, Rows: 30}); err != nil {
+		t.Fatalf("send over-limit legacy resize after negotiated Hello: %v", err)
+	}
+	if err := connection.WriteJSON(ClientMessage{Type: "resize", Cols: 90, Rows: 30}); err != nil {
+		t.Fatalf("send legacy resize after negotiated Hello: %v", err)
+	}
+	select {
+	case dimensions := <-terminal.resizes:
+		if dimensions.columns != 90 || dimensions.rows != 30 {
+			t.Fatalf("legacy PTY resize = %#v, want 90x30", dimensions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("legacy terminal resize was not applied")
 	}
 
 	deadline := time.Now().Add(time.Second)
@@ -406,6 +421,70 @@ func TestProtocolV1SequencesTerminalInputOutputAndAcknowledgement(t *testing.T) 
 	connection.Close()
 	close(wait)
 	app.Close()
+}
+
+func TestProtocolV1UsesSequencedResizeAndEndControls(t *testing.T) {
+	wait := make(chan struct{})
+	var cancelOnce sync.Once
+	terminal := &recordingPTY{writes: make(chan []byte, 1), resizes: make(chan terminalDimensions, 1)}
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    terminal,
+		processTree: &countingProcessTree{},
+		cancel:      func() { cancelOnce.Do(func() { close(wait) }) },
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilityTerminalResizeEnd,
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection) // Agent Hello.
+	initialOutput := readProtocolEnvelope(t, connection)
+	if initialOutput.Sequence != 2 || initialOutput.GetTerminalOutput() == nil {
+		t.Fatalf("initial output sequence/payload = %d/%T", initialOutput.Sequence, initialOutput.Payload)
+	}
+
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientResize(t, nil, 0, 2, 2, 120, 40)); err != nil {
+		t.Fatalf("send TerminalResize: %v", err)
+	}
+	select {
+	case dimensions := <-terminal.resizes:
+		if dimensions.columns != 120 || dimensions.rows != 40 {
+			t.Fatalf("PTY resize = %#v, want 120x40", dimensions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Protocol V1 terminal resize was not applied")
+	}
+	resizeAck := readProtocolEnvelope(t, connection)
+	if resizeAck.Sequence != 3 || resizeAck.Acknowledge != 2 || resizeAck.GetAcknowledgement() == nil {
+		t.Fatalf("resize ack sequence/ack/payload = %d/%d/%T", resizeAck.Sequence, resizeAck.Acknowledge, resizeAck.Payload)
+	}
+
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientEnd(t, nil, 0, 3, 3)); err != nil {
+		t.Fatalf("send EndSession: %v", err)
+	}
+	endingOutput := readProtocolEnvelope(t, connection)
+	if endingOutput.Sequence != 4 || endingOutput.Acknowledge != 3 || !strings.Contains(string(endingOutput.GetTerminalOutput().GetData()), "ending session") {
+		t.Fatalf("ending output sequence/ack/data = %d/%d/%q", endingOutput.Sequence, endingOutput.Acknowledge, endingOutput.GetTerminalOutput().GetData())
+	}
+
+	var exit ServerMessage
+	if err := connection.ReadJSON(&exit); err != nil {
+		t.Fatalf("read transitional process exit: %v", err)
+	}
+	if exit.Type != "exit" {
+		t.Fatalf("process exit message = %#v", exit)
+	}
 }
 
 func TestProtocolV1ResumesDetachedSessionWithIdentityAndGeneration(t *testing.T) {
@@ -693,13 +772,24 @@ func TestProtocolV1RejectsInvalidHelloWithoutStartingSession(t *testing.T) {
 	}
 }
 
+type terminalDimensions struct {
+	columns int
+	rows    int
+}
+
 type recordingPTY struct {
-	writes chan []byte
+	writes  chan []byte
+	resizes chan terminalDimensions
 }
 
 func (p *recordingPTY) Close() error             { return nil }
 func (p *recordingPTY) Read([]byte) (int, error) { return 0, io.EOF }
-func (p *recordingPTY) Resize(int, int) error    { return nil }
+func (p *recordingPTY) Resize(columns, rows int) error {
+	if p.resizes != nil {
+		p.resizes <- terminalDimensions{columns: columns, rows: rows}
+	}
+	return nil
+}
 func (p *recordingPTY) Write(data []byte) (int, error) {
 	p.writes <- append([]byte(nil), data...)
 	return len(data), nil
@@ -720,6 +810,22 @@ func marshalClientAcknowledgement(t *testing.T, sessionID []byte, generation, se
 	envelope.Payload = &vibebridgev1.Envelope_Acknowledgement{
 		Acknowledgement: &vibebridgev1.Acknowledgement{},
 	}
+	return marshalClientProtocolEnvelope(t, envelope)
+}
+
+func marshalClientResize(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64, columns, rows uint32) []byte {
+	t.Helper()
+	envelope := newClientProtocolEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_TerminalResize{
+		TerminalResize: &vibebridgev1.TerminalResize{Columns: columns, Rows: rows},
+	}
+	return marshalClientProtocolEnvelope(t, envelope)
+}
+
+func marshalClientEnd(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64) []byte {
+	t.Helper()
+	envelope := newClientProtocolEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_EndSession{EndSession: &vibebridgev1.EndSession{}}
 	return marshalClientProtocolEnvelope(t, envelope)
 }
 
