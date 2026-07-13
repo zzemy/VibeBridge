@@ -67,7 +67,7 @@ Platform adapters must define process-tree semantics. Windows uses ConPTY plus a
 
 ## Workspaces and Launch Profiles
 
-- Version 1 configuration registers workspaces by a stable local ID, display label, and existing directory root. Relative roots are resolved from the configuration directory.
+- Version 1 configuration remains supported for legacy launch profiles. Version 2 registers workspaces by a stable local ID, display label, and existing directory root; relative roots are resolved from the configuration directory.
 - Registry construction resolves symlinks and Windows junctions to canonical absolute paths, rejects duplicate IDs and canonical roots, and uses case-insensitive root identity on Windows.
 - A launch profile may bind to a workspace. Its working directory defaults to that root or resolves beneath it; traversal and link escapes are rejected before PTY creation. Profiles without a workspace binding retain the compatibility working-directory behavior.
 - This startup validation is a registry snapshot, not authorization for later writes. Attachment storage must re-check canonical containment before every file operation and use no-follow creation/cleanup behavior to address path replacement races.

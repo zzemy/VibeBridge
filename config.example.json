@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "listen_address": "0.0.0.0:8787",
   "web_directory": "web/dist",
   "reconnect_timeout": "90s",
