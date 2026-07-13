@@ -106,6 +106,75 @@ func TestAgentStreamEncodesNegotiatedProcessExit(t *testing.T) {
 	}
 }
 
+func TestAgentStreamEncodesNegotiatedError(t *testing.T) {
+	stream := newTestAgentErrorStream(t, MaxEnvelopeBytes)
+	encoded, err := stream.EncodeError(vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED, time.Now())
+	if err != nil {
+		t.Fatalf("encode Error: %v", err)
+	}
+	envelope := unmarshalStreamEnvelope(t, encoded)
+	if envelope.Sequence != 2 || envelope.Acknowledge != 1 || envelope.GetError().GetCode() != vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED {
+		t.Fatalf("Error sequence/ack/code = %d/%d/%v", envelope.Sequence, envelope.Acknowledge, envelope.GetError().GetCode())
+	}
+	if !stream.UsesControlError() {
+		t.Fatal("stream did not report negotiated control error capability")
+	}
+
+	if _, err := newTestAgentStream(t, MaxEnvelopeBytes).EncodeError(vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED, time.Now()); err == nil {
+		t.Fatal("unnegotiated Error was encoded")
+	}
+	for _, code := range []vibebridgev1.ErrorCode{
+		vibebridgev1.ErrorCode_ERROR_CODE_UNSPECIFIED,
+		vibebridgev1.ErrorCode(99),
+	} {
+		if _, err := newTestAgentErrorStream(t, MaxEnvelopeBytes).EncodeError(code, time.Now()); err == nil {
+			t.Fatalf("invalid Error code %v was encoded", code)
+		}
+	}
+}
+
+func TestAgentStreamEncodesErrorBeforeOrAfterResumeBinding(t *testing.T) {
+	unbound := newTestAgentResumeErrorStream(t, MaxEnvelopeBytes)
+	encoded, err := unbound.EncodeError(vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED, time.Now())
+	if err != nil {
+		t.Fatalf("encode pre-bind Error: %v", err)
+	}
+	envelope := unmarshalStreamEnvelope(t, encoded)
+	if len(envelope.SessionId) != 0 || envelope.SessionGeneration != 0 || envelope.Sequence != 2 || envelope.Acknowledge != 1 {
+		t.Fatalf("pre-bind Error metadata = session %x/%d sequence/ack %d/%d", envelope.SessionId, envelope.SessionGeneration, envelope.Sequence, envelope.Acknowledge)
+	}
+	for _, code := range []vibebridgev1.ErrorCode{
+		vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED,
+		vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED,
+		vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE,
+	} {
+		if _, err := newTestAgentResumeErrorStream(t, MaxEnvelopeBytes).EncodeError(code, time.Now()); err == nil {
+			t.Fatalf("pre-bind Error code %v was encoded", code)
+		}
+	}
+
+	bound := newTestAgentResumeErrorStream(t, MaxEnvelopeBytes)
+	attach, err := bound.DecodeClientMessage(marshalClientAttachEnvelope(t, nil, 0, 2, 1, 0))
+	if err != nil {
+		t.Fatalf("decode fresh attachment: %v", err)
+	}
+	if err := bound.CommitClientMessage(attach.Sequence); err != nil {
+		t.Fatalf("commit fresh attachment: %v", err)
+	}
+	sessionID := []byte("fedcba9876543210")
+	if err := bound.BindSession(sessionID, 7); err != nil {
+		t.Fatalf("bind session: %v", err)
+	}
+	encoded, err = bound.EncodeError(vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED, time.Now())
+	if err != nil {
+		t.Fatalf("encode bound Error: %v", err)
+	}
+	envelope = unmarshalStreamEnvelope(t, encoded)
+	if !bytes.Equal(envelope.SessionId, sessionID) || envelope.SessionGeneration != 7 || envelope.Acknowledge != 2 {
+		t.Fatalf("bound Error metadata = session %x/%d ack %d", envelope.SessionId, envelope.SessionGeneration, envelope.Acknowledge)
+	}
+}
+
 func TestAgentStreamBindsSessionAndSequencesResumeTraffic(t *testing.T) {
 	stream := newTestAgentResumeStream(t, MaxEnvelopeBytes)
 	sessionID := []byte("fedcba9876543210")
@@ -278,6 +347,39 @@ func newTestAgentControlStream(t *testing.T, peerLimit uint32) *AgentStream {
 	})
 	if err != nil {
 		t.Fatalf("create terminal-control Agent stream: %v", err)
+	}
+	return stream
+}
+
+func newTestAgentErrorStream(t *testing.T, peerLimit uint32) *AgentStream {
+	t.Helper()
+	stream, err := NewAgentStream(NegotiatedHello{
+		Major:                CurrentMajor,
+		Minor:                CurrentMinor,
+		PeerMaxEnvelopeBytes: peerLimit,
+		ConnectionID:         []byte("0123456789abcdef"),
+		capabilities:         map[string]struct{}{CapabilityControlError: {}},
+	})
+	if err != nil {
+		t.Fatalf("create control-error Agent stream: %v", err)
+	}
+	return stream
+}
+
+func newTestAgentResumeErrorStream(t *testing.T, peerLimit uint32) *AgentStream {
+	t.Helper()
+	stream, err := NewAgentStream(NegotiatedHello{
+		Major:                CurrentMajor,
+		Minor:                CurrentMinor,
+		PeerMaxEnvelopeBytes: peerLimit,
+		ConnectionID:         []byte("0123456789abcdef"),
+		capabilities: map[string]struct{}{
+			CapabilityControlError:  {},
+			CapabilitySessionResume: {},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create resumable control-error Agent stream: %v", err)
 	}
 	return stream
 }
