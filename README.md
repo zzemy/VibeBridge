@@ -1,17 +1,51 @@
 # VibeBridge
 
-VibeBridge maps a local PTY session to a phone browser. It is designed for controlling local AI CLI tools such as Codex or Claude Code from a mobile device without streaming the desktop screen.
+[![CI](https://github.com/zzemy/VibeBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/zzemy/VibeBridge/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+Control local AI CLI sessions such as Codex and Claude Code from your phone over a trusted LAN. VibeBridge connects a mobile browser to a local PTY without streaming your desktop or sending terminal content through a hosted service.
+
+> [!WARNING]
+> VibeBridge is early-stage software for trusted private networks. It does not provide HTTPS/WSS termination or public-facing authentication. Do not expose it directly to the public internet.
+
+## What Works Today
+
+- Mobile terminal access with ANSI and raw PTY output preserved over WebSocket binary frames.
+- Prompt composition, direct keyboard input, clipboard paste, search, reconnect feedback, and portrait/landscape layouts.
+- Short-disconnect resume, byte/time-bounded replay, idle cleanup, and idempotent PTY process-tree termination.
+- Versioned launch profiles, privacy-safe lifecycle logs, and local diagnostics.
+- A least-privilege, user-scoped Windows background Agent installed through Task Scheduler.
+- Canonical Protocol V1 Protobuf schemas, generated Go/TypeScript packages, golden vectors, and compatibility CI.
+
+The browser endpoint still uses the legacy JSON/raw-binary adapter while Protocol V1 negotiation, sequencing, acknowledgements, and resume behavior are integrated incrementally.
+
+## Platform Status
+
+| Capability | Windows 11 | macOS / Linux |
+| --- | --- | --- |
+| Foreground local Agent and PTY | Tested | Implementation available; release validation incomplete |
+| User-scoped background installation | Supported through Task Scheduler | Not yet supported |
+| Public-internet relay | Not available | Not available |
+
+No packaged release is published yet; build the project from source. See the [roadmap](docs/roadmap.md) for release gates and planned remote-access work.
+
+## Quick Start
+
+Requirements: Go and the pnpm version declared in [`web/package.json`](web/package.json).
+
+```powershell
+pnpm --dir web install --frozen-lockfile
+pnpm --dir web build
+go run ./cmd/vibebridge --cmd "codex"
+```
+
+The Agent prints local and LAN URLs plus a QR code. Scan the LAN URL from a phone connected to the same trusted Wi-Fi network. The default listener is `0.0.0.0:8787`, which binds every network interface.
+
+For a different shell or CLI, replace `codex` with the executable you want to run. Use `go run ./cmd/vibebridge --diagnose` to check the host, listener, frontend build, configuration, and firewall guidance without starting a PTY.
 
 Product, architecture, security, ADR, roadmap, dependency, and release documentation is organized in [docs/index.md](docs/index.md). See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes and [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Development
-
-Build the frontend first:
-
-```powershell
-pnpm --dir web install
-pnpm --dir web build
-```
 
 Protocol V1 schemas are canonical under `proto/vibebridge/v1`; generated Go and TypeScript files are committed but never edited manually. Regenerate them with the pinned project-local Buf tool:
 
@@ -19,16 +53,6 @@ Protocol V1 schemas are canonical under `proto/vibebridge/v1`; generated Go and 
 pnpm --dir web proto:lint
 pnpm --dir web proto:generate
 ```
-
-Run the Go server:
-
-```powershell
-go run ./cmd/vibebridge
-```
-
-The server prints local and LAN URLs plus a QR code. Scan the LAN URL from a phone on the same Wi-Fi.
-
-`--addr` defaults to `0.0.0.0:8787` so a phone on the LAN can connect. This listens on every network interface, so only run it on a trusted private network. Do not expose VibeBridge directly to the public internet: it has no HTTPS/WSS termination or public-facing authentication.
 
 ## Common Options
 
@@ -156,13 +180,12 @@ go build -tags embed -o bin/vibebridge.exe ./cmd/vibebridge
 
 The resulting binary contains the React frontend and does not require `web/dist` at runtime.
 
-## Current Scope
+## Current Limitations
 
-- One active browser client at a time.
-- PTY stays alive across short WebSocket disconnects.
-- Explicit End closes the PTY session.
-- Idle timeout cleans up abandoned sessions.
-- Access is protected by a per-run session token in the QR URL.
+- One browser client can control a session at a time.
+- Access uses a per-run token in the QR URL, but transport is not encrypted by VibeBridge itself.
+- The runtime browser protocol remains the legacy JSON/raw-binary adapter during the Protocol V1 migration.
+- Public relay, native mobile clients, file attachments, and packaged releases are roadmap work, not current features.
 
 ## License
 
