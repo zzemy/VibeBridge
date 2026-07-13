@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 )
 
@@ -64,6 +63,30 @@ func NewRegistry(definitions []Definition, baseDirectory string) (Registry, erro
 	return registry, nil
 }
 
+// RevalidateDirectory resolves a previously validated launch directory against
+// its canonical workspace root immediately before use. It rejects a root whose
+// current filesystem target differs from the registry snapshot.
+func RevalidateDirectory(root string, path string) (string, error) {
+	currentRoot, err := canonicalDirectory(root, "")
+	if err != nil {
+		return "", fmt.Errorf("revalidate workspace root: %w", err)
+	}
+	if comparablePath(currentRoot) != comparablePath(root) {
+		return "", errors.New("workspace root changed since configuration")
+	}
+	if path == "" || comparablePath(path) == comparablePath(root) {
+		return currentRoot, nil
+	}
+	currentDirectory, err := canonicalDirectory(path, "")
+	if err != nil {
+		return "", fmt.Errorf("revalidate launch directory: %w", err)
+	}
+	if !containsCanonicalPath(currentRoot, currentDirectory) {
+		return "", errors.New("launch directory must remain within workspace")
+	}
+	return currentDirectory, nil
+}
+
 // Definitions returns a copy of the validated workspace definitions.
 func (r Registry) Definitions() []Definition {
 	return append([]Definition(nil), r.definitions...)
@@ -112,20 +135,20 @@ func canonicalDirectory(path string, baseDirectory string) (string, error) {
 	}
 	absolute, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("make path absolute: %w", err)
+		return "", newPathOperationError("make path absolute", err)
 	}
 	canonical, err := canonicalizePath(absolute)
 	if err != nil {
-		return "", fmt.Errorf("resolve path: %w", err)
+		return "", newPathOperationError("resolve path", err)
 	}
 	canonical, err = filepath.Abs(canonical)
 	if err != nil {
-		return "", fmt.Errorf("make canonical path absolute: %w", err)
+		return "", newPathOperationError("make canonical path absolute", err)
 	}
 	canonical = filepath.Clean(canonical)
 	info, err := os.Stat(canonical)
 	if err != nil {
-		return "", fmt.Errorf("inspect path: %w", err)
+		return "", newPathOperationError("inspect path", err)
 	}
 	if !info.IsDir() {
 		return "", errors.New("path is not a directory")
@@ -136,17 +159,32 @@ func canonicalDirectory(path string, baseDirectory string) (string, error) {
 func containsCanonicalPath(root string, candidate string) bool {
 	root = comparablePath(root)
 	candidate = comparablePath(candidate)
-	relative, err := filepath.Rel(root, candidate)
-	if err != nil {
-		return false
+	if candidate == root {
+		return true
 	}
-	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
+	if !strings.HasSuffix(root, string(filepath.Separator)) {
+		root += string(filepath.Separator)
+	}
+	return strings.HasPrefix(candidate, root)
 }
 
 func comparablePath(path string) string {
-	path = filepath.Clean(path)
-	if runtime.GOOS == "windows" {
-		return strings.ToLower(path)
-	}
-	return path
+	return filepath.Clean(path)
+}
+
+type pathOperationError struct {
+	operation string
+	err       error
+}
+
+func newPathOperationError(operation string, err error) error {
+	return pathOperationError{operation: operation, err: err}
+}
+
+func (e pathOperationError) Error() string {
+	return e.operation + " failed"
+}
+
+func (e pathOperationError) Unwrap() error {
+	return e.err
 }

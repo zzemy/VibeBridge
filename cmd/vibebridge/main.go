@@ -86,7 +86,7 @@ func runAgent(args []string) error {
 	if err := validateCommand(options.command); err != nil {
 		return err
 	}
-	if err := validateWorkingDirectory(options.workingDirectory); err != nil {
+	if err := validateStartupWorkingDirectory(options); err != nil {
 		return err
 	}
 
@@ -101,6 +101,7 @@ func runAgent(args []string) error {
 		StaticFS:              staticFS,
 		Command:               options.command,
 		WorkingDirectory:      options.workingDirectory,
+		WorkspaceRoot:         options.workspaceRoot,
 		Environment:           options.environment,
 		ReconnectTimeout:      options.reconnectTimeout,
 		IdleTimeout:           options.idleTimeout,
@@ -204,6 +205,7 @@ type startupOptions struct {
 	disableLegacyProtocol bool
 	profileID             string
 	workspaceID           string
+	workspaceRoot         string
 }
 
 func resolveStartupOptions(options startupOptions, configPath string, requestedProfile string, explicitFlags map[string]bool, lookupEnv func(string) (string, bool)) (startupOptions, error) {
@@ -263,6 +265,13 @@ func resolveStartupOptions(options startupOptions, configPath string, requestedP
 	}
 	options.profileID = profile.ID
 	options.workspaceID = profile.WorkspaceID
+	if profile.WorkspaceID != "" {
+		definition, ok := config.Workspace(profile.WorkspaceID)
+		if !ok {
+			return startupOptions{}, fmt.Errorf("launch profile %q references an unavailable workspace", selectedID)
+		}
+		options.workspaceRoot = definition.Root
+	}
 	options.command = append([]string{profile.Executable}, profile.Args...)
 	options.workingDirectory = profile.WorkingDirectory
 	options.environment = resolveEnvironment(profile.EnvironmentAllowlist, lookupEnv)
