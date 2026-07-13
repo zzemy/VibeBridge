@@ -31,7 +31,7 @@ License names were checked from module/package metadata and bundled license file
 | `golang.org/x/term` | `v0.43.0` | Transitive terminal support | BSD-3-Clause |
 | `rsc.io/qr` | `v0.2.0` | Transitive QR encoding | BSD-3-Clause |
 
-The generated protocol package uses `google.golang.org/protobuf` `v1.36.11` (BSD-3-Clause). It is not yet reachable from the current Agent executable while the legacy adapter remains active, but it is exercised by protocol compatibility tests.
+The generated protocol package uses `google.golang.org/protobuf` `v1.36.11` (BSD-3-Clause). It is reachable from the Agent through negotiated Protocol V1 Hello, sequenced terminal I/O, acknowledgement, and session-resume paths; the legacy adapter remains available only for staged compatibility.
 
 `github.com/creack/pty` and `github.com/u-root/u-root` are reachable only in Unix builds; Windows builds use the ConPTY implementation and `golang.org/x/sys/windows`. The table is the union of Windows and Linux `go list -deps` results.
 

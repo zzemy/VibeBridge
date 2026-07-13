@@ -96,13 +96,20 @@ func TestNewAgentHelloUsesNegotiatedVersion(t *testing.T) {
 		t.Fatalf("sequence = %d, want 1", envelope.Sequence)
 	}
 	foundSequencedIO := false
+	foundSessionResume := false
 	for _, capability := range envelope.GetHello().GetCapabilities() {
 		if capability == CapabilityTerminalSequencedIO {
 			foundSequencedIO = true
 		}
+		if capability == CapabilitySessionResume {
+			foundSessionResume = true
+		}
 	}
 	if !foundSequencedIO {
 		t.Fatalf("Agent Hello capabilities = %v, missing %q", envelope.GetHello().GetCapabilities(), CapabilityTerminalSequencedIO)
+	}
+	if !foundSessionResume {
+		t.Fatalf("Agent Hello capabilities = %v, missing %q", envelope.GetHello().GetCapabilities(), CapabilitySessionResume)
 	}
 }
 

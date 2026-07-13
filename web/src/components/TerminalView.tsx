@@ -6,6 +6,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 export type TerminalViewHandle = {
   clear: () => void;
+  reset: () => void;
   copySelection: () => Promise<boolean>;
   findNext: (query: string) => boolean;
   focus: () => void;
@@ -33,6 +34,10 @@ export const TerminalView = forwardRef<TerminalViewHandle, Props>(function Termi
   useImperativeHandle(ref, () => ({
     clear() {
       terminalRef.current?.clear();
+    },
+    reset() {
+      terminalRef.current?.reset();
+      writtenChunksRef.current = 0;
     },
     async copySelection() {
       const selection = terminalRef.current?.getSelection() ?? "";
