@@ -47,6 +47,20 @@ func TestAgentStreamSequencesTerminalTrafficAndAcknowledgements(t *testing.T) {
 	}
 }
 
+func TestAgentStreamRejectsAttachmentTransferUntilStateMachineIsImplemented(t *testing.T) {
+	stream := newTestAgentStream(t, MaxEnvelopeBytes)
+	envelope := newClientStreamEnvelope(nil, 0, 2, 1)
+	envelope.Payload = &vibebridgev1.Envelope_AttachmentBegin{AttachmentBegin: &vibebridgev1.AttachmentBegin{
+		TransferId:     []byte("transfer-id"),
+		DisplayName:    "diagram.png",
+		TotalSizeBytes: 1,
+	}}
+
+	if _, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, envelope)); err == nil {
+		t.Fatal("attachment transfer was accepted before the transfer state machine was implemented")
+	}
+}
+
 func TestAgentStreamSequencesNegotiatedHealthCheck(t *testing.T) {
 	stream := newTestAgentHealthStream(t, MaxEnvelopeBytes)
 	if _, err := stream.EncodePong(time.Now()); err == nil {

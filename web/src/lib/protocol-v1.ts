@@ -30,6 +30,7 @@ export const sessionProcessExitCapability = "session.process_exit_v1";
 export const sessionResumeCapability = "session.resume_v1";
 export const controlErrorCapability = "control.error_v1";
 export const controlHealthCapability = "control.health_v1";
+export const attachmentTransferCapability = "attachment.transfer_v1";
 export const protocolV1MaxTerminalInputBytes = 32 * 1024;
 export const protocolV1MaxTerminalDimension = 65_535;
 
@@ -127,7 +128,7 @@ export function acceptAgentHello(encoded: Uint8Array, expectedConnectionId: Uint
     }
     capabilities.add(capability);
   }
-  for (const dependent of [terminalResizeEndCapability, sessionProcessExitCapability, controlErrorCapability, controlHealthCapability]) {
+  for (const dependent of [terminalResizeEndCapability, sessionProcessExitCapability, controlErrorCapability, controlHealthCapability, attachmentTransferCapability]) {
     if (capabilities.has(dependent) && !capabilities.has(terminalSequencedIoCapability)) {
       throw new Error(`${dependent} requires ${terminalSequencedIoCapability}`);
     }
