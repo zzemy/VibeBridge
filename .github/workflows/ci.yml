@@ -29,6 +29,8 @@ jobs:
       - run: go mod verify
       - run: go vet ./...
       - run: go test ./...
+      - name: Check current and previous client wire compatibility
+        run: go test ./internal/server -run 'TestPreviousStableClientCompatibility|TestDisabledLegacyProtocol' -count=1
       - if: runner.os == 'Linux'
         run: go test -race ./...
       - run: go build ./cmd/vibebridge
@@ -69,3 +71,13 @@ jobs:
           fi
       - run: pnpm --dir web test
       - run: pnpm --dir web build
+      - name: Build and test previous stable client
+        shell: bash
+        run: |
+          revision="$(cat .github/compatibility/previous-client-revision)"
+          previous_client="$RUNNER_TEMP/vibebridge-previous-client"
+          mkdir -p "$previous_client"
+          git archive "$revision" web proto | tar -x -C "$previous_client"
+          pnpm --dir "$previous_client/web" install --frozen-lockfile
+          pnpm --dir "$previous_client/web" test
+          pnpm --dir "$previous_client/web" build
