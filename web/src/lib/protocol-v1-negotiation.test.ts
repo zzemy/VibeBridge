@@ -11,6 +11,7 @@ import {
 } from "../gen/vibebridge/v1/envelope_pb";
 import {
   acceptAgentHello,
+  controlErrorCapability,
   createClientHello,
   protocolV1MaxEnvelopeBytes,
   sessionProcessExitCapability,
@@ -60,6 +61,7 @@ describe("Protocol V1 Hello negotiation", () => {
     expect(clientHello.payload.value.capabilities).toContain(terminalResizeEndCapability);
     expect(clientHello.payload.value.capabilities).toContain(sessionProcessExitCapability);
     expect(clientHello.payload.value.capabilities).toContain(sessionResumeCapability);
+    expect(clientHello.payload.value.capabilities).toContain(controlErrorCapability);
   });
 
   test.each([
@@ -68,6 +70,7 @@ describe("Protocol V1 Hello negotiation", () => {
     ["incompatible version", agentHello({ minimumMinor: 1 })],
     ["resize/end without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, terminalResizeEndCapability] })],
     ["process exit without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, sessionProcessExitCapability] })],
+    ["control error without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, controlErrorCapability] })],
   ])("rejects %s", (_name, encoded) => {
     expect(() => acceptAgentHello(encoded, connectionId)).toThrow();
   });
