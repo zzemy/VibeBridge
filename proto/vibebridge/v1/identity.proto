@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package vibebridge.v1;
+
+import "google/protobuf/timestamp.proto";
+import "vibebridge/v1/envelope.proto";
+
+option go_package = "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1;vibebridgev1";
+
+// DeviceClass identifies the role of one installation. It does not grant access.
+enum DeviceClass {
+  DEVICE_CLASS_UNSPECIFIED = 0;
+  DEVICE_CLASS_AGENT = 1;
+  DEVICE_CLASS_CLIENT = 2;
+}
+
+// DeviceDescriptor is the canonical public identity statement signed by a device.
+message DeviceDescriptor {
+  // device_id is a random opaque 16-byte identifier.
+  bytes device_id = 1;
+  // display_name is user-visible metadata and must not be used for authorization.
+  string display_name = 2;
+  // platform is coarse display metadata such as windows, ios, android, or web.
+  string platform = 3;
+  DeviceClass device_class = 4;
+  // signing_public_key is a 32-byte Ed25519 public key.
+  bytes signing_public_key = 5;
+  // key_agreement_public_key is a 32-byte X25519 public key.
+  bytes key_agreement_public_key = 6;
+  google.protobuf.Timestamp created_at = 7;
+  uint32 key_version = 8;
+  ProtocolVersionRange supported_versions = 9;
+}
+
+// SignedDeviceDescriptor carries a descriptor and its Ed25519 signature over
+// the ASCII domain `VibeBridge device descriptor v1\0` followed by the
+// deterministic protobuf bytes of device_descriptor.
+message SignedDeviceDescriptor {
+  DeviceDescriptor device_descriptor = 1;
+  bytes signature = 2;
+}
+
+// PairingInvitation is an expiring single-use QR bootstrap capability. Its
+// bootstrap_secret must never be logged, persisted, or placed in an HTTP query.
+message PairingInvitation {
+  uint32 version = 1;
+  bytes invitation_id = 2;
+  SignedDeviceDescriptor agent = 3;
+  bytes bootstrap_secret = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  repeated string connection_hints = 7;
+  string verification_code = 8;
+}
+
+// DeviceAuthorizationState describes the Agent-local authorization decision.
+enum DeviceAuthorizationState {
+  DEVICE_AUTHORIZATION_STATE_UNSPECIFIED = 0;
+  DEVICE_AUTHORIZATION_STATE_AUTHORIZED = 1;
+  DEVICE_AUTHORIZATION_STATE_REVOKED = 2;
+}
+
+// AuthorizedDevice is the non-secret view of an Agent-local authorization record.
+message AuthorizedDevice {
+  SignedDeviceDescriptor device = 1;
+  uint64 authorization_version = 2;
+  DeviceAuthorizationState state = 3;
+  google.protobuf.Timestamp authorized_at = 4;
+  google.protobuf.Timestamp revoked_at = 5;
+  uint64 revocation_epoch = 6;
+}
