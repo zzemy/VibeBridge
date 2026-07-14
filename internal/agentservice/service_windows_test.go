@@ -75,7 +75,7 @@ func TestInstallWindowsCreatesLeastPrivilegeHiddenLogonTask(t *testing.T) {
 		"<Interval>PT1M</Interval>",
 		"<Count>3</Count>",
 		"<Command>" + options.Executable + "</Command>",
-		`--background --config &#34;` + options.ConfigPath + `&#34;`,
+		`--background --tray --config &#34;` + options.ConfigPath + `&#34;`,
 		`--service-state ` + options.RuntimeStatePath,
 		`--profile codex`,
 	} {
