@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/zzemy/VibeBridge/internal/agentservice"
+	workspacev1 "github.com/zzemy/VibeBridge/internal/workspace"
 )
 
 func TestIsWildcardAddress(t *testing.T) {
@@ -70,7 +71,7 @@ func TestRunDiagnosticsReportsExpandedPreflight(t *testing.T) {
 }
 
 func TestRunDiagnosticsReportsWorkspaceWithoutExposingItsPath(t *testing.T) {
-	workingDirectory := t.TempDir()
+	workingDirectory := canonicalTestDirectory(t, t.TempDir())
 	var output bytes.Buffer
 	options := startupOptions{
 		addr:             "127.0.0.1:0",
@@ -93,7 +94,7 @@ func TestRunDiagnosticsReportsWorkspaceWithoutExposingItsPath(t *testing.T) {
 }
 
 func TestRunDiagnosticsDoesNotExposeUnavailableWorkspacePath(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	workspaceRoot := canonicalTestDirectory(t, t.TempDir())
 	workingDirectory := filepath.Join(workspaceRoot, "private-working-directory")
 	var output bytes.Buffer
 	err := runDiagnostics(startupOptions{
@@ -180,7 +181,7 @@ func TestBackgroundServiceDiagnosticClassifiesInstallationState(t *testing.T) {
 }
 
 func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := canonicalTestDirectory(t, t.TempDir())
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	content := `{
 		"version": 2,
@@ -329,4 +330,19 @@ func TestValidateWorkingDirectory(t *testing.T) {
 	if err := validateWorkingDirectory(file); err == nil {
 		t.Fatal("regular file accepted as working directory")
 	}
+}
+
+func canonicalTestDirectory(t *testing.T, directory string) string {
+	t.Helper()
+	registry, err := workspacev1.NewRegistry([]workspacev1.Definition{{
+		ID: "test", Label: "Test", Root: directory,
+	}}, "")
+	if err != nil {
+		t.Fatalf("canonicalize test directory: %v", err)
+	}
+	definition, ok := registry.Lookup("test")
+	if !ok {
+		t.Fatal("canonical test directory was not registered")
+	}
+	return definition.Root
 }

@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"github.com/zzemy/VibeBridge/internal/attachment"
+	workspacev1 "github.com/zzemy/VibeBridge/internal/workspace"
 )
 
 func TestCreateSessionStagingUsesOpaqueSessionDirectory(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	workspaceRoot := canonicalTestDirectory(t, t.TempDir())
 	sessionID := []byte{0x00, 0x11, 0x7f, 0x80, 0xff}
 
 	staging, err := attachment.CreateSessionStaging(workspaceRoot, sessionID)
@@ -33,7 +34,7 @@ func TestCreateSessionStagingUsesOpaqueSessionDirectory(t *testing.T) {
 }
 
 func TestCreateSessionStagingRejectsDuplicateSessionDirectory(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	workspaceRoot := canonicalTestDirectory(t, t.TempDir())
 	sessionID := []byte("unique-session")
 	first, err := attachment.CreateSessionStaging(workspaceRoot, sessionID)
 	if err != nil {
@@ -49,7 +50,7 @@ func TestCreateSessionStagingRejectsDuplicateSessionDirectory(t *testing.T) {
 }
 
 func TestSessionStagingCleanupRemovesContentsAndIsIdempotent(t *testing.T) {
-	staging, err := attachment.CreateSessionStaging(t.TempDir(), []byte("cleanup-session"))
+	staging, err := attachment.CreateSessionStaging(canonicalTestDirectory(t, t.TempDir()), []byte("cleanup-session"))
 	if err != nil {
 		t.Fatalf("create session staging: %v", err)
 	}
@@ -69,7 +70,7 @@ func TestSessionStagingCleanupRemovesContentsAndIsIdempotent(t *testing.T) {
 }
 
 func TestCreateSessionStagingRejectsSymlinkedMetadataDirectory(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	workspaceRoot := canonicalTestDirectory(t, t.TempDir())
 	outside := t.TempDir()
 	metadataDirectory := filepath.Join(workspaceRoot, ".vibebridge")
 	if err := os.Symlink(outside, metadataDirectory); err != nil {
@@ -92,7 +93,7 @@ func TestCreateSessionStagingRejectsSymlinkedMetadataDirectory(t *testing.T) {
 }
 
 func TestSessionStagingCleanupDoesNotFollowReplacementSymlink(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	workspaceRoot := canonicalTestDirectory(t, t.TempDir())
 	outside := t.TempDir()
 	marker := filepath.Join(outside, "keep.txt")
 	if err := os.WriteFile(marker, []byte("keep"), 0o600); err != nil {
@@ -124,7 +125,7 @@ func TestSessionStagingCleanupDoesNotFollowReplacementSymlink(t *testing.T) {
 }
 
 func TestSessionStagingCleanupCanRetryAfterWorkspaceIsRestored(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTestDirectory(t, t.TempDir())
 	workspaceRoot := filepath.Join(parent, "workspace")
 	if err := os.Mkdir(workspaceRoot, 0o700); err != nil {
 		t.Fatalf("create workspace: %v", err)
@@ -157,4 +158,19 @@ func TestSessionStagingCleanupCanRetryAfterWorkspaceIsRestored(t *testing.T) {
 	if _, err := os.Lstat(marker); !os.IsNotExist(err) {
 		t.Fatalf("retry left staged content behind: %v", err)
 	}
+}
+
+func canonicalTestDirectory(t *testing.T, directory string) string {
+	t.Helper()
+	registry, err := workspacev1.NewRegistry([]workspacev1.Definition{{
+		ID: "test", Label: "Test", Root: directory,
+	}}, "")
+	if err != nil {
+		t.Fatalf("canonicalize test directory: %v", err)
+	}
+	definition, ok := registry.Lookup("test")
+	if !ok {
+		t.Fatal("canonical test directory was not registered")
+	}
+	return definition.Root
 }

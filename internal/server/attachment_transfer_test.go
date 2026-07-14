@@ -28,7 +28,8 @@ func TestPTYSessionRejectsAttachmentManagerAfterShutdownStarts(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			staging, err := attachmentv1.CreateSessionStaging(t.TempDir(), []byte(testCase.name))
+			workspaceRoot, _ := validatedWorkspacePaths(t, t.TempDir(), "")
+			staging, err := attachmentv1.CreateSessionStaging(workspaceRoot, []byte(testCase.name))
 			if err != nil {
 				t.Fatalf("create session staging: %v", err)
 			}
@@ -52,7 +53,8 @@ func TestPTYSessionRejectsAttachmentManagerAfterShutdownStarts(t *testing.T) {
 }
 
 func TestPTYSessionReportsAttachmentCleanupFailure(t *testing.T) {
-	staging, err := attachmentv1.CreateSessionStaging(t.TempDir(), []byte("cleanup-failure"))
+	workspaceRoot, _ := validatedWorkspacePaths(t, t.TempDir(), "")
+	staging, err := attachmentv1.CreateSessionStaging(workspaceRoot, []byte("cleanup-failure"))
 	if err != nil {
 		t.Fatalf("create session staging: %v", err)
 	}

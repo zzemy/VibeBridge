@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	workspacev1 "github.com/zzemy/VibeBridge/internal/workspace"
 )
 
 const (
@@ -283,7 +285,7 @@ func TestStagingDirectoryFailsClosedAfterReplacementSymlink(t *testing.T) {
 }
 
 func TestStagingDirectoryFailsClosedAfterWorkspaceMoves(t *testing.T) {
-	parent := t.TempDir()
+	parent := canonicalTestDirectory(t, t.TempDir())
 	workspaceRoot := filepath.Join(parent, "workspace")
 	if err := os.Mkdir(workspaceRoot, 0o700); err != nil {
 		t.Fatalf("create workspace: %v", err)
@@ -340,7 +342,7 @@ func TestStagingDirectoryCloseIsIdempotentAndBlocksOperations(t *testing.T) {
 
 func newTestStagingDirectory(t *testing.T) (*stagingDirectory, *SessionStaging) {
 	t.Helper()
-	staging, err := CreateSessionStaging(t.TempDir(), []byte("file-operation-session"))
+	staging, err := CreateSessionStaging(canonicalTestDirectory(t, t.TempDir()), []byte("file-operation-session"))
 	if err != nil {
 		t.Fatalf("create session staging: %v", err)
 	}
@@ -389,7 +391,7 @@ func assertErrorDoesNotContainPaths(t *testing.T, err error, paths ...string) {
 }
 
 func TestSessionStagingCleanupWaitsForOpenDirectory(t *testing.T) {
-	staging, err := CreateSessionStaging(t.TempDir(), []byte("open-directory-session"))
+	staging, err := CreateSessionStaging(canonicalTestDirectory(t, t.TempDir()), []byte("open-directory-session"))
 	if err != nil {
 		t.Fatalf("create session staging: %v", err)
 	}
@@ -410,4 +412,19 @@ func TestSessionStagingCleanupWaitsForOpenDirectory(t *testing.T) {
 	if err := staging.Cleanup(); err != nil {
 		t.Fatalf("retry cleanup after close: %v", err)
 	}
+}
+
+func canonicalTestDirectory(t *testing.T, directory string) string {
+	t.Helper()
+	registry, err := workspacev1.NewRegistry([]workspacev1.Definition{{
+		ID: "test", Label: "Test", Root: directory,
+	}}, "")
+	if err != nil {
+		t.Fatalf("canonicalize test directory: %v", err)
+	}
+	definition, ok := registry.Lookup("test")
+	if !ok {
+		t.Fatal("canonical test directory was not registered")
+	}
+	return definition.Root
 }

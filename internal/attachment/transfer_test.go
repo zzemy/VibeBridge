@@ -329,7 +329,7 @@ func TestTransferManagerCompletedBytesRemainReserved(t *testing.T) {
 }
 
 func TestTransferManagerCompletedQuotaSurvivesManagerReopen(t *testing.T) {
-	staging, err := CreateSessionStaging(t.TempDir(), []byte("quota-reopen"))
+	staging, err := CreateSessionStaging(canonicalTestDirectory(t, t.TempDir()), []byte("quota-reopen"))
 	if err != nil {
 		t.Fatalf("create staging: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestTransferManagerCompletedQuotaSurvivesManagerReopen(t *testing.T) {
 }
 
 func TestTransferManagerCloseRemovesActiveTransfersBeforeStagingCleanup(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	workspaceRoot := canonicalTestDirectory(t, t.TempDir())
 	staging, err := CreateSessionStaging(workspaceRoot, []byte("manager-close"))
 	if err != nil {
 		t.Fatalf("create staging: %v", err)
@@ -403,7 +403,7 @@ func newTestTransferManager(t *testing.T, limits managerLimits) (*Manager, strin
 
 func newTestTransferManagerWithStaging(t *testing.T, limits managerLimits) (*Manager, *SessionStaging) {
 	t.Helper()
-	staging, err := CreateSessionStaging(t.TempDir(), []byte("transfer-manager"))
+	staging, err := CreateSessionStaging(canonicalTestDirectory(t, t.TempDir()), []byte("transfer-manager"))
 	if err != nil {
 		t.Fatalf("create staging: %v", err)
 	}

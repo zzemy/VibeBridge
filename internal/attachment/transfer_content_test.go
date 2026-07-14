@@ -203,7 +203,7 @@ func TestTransferManagerRejectsUnsupportedDeclarationParameters(t *testing.T) {
 }
 
 func TestSessionStagingAllowsOnlyOneTransferManager(t *testing.T) {
-	staging, err := CreateSessionStaging(t.TempDir(), []byte("single-manager"))
+	staging, err := CreateSessionStaging(canonicalTestDirectory(t, t.TempDir()), []byte("single-manager"))
 	if err != nil {
 		t.Fatalf("create staging: %v", err)
 	}
