@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,6 +69,77 @@ func TestTransferManagerCompletesVerifiedTextAttachment(t *testing.T) {
 	if !bytes.Equal(repeated.TransferID, []byte("text-transfer")) || !bytes.Equal(repeated.SHA256, hashBytes(content)) {
 		t.Fatalf("repeat completion returned caller-mutated slices: %+v", repeated)
 	}
+}
+
+func TestTransferManagerResolvesOnlyUniqueCompletedAttachments(t *testing.T) {
+	manager, _ := newTestTransferManager(t, managerLimits{
+		maxFileBytes:    32,
+		maxSessionBytes: 64,
+		maxChunkBytes:   32,
+		maxActive:       2,
+	})
+	firstContent := []byte("first")
+	secondContent := []byte("second")
+	for _, fixture := range []struct {
+		id      []byte
+		content []byte
+	}{
+		{id: []byte("first"), content: firstContent},
+		{id: []byte("second"), content: secondContent},
+	} {
+		request := validBeginRequest(fixture.id, fixture.content)
+		beginTransfer(t, manager, request)
+		writeTransferChunk(t, manager, request.TransferID, 0, fixture.content)
+		if _, err := manager.Complete(request.TransferID); err != nil {
+			t.Fatalf("complete %q: %v", fixture.id, err)
+		}
+	}
+	beginTransfer(t, manager, validBeginRequest([]byte("active"), []byte("pending")))
+
+	completed, err := manager.CompletedAttachments([][]byte{[]byte("second"), []byte("first")})
+	if err != nil {
+		t.Fatalf("resolve completed attachments: %v", err)
+	}
+	if len(completed) != 2 || !bytes.Equal(completed[0].TransferID, []byte("second")) || !bytes.Equal(completed[1].TransferID, []byte("first")) {
+		t.Fatalf("completed attachment order = %+v, want second then first", completed)
+	}
+	completed[0].TransferID[0] = 'X'
+	completed[0].SHA256[0] ^= 0xff
+	repeated, err := manager.CompletedAttachments([][]byte{[]byte("second")})
+	if err != nil {
+		t.Fatalf("repeat completed lookup: %v", err)
+	}
+	if !bytes.Equal(repeated[0].TransferID, []byte("second")) || !bytes.Equal(repeated[0].SHA256, hashBytes(secondContent)) {
+		t.Fatalf("lookup returned caller-mutated attachment: %+v", repeated[0])
+	}
+
+	tests := []struct {
+		name string
+		ids  [][]byte
+		want error
+	}{
+		{name: "empty selection", ids: nil, want: ErrInvalidAttachmentSelection},
+		{name: "over limit", ids: makeTransferIDs(maxPromptActionAttachments + 1), want: ErrAttachmentSelectionLimit},
+		{name: "duplicate", ids: [][]byte{[]byte("first"), []byte("first")}, want: ErrDuplicateAttachment},
+		{name: "active", ids: [][]byte{[]byte("active")}, want: ErrAttachmentNotCompleted},
+		{name: "unknown", ids: [][]byte{[]byte("unknown")}, want: ErrAttachmentNotCompleted},
+		{name: "invalid id", ids: [][]byte{nil}, want: ErrInvalidTransfer},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := manager.CompletedAttachments(test.ids); !errors.Is(err, test.want) {
+				t.Fatalf("CompletedAttachments() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func makeTransferIDs(count int) [][]byte {
+	ids := make([][]byte, count)
+	for index := range ids {
+		ids[index] = []byte(fmt.Sprintf("transfer-%d", index))
+	}
+	return ids
 }
 
 func TestTransferManagerRejectsInvalidBeginWithoutCreatingFiles(t *testing.T) {
