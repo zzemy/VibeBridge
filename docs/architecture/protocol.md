@@ -116,6 +116,7 @@ Current migration behavior:
 - If both peers also advertise `terminal.resize_end_v1`, client resize and explicit end controls use ordered `TerminalResize` and `EndSession` envelopes. Advertising it without `terminal.sequenced_io_v1` is an invalid capability combination. Columns and rows are integers from 1 through 65,535. Once negotiated, JSON resize/end controls are protocol errors; without the capability, their transitional JSON adapter remains available for older peers.
 - If both peers also advertise `session.process_exit_v1`, the Agent reports terminal completion as an ordered `ProcessExit` with a `SUCCESS` or `FAILURE` outcome. Advertising it without `terminal.sequenced_io_v1` is invalid. The outcome follows the final session lifecycle state, so an explicit end remains successful even if process termination returns an expected host error; raw host errors are never included. Without the capability, process exit retains its transitional JSON adapter.
 - If both peers also advertise `control.error_v1`, the Agent reports application failures as ordered `Error` envelopes containing only a known `ErrorCode`. Advertising it without `terminal.sequenced_io_v1` is invalid. A resumable connection may receive a fatal startup or occupied-session error before `SessionStatus`; that envelope has empty session metadata and does not bind the stream. Once negotiated, a JSON error is a protocol violation. Without the capability, the Agent uses a JSON adapter with the same fixed safe display text.
+- If both peers advertise `attachment.transfer_v1`, they must also advertise `terminal.sequenced_io_v1` and `control.error_v1`. Attachment begin/chunk/complete/cancel messages are accepted only on that negotiated ordered stream; transfer failures use the allowlisted `ATTACHMENT_TRANSFER_FAILED` error code.
 - If both peers also advertise `control.health_v1`, the client may send an ordered empty `Ping` after resume-enabled session binding (or immediately after Hello on a non-resumable ordered stream) and the Agent responds with an ordered empty `Pong`. The Agent commits the Ping before encoding Pong, so Pong acknowledgement covers the Ping sequence. Advertising the capability without `terminal.sequenced_io_v1` is invalid. Once negotiated, JSON ping/pong is a protocol violation in its corresponding direction; without the capability, the transitional JSON adapter remains available. This application health exchange is independent of WebSocket Ping/Pong control frames, which remain the transport keepalive.
 - Negotiation, framing, sequence, acknowledgement, unsupported protobuf payload, and session-metadata failures close the WebSocket with protocol code `1002`; they are not represented as application `Error` payloads.
 
@@ -138,7 +139,7 @@ Examples:
 - `session.resume_v1`
 - `control.error_v1`
 - `control.health_v1`
-- `attachment.chunked_v1`
+- `attachment.transfer_v1`
 - `attachment.image_preview_v1`
 - `tool.codex_adapter_v1`
 - `notification.waiting_input_v1`
@@ -167,6 +168,7 @@ The current negotiated `control.error_v1` payload is intentionally enum-only. `E
 - `TERMINAL_INPUT_FAILED`
 - `TERMINAL_RESIZE_FAILED`
 - `UNSUPPORTED_MESSAGE`
+- `ATTACHMENT_TRANSFER_FAILED`
 
 `UNSPECIFIED` and unknown enum values are rejected. The legacy JSON adapter maps each valid code to fixed safe wire text, and the browser derives safe user-facing copy from the code. `SESSION_ALREADY_ACTIVE` retains the existing actionable browser copy that another browser controls the session. Raw third-party errors, stack traces, commands, terminal contents, private paths, SDK responses, and host process details never cross this boundary.
 

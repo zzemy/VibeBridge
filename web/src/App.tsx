@@ -55,6 +55,8 @@ function stableErrorMessage(code: ErrorCode) {
       return "could not resize terminal";
     case ErrorCode.UNSUPPORTED_MESSAGE:
       return "unsupported message type";
+    case ErrorCode.ATTACHMENT_TRANSFER_FAILED:
+      return "attachment transfer failed";
     default:
       return "unknown";
   }

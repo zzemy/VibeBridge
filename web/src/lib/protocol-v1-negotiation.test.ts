@@ -68,9 +68,9 @@ describe("Protocol V1 Hello negotiation", () => {
     expect(clientHello.payload.value.capabilities).not.toContain(attachmentTransferCapability);
   });
 
-  test("accepts attachment transfer when sequenced I/O is also advertised", () => {
+  test("accepts attachment transfer with its ordered error dependencies", () => {
     const negotiated = acceptAgentHello(agentHello({
-      capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, attachmentTransferCapability],
+      capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, controlErrorCapability, attachmentTransferCapability],
     }), connectionId);
 
     expect(negotiated.capabilities.has(attachmentTransferCapability)).toBe(true);
@@ -85,6 +85,7 @@ describe("Protocol V1 Hello negotiation", () => {
     ["control error without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, controlErrorCapability] })],
     ["control health without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, controlHealthCapability] })],
     ["attachment transfer without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, attachmentTransferCapability] })],
+    ["attachment transfer without control error", agentHello({ capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, attachmentTransferCapability] })],
   ])("rejects %s", (_name, encoded) => {
     expect(() => acceptAgentHello(encoded, connectionId)).toThrow();
   });

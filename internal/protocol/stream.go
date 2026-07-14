@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -22,6 +23,7 @@ const (
 	CapabilityAttachmentTransfer  = "attachment.transfer_v1"
 	MaxTerminalInputBytes         = 32 * 1024
 	MaxTerminalDimension          = 65_535
+	maxAttachmentTransferIDBytes  = 64
 )
 
 type ClientStreamMessageKind uint8
@@ -33,6 +35,10 @@ const (
 	ClientStreamMessageEndSession
 	ClientStreamMessageAcknowledgement
 	ClientStreamMessagePing
+	ClientStreamMessageAttachmentBegin
+	ClientStreamMessageAttachmentChunk
+	ClientStreamMessageAttachmentComplete
+	ClientStreamMessageAttachmentCancel
 )
 
 type ClientStreamMessage struct {
@@ -44,6 +50,14 @@ type ClientStreamMessage struct {
 	LastAcknowledgedSequence uint64
 	Columns                  uint32
 	Rows                     uint32
+	TransferID               []byte
+	DisplayName              string
+	DeclaredContentType      string
+	DeclaredExtension        string
+	TotalSizeBytes           uint64
+	TotalSHA256              []byte
+	OffsetBytes              uint64
+	ChunkSHA256              []byte
 }
 
 // AgentStream owns connection-local ordering state after Hello negotiation and,
@@ -63,6 +77,7 @@ type AgentStream struct {
 	sessionProcessExit   bool
 	controlError         bool
 	controlHealth        bool
+	attachmentTransfer   bool
 	sessionBound         bool
 	sessionID            []byte
 	sessionGeneration    uint64
@@ -86,6 +101,7 @@ func NewAgentStream(negotiated NegotiatedHello) (*AgentStream, error) {
 		sessionProcessExit:  negotiated.HasCapability(CapabilitySessionProcessExit),
 		controlError:        negotiated.HasCapability(CapabilityControlError),
 		controlHealth:       negotiated.HasCapability(CapabilityControlHealth),
+		attachmentTransfer:  negotiated.HasCapability(CapabilityAttachmentTransfer),
 	}, nil
 }
 
@@ -143,6 +159,52 @@ func (s *AgentStream) DecodeClientMessage(encoded []byte) (ClientStreamMessage, 
 			return ClientStreamMessage{}, errors.New("control health was not negotiated")
 		}
 		message.Kind = ClientStreamMessagePing
+	case *vibebridgev1.Envelope_AttachmentBegin:
+		if !s.attachmentTransfer {
+			return ClientStreamMessage{}, errors.New("attachment transfer was not negotiated")
+		}
+		if payload.AttachmentBegin == nil || !validAttachmentTransferID(payload.AttachmentBegin.TransferId) ||
+			payload.AttachmentBegin.TotalSizeBytes == 0 || len(payload.AttachmentBegin.TotalSha256) != sha256.Size {
+			return ClientStreamMessage{}, errors.New("AttachmentBegin has invalid transfer metadata")
+		}
+		message.Kind = ClientStreamMessageAttachmentBegin
+		message.TransferID = append([]byte(nil), payload.AttachmentBegin.TransferId...)
+		message.DisplayName = payload.AttachmentBegin.DisplayName
+		message.DeclaredContentType = payload.AttachmentBegin.DeclaredContentType
+		message.DeclaredExtension = payload.AttachmentBegin.DeclaredExtension
+		message.TotalSizeBytes = payload.AttachmentBegin.TotalSizeBytes
+		message.TotalSHA256 = append([]byte(nil), payload.AttachmentBegin.TotalSha256...)
+	case *vibebridgev1.Envelope_AttachmentChunk:
+		if !s.attachmentTransfer {
+			return ClientStreamMessage{}, errors.New("attachment transfer was not negotiated")
+		}
+		if payload.AttachmentChunk == nil || !validAttachmentTransferID(payload.AttachmentChunk.TransferId) ||
+			len(payload.AttachmentChunk.Data) == 0 || len(payload.AttachmentChunk.ChunkSha256) != sha256.Size {
+			return ClientStreamMessage{}, errors.New("AttachmentChunk has invalid transfer metadata")
+		}
+		message.Kind = ClientStreamMessageAttachmentChunk
+		message.TransferID = append([]byte(nil), payload.AttachmentChunk.TransferId...)
+		message.OffsetBytes = payload.AttachmentChunk.OffsetBytes
+		message.Data = append([]byte(nil), payload.AttachmentChunk.Data...)
+		message.ChunkSHA256 = append([]byte(nil), payload.AttachmentChunk.ChunkSha256...)
+	case *vibebridgev1.Envelope_AttachmentComplete:
+		if !s.attachmentTransfer {
+			return ClientStreamMessage{}, errors.New("attachment transfer was not negotiated")
+		}
+		if payload.AttachmentComplete == nil || !validAttachmentTransferID(payload.AttachmentComplete.TransferId) {
+			return ClientStreamMessage{}, errors.New("AttachmentComplete has invalid transfer metadata")
+		}
+		message.Kind = ClientStreamMessageAttachmentComplete
+		message.TransferID = append([]byte(nil), payload.AttachmentComplete.TransferId...)
+	case *vibebridgev1.Envelope_AttachmentCancel:
+		if !s.attachmentTransfer {
+			return ClientStreamMessage{}, errors.New("attachment transfer was not negotiated")
+		}
+		if payload.AttachmentCancel == nil || !validAttachmentTransferID(payload.AttachmentCancel.TransferId) {
+			return ClientStreamMessage{}, errors.New("AttachmentCancel has invalid transfer metadata")
+		}
+		message.Kind = ClientStreamMessageAttachmentCancel
+		message.TransferID = append([]byte(nil), payload.AttachmentCancel.TransferId...)
 	default:
 		return ClientStreamMessage{}, errors.New("client envelope contains an unsupported payload")
 	}
@@ -151,6 +213,10 @@ func (s *AgentStream) DecodeClientMessage(encoded []byte) (ClientStreamMessage, 
 	// validated; payload sequence is committed only after its side effect succeeds.
 	s.highestPeerAck = envelope.Acknowledge
 	return message, nil
+}
+
+func validAttachmentTransferID(transferID []byte) bool {
+	return len(transferID) > 0 && len(transferID) <= maxAttachmentTransferIDBytes
 }
 
 // CommitClientMessage advances ordering after the caller successfully applies
@@ -304,7 +370,8 @@ func (s *AgentStream) EncodeError(code vibebridgev1.ErrorCode, sentAt time.Time)
 		vibebridgev1.ErrorCode_ERROR_CODE_SESSION_ALREADY_ACTIVE,
 		vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED,
 		vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED,
-		vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE:
+		vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE,
+		vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED:
 	default:
 		return nil, errors.New("error code is invalid")
 	}
