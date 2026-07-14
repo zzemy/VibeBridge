@@ -247,7 +247,7 @@ func TestProtocolV1TransfersAttachmentIntoWorkspaceSession(t *testing.T) {
 	}
 }
 
-func TestProtocolV1AttachmentFailureDoesNotCommitClientSequence(t *testing.T) {
+func TestProtocolV1AttachmentFailureAbandonsPartialAndDoesNotCommitClientSequence(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	canonicalRoot, canonicalWorkingDirectory := validatedWorkspacePaths(t, workspaceRoot, "")
 	wait := make(chan struct{})
@@ -321,8 +321,8 @@ func TestProtocolV1AttachmentFailureDoesNotCommitClientSequence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read failed-transfer staging: %v", err)
 	}
-	if len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), ".partial") {
-		t.Fatalf("failed-transfer entries = %v, want one retryable partial", entries)
+	if len(entries) != 0 {
+		t.Fatalf("failed-transfer entries = %v, want abandoned staging", entries)
 	}
 
 	stagingPath := session.staging.Path()

@@ -54,6 +54,7 @@ describe("Protocol V1 sequenced terminal stream", () => {
       value: create(TerminalOutputSchema, { data: new TextEncoder().encode("ready\r\n") }),
     });
     const message = stream.acceptAgentMessage(output);
+    expect(stream.highestAcknowledgedClientSequence()).toBe(2n);
     expect(message.type).toBe("terminal-output");
     if (message.type !== "terminal-output") throw new Error("expected terminal output");
     expect(Array.from(message.data)).toEqual(Array.from(new TextEncoder().encode("ready\r\n")));
@@ -308,14 +309,16 @@ describe("Protocol V1 sequenced terminal stream", () => {
     const transferId = Uint8Array.from({ length: 16 }, (_, index) => 240 + index);
     const hash = new Uint8Array(32);
 
-    const begin = fromBinary(EnvelopeSchema, stream.createAttachmentBegin({
+    const beginResult = stream.createAttachmentBegin({
       transferId,
       displayName: "notes.md",
       declaredContentType: "text/markdown",
       declaredExtension: "md",
       totalSizeBytes: 5n,
       totalSha256: hash,
-    }, sentAt));
+    }, sentAt);
+    const begin = fromBinary(EnvelopeSchema, beginResult.encoded);
+    expect(beginResult.sequence).toBe(2n);
     expect(begin.sequence).toBe(2n);
     expect(begin.payload.case).toBe("attachmentBegin");
 
@@ -326,13 +329,16 @@ describe("Protocol V1 sequenced terminal stream", () => {
       data: chunkData,
       chunkSha256: hash,
     }, sentAt);
-    const chunk = fromBinary(EnvelopeSchema, encodedChunk);
-    expect(encodedChunk.byteLength).toBeLessThanOrEqual(protocolV1MaxEnvelopeBytes);
+    const chunk = fromBinary(EnvelopeSchema, encodedChunk.encoded);
+    expect(encodedChunk.sequence).toBe(3n);
+    expect(encodedChunk.encoded.byteLength).toBeLessThanOrEqual(protocolV1MaxEnvelopeBytes);
     expect(chunk.sequence).toBe(3n);
     expect(chunk.payload.case).toBe("attachmentChunk");
 
-    expect(fromBinary(EnvelopeSchema, stream.createAttachmentComplete(transferId, sentAt)).payload.case).toBe("attachmentComplete");
-    expect(fromBinary(EnvelopeSchema, stream.createAttachmentCancel(transferId, sentAt)).payload.case).toBe("attachmentCancel");
+    const complete = stream.createAttachmentComplete(transferId, sentAt);
+    const cancel = stream.createAttachmentCancel(transferId, sentAt);
+    expect(fromBinary(EnvelopeSchema, complete.encoded).payload.case).toBe("attachmentComplete");
+    expect(fromBinary(EnvelopeSchema, cancel.encoded).payload.case).toBe("attachmentCancel");
   });
 
   test("reduces attachment chunks under a smaller negotiated envelope ceiling", () => {
@@ -347,7 +353,7 @@ describe("Protocol V1 sequenced terminal stream", () => {
     }, sentAt);
 
     expect(maxChunkBytes).toBe(3 * 1024);
-    expect(encoded.byteLength).toBeLessThanOrEqual(peerEnvelopeBytes);
+    expect(encoded.encoded.byteLength).toBeLessThanOrEqual(peerEnvelopeBytes);
   });
 
   test("rejects attachment operations without negotiation or with invalid chunk metadata", () => {
