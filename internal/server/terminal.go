@@ -51,8 +51,10 @@ func (ptyTerminalLauncher) Start(request terminalLaunchRequest) (terminalLaunch,
 		return terminalLaunch{}, err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd := instance.CommandContext(ctx, request.Command[0], request.Command[1:]...)
+	// go-pty's Windows CommandContext watcher races with Wait. The session
+	// already owns process cancellation and whole-tree cleanup, so keep the
+	// cancellation path explicit instead of starting that watcher.
+	cmd := instance.Command(request.Command[0], request.Command[1:]...)
 	cmd.Dir = request.WorkingDirectory
 	if request.Environment == nil {
 		cmd.Env = os.Environ()
@@ -60,9 +62,11 @@ func (ptyTerminalLauncher) Start(request terminalLaunchRequest) (terminalLaunch,
 		cmd.Env = append([]string(nil), request.Environment...)
 	}
 	if err := cmd.Start(); err != nil {
-		cancel()
 		_ = instance.Close()
 		return terminalLaunch{}, err
+	}
+	cancel := func() {
+		_ = cmd.Process.Kill()
 	}
 
 	processTree, err := newProcessTree(cmd.Process)
