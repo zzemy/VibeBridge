@@ -1,12 +1,13 @@
 import { Activity, Clock3, Power, Radio, RefreshCw, SendHorizontal, ShieldCheck, WifiOff } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AttachmentComposer } from "./components/AttachmentComposer";
+import { AttachmentPromptDialog } from "./components/AttachmentPromptDialog";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { PromptComposer } from "./components/PromptComposer";
 import { ShortcutBar } from "./components/ShortcutBar";
 import { TerminalToolbar } from "./components/TerminalToolbar";
 import type { TerminalViewHandle } from "./components/TerminalView";
-import { ErrorCode, ProcessExitOutcome, ResumeDisposition } from "./gen/vibebridge/v1/envelope_pb";
+import { AttachmentPromptDisposition, ErrorCode, ProcessExitOutcome, ResumeDisposition } from "./gen/vibebridge/v1/envelope_pb";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,6 +22,7 @@ import { Button } from "./components/ui/button";
 import { isServerMessage, isSessionStatus, type ServerMessage, type SessionStatus } from "./lib/protocol";
 import {
   acceptAgentHello,
+  attachmentPromptActionCapability,
   attachmentTransferCapability,
   controlErrorCapability,
   controlHealthCapability,
@@ -40,10 +42,12 @@ import {
   type AttachmentTransferProgress,
 } from "./lib/attachments";
 import { AcknowledgedAttachmentSender } from "./lib/attachment-protocol";
+import { AttachmentPromptActionClient } from "./lib/attachment-prompt-action";
 import { terminalKeys } from "./lib/terminalKeys";
 
 type ConnectionState = "missing-token" | "connecting" | "reconnecting" | "connected" | "closed" | "error";
 type TerminalChunk = string | Uint8Array;
+type PreparedAttachmentPrompt = { preview: string; appendEnter: boolean };
 
 const TerminalView = lazy(() => import("./components/TerminalView").then((module) => ({ default: module.TerminalView })));
 const reconnectDelaySeconds = 3;
@@ -66,6 +70,8 @@ function stableErrorMessage(code: ErrorCode) {
       return "unsupported message type";
     case ErrorCode.ATTACHMENT_TRANSFER_FAILED:
       return "attachment transfer failed";
+    case ErrorCode.ATTACHMENT_PROMPT_ACTION_FAILED:
+      return "attachment prompt action failed";
     default:
       return "unknown";
   }
@@ -93,6 +99,10 @@ function formatElapsed(startedAt: string | undefined, now: number) {
   return minutes > 0 ? `${minutes}m` : "<1m";
 }
 
+function equalBytes(left: Uint8Array, right: Uint8Array) {
+  return left.byteLength === right.byteLength && left.every((value, index) => value === right[index]);
+}
+
 function formatAgo(timestamp: string, now: number) {
   const seconds = Math.max(0, Math.floor((now - new Date(timestamp).getTime()) / 1000));
   if (seconds < 60) return "now";
@@ -110,10 +120,15 @@ export function App() {
   const [terminalFontSize, setTerminalFontSize] = useState(readTerminalFontSize);
   const [notice, setNotice] = useState("");
   const [attachmentTransferAvailable, setAttachmentTransferAvailable] = useState(false);
+  const [stagedTransferIds, setStagedTransferIds] = useState<Uint8Array[]>([]);
+  const [preparedAttachmentPrompt, setPreparedAttachmentPrompt] = useState<PreparedAttachmentPrompt | null>(null);
+  const [attachmentComposerKey, setAttachmentComposerKey] = useState(0);
   const [now, setNow] = useState(Date.now());
   const socketRef = useRef<WebSocket | null>(null);
   const protocolStreamRef = useRef<ProtocolV1ClientStream | null>(null);
   const attachmentSenderRef = useRef<AcknowledgedAttachmentSender | null>(null);
+  const [attachmentPromptClient] = useState(() => new AttachmentPromptActionClient());
+  const attachmentPromptClientLifecycleRef = useRef(0);
   const resumeCursorRef = useRef<SessionResumeCursor | undefined>(undefined);
   const terminalRef = useRef<TerminalViewHandle | null>(null);
   const stopReconnectRef = useRef(false);
@@ -146,6 +161,19 @@ export function App() {
       window.clearTimeout(noticeTimerRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    const lifecycle = attachmentPromptClientLifecycleRef.current + 1;
+    attachmentPromptClientLifecycleRef.current = lifecycle;
+    return () => {
+      // StrictMode replays Effects; defer closure so its immediate setup can advance the lifecycle.
+      queueMicrotask(() => {
+        if (attachmentPromptClientLifecycleRef.current === lifecycle) {
+          attachmentPromptClient.close();
+        }
+      });
+    };
+  }, [attachmentPromptClient]);
 
   useEffect(() => {
     try {
@@ -189,11 +217,18 @@ export function App() {
     };
   }, [statusUrl]);
 
+  const resetAttachmentSessionState = useCallback(() => {
+    setPreparedAttachmentPrompt(null);
+    setStagedTransferIds([]);
+    setAttachmentComposerKey((key) => key + 1);
+  }, []);
+
   const handleProcessExit = useCallback((message: string) => {
     stopReconnectRef.current = true;
     setTerminalChunks((chunks) => [...chunks, `process: ${message}\r\n`]);
     setConnectionState("closed");
-  }, []);
+    resetAttachmentSessionState();
+  }, [resetAttachmentSessionState]);
 
   const handleApplicationError = useCallback((message: string, sessionAlreadyActive: boolean) => {
     if (sessionAlreadyActive) {
@@ -256,13 +291,33 @@ export function App() {
       let protocolNegotiated = false;
       let fatalProtocolError = false;
       let attachmentTransfer = false;
+      let attachmentPromptAction = false;
       let attachmentSender: AcknowledgedAttachmentSender | null = null;
+      let protocolStream: ProtocolV1ClientStream | null = null;
+      let promptTransportConnected = false;
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
       protocolStreamRef.current = null;
       setAttachmentTransferAvailable(false);
 
       const markConnected = () => {
+        if (attachmentPromptAction && protocolStream && !promptTransportConnected) {
+          attachmentPromptClient.connect(protocolStream, {
+            send(encoded) {
+              if (socket.readyState !== WebSocket.OPEN) {
+                throw new Error("Connection lost during attachment prompt action");
+              }
+              socket.send(encoded.slice().buffer);
+            },
+            requestRecovery() {
+              setAttachmentTransferAvailable(false);
+              if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+                socket.close(1012, "Attachment prompt action recovery");
+              }
+            },
+          });
+          promptTransportConnected = true;
+        }
         if (hasConnectedRef.current) {
           setTerminalChunks((chunks) => [...chunks, "connection restored\r\n"]);
           showNotice("Session restored");
@@ -271,7 +326,7 @@ export function App() {
         disconnectReportedRef.current = false;
         setRetryIn(0);
         setConnectionState("connected");
-        setAttachmentTransferAvailable(attachmentTransfer && attachmentSender !== null);
+        setAttachmentTransferAvailable(attachmentTransfer && attachmentPromptAction && attachmentSender !== null && promptTransportConnected);
       };
 
       const failProtocol = (message: string) => {
@@ -289,7 +344,10 @@ export function App() {
           return;
         }
         try {
-          socket.send(createClientHello(connectionId).slice().buffer);
+          socket.send(createClientHello(connectionId, new Date(), {
+            attachmentTransfer: attachmentClientFlowEnabled,
+            attachmentPromptAction: attachmentClientFlowEnabled,
+          }).slice().buffer);
         } catch (error) {
           failProtocol(error instanceof Error ? error.message : "could not create client Hello");
         }
@@ -313,7 +371,10 @@ export function App() {
               const terminalResizeEnd = negotiated.capabilities.has(terminalResizeEndCapability);
               const controlError = negotiated.capabilities.has(controlErrorCapability);
               const controlHealth = negotiated.capabilities.has(controlHealthCapability);
-              attachmentTransfer = attachmentClientFlowEnabled && negotiated.capabilities.has(attachmentTransferCapability);
+              const completeAttachmentFlow = negotiated.capabilities.has(attachmentTransferCapability)
+                && negotiated.capabilities.has(attachmentPromptActionCapability);
+              attachmentTransfer = attachmentClientFlowEnabled && completeAttachmentFlow;
+              attachmentPromptAction = attachmentClientFlowEnabled && completeAttachmentFlow;
               const stream = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes, {
                 sessionProcessExit,
                 sessionResume,
@@ -321,7 +382,9 @@ export function App() {
                 controlError,
                 controlHealth,
                 attachmentTransfer,
+                attachmentPromptAction,
               });
+              protocolStream = stream;
               protocolStreamRef.current = stream;
               if (attachmentTransfer) {
                 attachmentSender = new AcknowledgedAttachmentSender(stream, {
@@ -366,7 +429,18 @@ export function App() {
           try {
             const message = protocolStream.acceptAgentMessage(new Uint8Array(payload));
             attachmentSender?.acceptAgentMessage(message);
+            attachmentPromptClient.acceptAgentMessage(message);
+            const previousSession = resumeCursorRef.current;
             const resumeCursor = protocolStream.getResumeCursor();
+            if (
+              message.type === "session-status"
+              && previousSession
+              && (message.sessionGeneration !== previousSession.sessionGeneration
+                || !equalBytes(message.sessionId, previousSession.sessionId))
+            ) {
+              attachmentPromptClient.resetForSessionChange();
+              resetAttachmentSessionState();
+            }
             if (resumeCursor) {
               resumeCursorRef.current = resumeCursor;
             }
@@ -423,6 +497,10 @@ export function App() {
 
       socket.addEventListener("close", (event) => {
         attachmentSender?.disconnect();
+        if (protocolStream) {
+          attachmentPromptClient.disconnect(protocolStream);
+        }
+        promptTransportConnected = false;
         if (attachmentSenderRef.current === attachmentSender) {
           attachmentSenderRef.current = null;
         }
@@ -473,12 +551,16 @@ export function App() {
       if (countdownTimer !== undefined) window.clearInterval(countdownTimer);
       attachmentSenderRef.current?.disconnect();
       attachmentSenderRef.current = null;
+      const currentProtocolStream = protocolStreamRef.current;
+      if (currentProtocolStream) {
+        attachmentPromptClient.disconnect(currentProtocolStream);
+      }
       socketRef.current?.close();
       socketRef.current = null;
       protocolStreamRef.current = null;
       setAttachmentTransferAvailable(false);
     };
-  }, [handleApplicationError, handleProcessExit, handleServerMessage, retryTrigger, showNotice, wsUrl]);
+  }, [attachmentPromptClient, handleApplicationError, handleProcessExit, handleServerMessage, resetAttachmentSessionState, retryTrigger, showNotice, wsUrl]);
 
   const sendAttachments = useCallback(async (
     files: readonly File[],
@@ -492,7 +574,9 @@ export function App() {
       throw new Error("Attachment transfer is not available");
     }
 
-    await transferAttachments(files, sender, signal, onProgress, protocolStream.maxAttachmentChunkBytes());
+    const completedTransferIds = await transferAttachments(files, sender, signal, onProgress, protocolStream.maxAttachmentChunkBytes());
+    setStagedTransferIds(completedTransferIds.map((transferId) => transferId.slice()));
+    return completedTransferIds;
   }, []);
 
   const sendInput = useCallback((data: string) => {
@@ -509,6 +593,27 @@ export function App() {
       showNotice(error instanceof Error ? error.message : "Invalid terminal input");
     }
   }, [showNotice]);
+
+  const submitPrompt = useCallback(async (value: string, appendEnter: boolean) => {
+    if (stagedTransferIds.length === 0) {
+      sendInput(`${value}${appendEnter ? terminalKeys.enter : ""}`);
+      showNotice(appendEnter ? "Prompt sent" : "Prompt inserted");
+      return;
+    }
+
+    const result = await attachmentPromptClient.prepare({
+      transferIds: stagedTransferIds.map((transferId) => transferId.slice()),
+      prompt: value,
+      appendEnter,
+    });
+    if (result.disposition === AttachmentPromptDisposition.COMMITTED) {
+      setStagedTransferIds([]);
+      setAttachmentComposerKey((key) => key + 1);
+      showNotice("Prompt was already committed");
+      return;
+    }
+    setPreparedAttachmentPrompt({ preview: result.preview, appendEnter: result.appendEnter });
+  }, [attachmentPromptClient, sendInput, showNotice, stagedTransferIds]);
 
   const sendResize = useCallback((cols: number, rows: number) => {
     const socket = socketRef.current;
@@ -625,6 +730,7 @@ export function App() {
           <ShortcutBar disabled={!canSend} onInput={sendInput} />
           {attachmentTransferAvailable ? (
             <AttachmentComposer
+              key={attachmentComposerKey}
               disabled={!canSend}
               transferEnabled={canSend}
               onTransfer={sendAttachments}
@@ -634,10 +740,7 @@ export function App() {
             disabled={!canSend}
             historyStorageKey={token ? `vibebridge:history:${token}` : "vibebridge:history"}
             storageKey={token ? `vibebridge:draft:${token}` : "vibebridge:draft"}
-            onSubmit={(value, appendEnter) => {
-              sendInput(`${value}${appendEnter ? terminalKeys.enter : ""}`);
-              showNotice(appendEnter ? "Prompt sent" : "Prompt inserted");
-            }}
+            onSubmit={submitPrompt}
           />
 
           <div className="flex items-center justify-between gap-3 text-xs text-zinc-500">
@@ -667,6 +770,27 @@ export function App() {
         </section>
         </div>
       </div>
+
+      <AttachmentPromptDialog
+        open={preparedAttachmentPrompt !== null}
+        preview={preparedAttachmentPrompt?.preview ?? ""}
+        appendEnter={preparedAttachmentPrompt?.appendEnter ?? false}
+        onConfirm={() => attachmentPromptClient.commit()}
+        onCancel={() => attachmentPromptClient.cancel()}
+        onComplete={(result) => {
+          const appendEnter = preparedAttachmentPrompt?.appendEnter ?? false;
+          setPreparedAttachmentPrompt(null);
+          if (result === "committed") {
+            setStagedTransferIds([]);
+            setAttachmentComposerKey((key) => key + 1);
+            showNotice(appendEnter ? "Prompt sent" : "Prompt inserted");
+          } else if (result === "cancelled") {
+            showNotice("Prompt cancelled; staged files were kept");
+          } else {
+            showNotice("Prompt action failed; staged files were kept");
+          }
+        }}
+      />
 
       <AlertDialog open={endDialogOpen} onOpenChange={setEndDialogOpen}>
         <AlertDialogContent>

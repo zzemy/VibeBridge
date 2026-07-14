@@ -11,6 +11,7 @@ import {
 } from "../gen/vibebridge/v1/envelope_pb";
 import {
   acceptAgentHello,
+  attachmentPromptActionCapability,
   attachmentTransferCapability,
   controlErrorCapability,
   controlHealthCapability,
@@ -66,6 +67,13 @@ describe("Protocol V1 Hello negotiation", () => {
     expect(clientHello.payload.value.capabilities).toContain(controlErrorCapability);
     expect(clientHello.payload.value.capabilities).toContain(controlHealthCapability);
     expect(clientHello.payload.value.capabilities).not.toContain(attachmentTransferCapability);
+    expect(clientHello.payload.value.capabilities).not.toContain(attachmentPromptActionCapability);
+  });
+
+  test("rejects prompt-action advertisement without attachment transfer", () => {
+    expect(() => createClientHello(connectionId, new Date("2026-07-13T10:00:00Z"), {
+      attachmentPromptAction: true,
+    })).toThrow(`${attachmentPromptActionCapability} requires ${attachmentTransferCapability}`);
   });
 
   test("accepts attachment transfer with its ordered error dependencies", () => {
@@ -74,6 +82,32 @@ describe("Protocol V1 Hello negotiation", () => {
     }), connectionId);
 
     expect(negotiated.capabilities.has(attachmentTransferCapability)).toBe(true);
+  });
+
+  test("explicitly advertises the complete attachment prompt action dependency set", () => {
+    const clientHello = fromBinary(EnvelopeSchema, createClientHello(connectionId, new Date("2026-07-13T10:00:00Z"), {
+      attachmentTransfer: true,
+      attachmentPromptAction: true,
+    }));
+    if (clientHello.payload.case !== "hello") throw new Error("expected client Hello");
+
+    expect(clientHello.payload.value.capabilities).toEqual(expect.arrayContaining([
+      terminalSequencedIoCapability,
+      controlErrorCapability,
+      attachmentTransferCapability,
+      attachmentPromptActionCapability,
+    ]));
+
+    const negotiated = acceptAgentHello(agentHello({
+      capabilities: [
+        terminalBinaryOutputCapability,
+        terminalSequencedIoCapability,
+        controlErrorCapability,
+        attachmentTransferCapability,
+        attachmentPromptActionCapability,
+      ],
+    }), connectionId);
+    expect(negotiated.capabilities.has(attachmentPromptActionCapability)).toBe(true);
   });
 
   test.each([
@@ -86,6 +120,9 @@ describe("Protocol V1 Hello negotiation", () => {
     ["control health without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, controlHealthCapability] })],
     ["attachment transfer without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, attachmentTransferCapability] })],
     ["attachment transfer without control error", agentHello({ capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, attachmentTransferCapability] })],
+    ["attachment prompt action without sequenced I/O", agentHello({ capabilities: [terminalBinaryOutputCapability, attachmentPromptActionCapability] })],
+    ["attachment prompt action without transfer", agentHello({ capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, controlErrorCapability, attachmentPromptActionCapability] })],
+    ["attachment prompt action without control error", agentHello({ capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, attachmentTransferCapability, attachmentPromptActionCapability] })],
   ])("rejects %s", (_name, encoded) => {
     expect(() => acceptAgentHello(encoded, connectionId)).toThrow();
   });

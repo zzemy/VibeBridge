@@ -21,7 +21,7 @@ type AttachmentComposerProps = {
     files: readonly File[],
     signal: AbortSignal,
     onProgress: (progress: AttachmentTransferProgress) => void,
-  ) => Promise<void>;
+  ) => Promise<unknown>;
 };
 
 export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: AttachmentComposerProps) {
