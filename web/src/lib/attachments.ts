@@ -4,6 +4,8 @@ export const attachmentMaxFileBytes = 25 * 1024 * 1024;
 export const attachmentMaxSelectionBytes = 100 * 1024 * 1024;
 export const attachmentMaxFilesPerAction = 10;
 
+const attachmentTextExtensions = new Set(["txt", "log", "md", "markdown", "json", "yaml", "yml", "toml", "csv"]);
+
 const attachmentContentTypes = new Map<string, ReadonlySet<string>>([
   ["txt", new Set(["text/plain"])],
   ["log", new Set(["text/plain"])],
@@ -63,14 +65,14 @@ export function describeAttachment(file: File): AttachmentMetadata {
     throw new Error(`${file.name} has an unsupported file type`);
   }
 
-  const contentType = normalizeContentType(file.type);
-  if (!contentType || !allowedTypes.has(contentType)) {
+  const contentType = normalizeContentType(file.type, attachmentTextExtensions.has(extension));
+  if (!contentType || !allowedTypes.has(contentType.mediaType)) {
     throw new Error(`${file.name} has an unsupported or mismatched content type`);
   }
 
   return {
     displayName: file.name,
-    declaredContentType: contentType,
+    declaredContentType: contentType.declaration,
     declaredExtension: extension,
     totalSizeBytes: file.size,
   };
@@ -96,7 +98,11 @@ export async function transferAttachments(
   sender: AttachmentTransferSender,
   signal: AbortSignal,
   onProgress: (progress: AttachmentTransferProgress) => void,
+  maxChunkBytes = protocolV1MaxAttachmentChunkBytes,
 ): Promise<void> {
+  if (!Number.isInteger(maxChunkBytes) || maxChunkBytes <= 0 || maxChunkBytes > protocolV1MaxAttachmentChunkBytes) {
+    throw new Error("Attachment chunk limit is invalid");
+  }
   const metadata = validateAttachmentSelection(files);
   const totalSizeBytes = metadata.reduce((total, item) => total + item.totalSizeBytes, 0);
   let completedBytes = 0;
@@ -123,9 +129,9 @@ export async function transferAttachments(
       });
       began = true;
 
-      for (let offset = 0; offset < file.size; offset += protocolV1MaxAttachmentChunkBytes) {
+      for (let offset = 0; offset < file.size; offset += maxChunkBytes) {
         throwIfAborted(signal);
-        const end = Math.min(file.size, offset + protocolV1MaxAttachmentChunkBytes);
+        const end = Math.min(file.size, offset + maxChunkBytes);
         const data = new Uint8Array(await file.slice(offset, end).arrayBuffer());
         throwIfAborted(signal);
         sender.chunk({
@@ -177,8 +183,36 @@ function extensionFromName(name: string): string {
   return name.slice(separator + 1).toLowerCase();
 }
 
-function normalizeContentType(value: string): string {
-  return value.trim().toLowerCase();
+function normalizeContentType(
+  value: string,
+  allowUtf8Charset: boolean,
+): { mediaType: string; declaration: string } | undefined {
+  const [rawMediaType, ...rawParameters] = value.trim().split(";");
+  const mediaType = rawMediaType?.trim().toLowerCase();
+  if (!mediaType) {
+    return undefined;
+  }
+  if (rawParameters.length === 0) {
+    return { mediaType, declaration: mediaType };
+  }
+  if (!allowUtf8Charset || rawParameters.length !== 1) {
+    return undefined;
+  }
+
+  const parameter = rawParameters[0]?.trim() ?? "";
+  const separator = parameter.indexOf("=");
+  if (separator <= 0 || parameter.indexOf("=", separator + 1) !== -1) {
+    return undefined;
+  }
+  const name = parameter.slice(0, separator).trim().toLowerCase();
+  let parameterValue = parameter.slice(separator + 1).trim().toLowerCase();
+  if (parameterValue.startsWith('"') && parameterValue.endsWith('"') && parameterValue.length >= 2) {
+    parameterValue = parameterValue.slice(1, -1);
+  }
+  if (name !== "charset" || parameterValue !== "utf-8") {
+    return undefined;
+  }
+  return { mediaType, declaration: `${mediaType}; charset=utf-8` };
 }
 
 function containsControlCharacter(value: string): boolean {

@@ -335,6 +335,21 @@ describe("Protocol V1 sequenced terminal stream", () => {
     expect(fromBinary(EnvelopeSchema, stream.createAttachmentCancel(transferId, sentAt)).payload.case).toBe("attachmentCancel");
   });
 
+  test("reduces attachment chunks under a smaller negotiated envelope ceiling", () => {
+    const peerEnvelopeBytes = 4 * 1024;
+    const stream = new ProtocolV1ClientStream(connectionId, peerEnvelopeBytes, { attachmentTransfer: true });
+    const maxChunkBytes = stream.maxAttachmentChunkBytes();
+    const encoded = stream.createAttachmentChunk({
+      transferId: new Uint8Array(16),
+      offsetBytes: 0n,
+      data: new Uint8Array(maxChunkBytes),
+      chunkSha256: new Uint8Array(32),
+    }, sentAt);
+
+    expect(maxChunkBytes).toBe(3 * 1024);
+    expect(encoded.byteLength).toBeLessThanOrEqual(peerEnvelopeBytes);
+  });
+
   test("rejects attachment operations without negotiation or with invalid chunk metadata", () => {
     const transferId = new Uint8Array(16);
     const hash = new Uint8Array(32);

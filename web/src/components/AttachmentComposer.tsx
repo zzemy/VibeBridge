@@ -58,6 +58,12 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
     try {
       validateAttachmentSelection(files);
     } catch (cause) {
+      setSelection((previous) => {
+        for (const item of previous) {
+          disposePreview(item.previewUrl);
+        }
+        return [];
+      });
       setError(cause instanceof Error ? cause.message : "Selected files are not supported");
       return;
     }
@@ -106,7 +112,7 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
       setState("success");
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") {
-        setError("Attachment transfer cancelled");
+        setError("Transfer cancelled. Files already sent may remain staged until the session ends.");
       } else {
         setError(cause instanceof Error ? cause.message : "Attachment transfer failed");
       }
@@ -252,7 +258,14 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
             <span className="truncate">Sending {progress.fileName}</span>
             <span className="tabular-nums">{progressPercent}%</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+          <div
+            className="h-1.5 overflow-hidden rounded-full bg-zinc-800"
+            role="progressbar"
+            aria-label="Attachment transfer progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progressPercent}
+          >
             <div className="h-full rounded-full bg-emerald-400 transition-[width]" style={{ width: `${progressPercent}%` }} />
           </div>
         </div>
