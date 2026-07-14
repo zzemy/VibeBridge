@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"net/http/httptest"
 	"os"
@@ -49,6 +50,23 @@ func TestPTYSessionRejectsAttachmentManagerAfterShutdownStarts(t *testing.T) {
 				t.Fatalf("cleanup unused session staging: %v", err)
 			}
 		})
+	}
+}
+
+func TestPTYSessionAttachmentOutcomeDoesNotCreateTransferManager(t *testing.T) {
+	session := &ptySession{lifecycle: newSessionLifecycle()}
+	if !session.lifecycle.started() {
+		t.Fatal("start session lifecycle")
+	}
+	outcome, err := session.attachmentOutcome([]byte("unknown-transfer"))
+	if err != nil {
+		t.Fatalf("query attachment outcome: %v", err)
+	}
+	if outcome.Disposition != attachmentv1.TransferDispositionUnknown || outcome.NextOffsetBytes != 0 {
+		t.Fatalf("attachment outcome = %+v, want unknown", outcome)
+	}
+	if session.attachmentManager != nil {
+		t.Fatal("status query lazily created an attachment manager")
 	}
 }
 
@@ -209,10 +227,21 @@ func TestProtocolV1TransfersAttachmentIntoWorkspaceSession(t *testing.T) {
 	writeProtocolAttachmentMessage(t, connection, complete)
 	assertAttachmentAcknowledgement(t, connection, 5, 4)
 
-	cancel := newClientProtocolEnvelope(nil, 0, 5, 5)
+	statusRequest := newClientProtocolEnvelope(nil, 0, 5, 5)
+	statusRequest.Payload = &vibebridgev1.Envelope_AttachmentTransferStatusRequest{AttachmentTransferStatusRequest: &vibebridgev1.AttachmentTransferStatusRequest{TransferId: transferID}}
+	writeProtocolAttachmentMessage(t, connection, statusRequest)
+	status := readProtocolEnvelope(t, connection)
+	if status.Sequence != 6 || status.Acknowledge != 5 ||
+		status.GetAttachmentTransferStatus().GetDisposition() != vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_COMPLETED ||
+		status.GetAttachmentTransferStatus().GetNextOffsetBytes() != 0 ||
+		!bytes.Equal(status.GetAttachmentTransferStatus().GetTransferId(), transferID) {
+		t.Fatalf("attachment status sequence/ack/payload = %d/%d/%+v", status.Sequence, status.Acknowledge, status.GetAttachmentTransferStatus())
+	}
+
+	cancel := newClientProtocolEnvelope(nil, 0, 6, 6)
 	cancel.Payload = &vibebridgev1.Envelope_AttachmentCancel{AttachmentCancel: &vibebridgev1.AttachmentCancel{TransferId: transferID}}
 	writeProtocolAttachmentMessage(t, connection, cancel)
-	assertAttachmentAcknowledgement(t, connection, 6, 5)
+	assertAttachmentAcknowledgement(t, connection, 7, 6)
 
 	app.mu.Lock()
 	session := app.session

@@ -41,7 +41,7 @@ import {
   transferAttachments,
   type AttachmentTransferProgress,
 } from "./lib/attachments";
-import { AcknowledgedAttachmentSender } from "./lib/attachment-protocol";
+import { AcknowledgedAttachmentSender, type AcknowledgedAttachmentSenderOptions } from "./lib/attachment-protocol";
 import { AttachmentPromptActionClient } from "./lib/attachment-prompt-action";
 import { terminalKeys } from "./lib/terminalKeys";
 
@@ -293,6 +293,8 @@ export function App() {
       let attachmentTransfer = false;
       let attachmentPromptAction = false;
       let attachmentSender: AcknowledgedAttachmentSender | null = null;
+      let attachmentSenderOptions: AcknowledgedAttachmentSenderOptions | null = null;
+      let attachmentSenderNeedsReconnect = false;
       let protocolStream: ProtocolV1ClientStream | null = null;
       let promptTransportConnected = false;
       socket.binaryType = "arraybuffer";
@@ -387,7 +389,7 @@ export function App() {
               protocolStream = stream;
               protocolStreamRef.current = stream;
               if (attachmentTransfer) {
-                attachmentSender = new AcknowledgedAttachmentSender(stream, {
+                attachmentSenderOptions = {
                   send(encoded) {
                     if (socket.readyState !== WebSocket.OPEN) {
                       throw new Error("Connection lost during attachment transfer");
@@ -400,8 +402,19 @@ export function App() {
                       socket.close(1012, "Attachment transfer recovery");
                     }
                   },
-                });
-                attachmentSenderRef.current = attachmentSender;
+                };
+                const existingSender = attachmentSenderRef.current;
+                if (existingSender && sessionResume) {
+                  attachmentSender = existingSender;
+                  attachmentSenderNeedsReconnect = true;
+                } else {
+                  existingSender?.dispose();
+                  attachmentSender = new AcknowledgedAttachmentSender(stream, attachmentSenderOptions);
+                  attachmentSenderRef.current = attachmentSender;
+                }
+              } else if (attachmentSenderRef.current) {
+                attachmentSenderRef.current.dispose();
+                attachmentSenderRef.current = null;
               }
               protocolNegotiated = true;
               if (sessionResume) {
@@ -428,16 +441,28 @@ export function App() {
           }
           try {
             const message = protocolStream.acceptAgentMessage(new Uint8Array(payload));
+            const previousSession = resumeCursorRef.current;
+            const sessionChanged = message.type === "session-status"
+              && previousSession !== undefined
+              && (message.sessionGeneration !== previousSession.sessionGeneration
+                || !equalBytes(message.sessionId, previousSession.sessionId));
+            if (message.type === "session-status" && attachmentSenderNeedsReconnect) {
+              if (!attachmentSender || !attachmentSenderOptions) {
+                throw new Error("Attachment sender reconnect state is incomplete");
+              }
+              if (sessionChanged) {
+                attachmentSender.dispose();
+                attachmentSender = new AcknowledgedAttachmentSender(protocolStream, attachmentSenderOptions);
+                attachmentSenderRef.current = attachmentSender;
+              } else {
+                attachmentSender.reconnect(protocolStream, attachmentSenderOptions);
+              }
+              attachmentSenderNeedsReconnect = false;
+            }
             attachmentSender?.acceptAgentMessage(message);
             attachmentPromptClient.acceptAgentMessage(message);
-            const previousSession = resumeCursorRef.current;
             const resumeCursor = protocolStream.getResumeCursor();
-            if (
-              message.type === "session-status"
-              && previousSession
-              && (message.sessionGeneration !== previousSession.sessionGeneration
-                || !equalBytes(message.sessionId, previousSession.sessionId))
-            ) {
+            if (sessionChanged) {
               attachmentPromptClient.resetForSessionChange();
               resetAttachmentSessionState();
             }
@@ -501,9 +526,6 @@ export function App() {
           attachmentPromptClient.disconnect(protocolStream);
         }
         promptTransportConnected = false;
-        if (attachmentSenderRef.current === attachmentSender) {
-          attachmentSenderRef.current = null;
-        }
         if (socketRef.current === socket) {
           socketRef.current = null;
           protocolStreamRef.current = null;
@@ -511,6 +533,8 @@ export function App() {
         }
         if (fatalProtocolError || (!protocolNegotiated && socket.protocol === protocolV1WebSocketSubprotocol && event.code === 1002)) {
           stopReconnectRef.current = true;
+          attachmentSender?.dispose();
+          if (attachmentSenderRef.current === attachmentSender) attachmentSenderRef.current = null;
           setConnectionState("error");
           if (!fatalProtocolError) {
             setTerminalChunks((chunks) => [...chunks, "protocol negotiation rejected by Agent\r\n"]);
@@ -522,6 +546,8 @@ export function App() {
           return;
         }
         if (stopReconnectRef.current) {
+          attachmentSender?.dispose();
+          if (attachmentSenderRef.current === attachmentSender) attachmentSenderRef.current = null;
           setConnectionState((current) => current === "error" ? current : "closed");
           return;
         }
@@ -549,7 +575,7 @@ export function App() {
       disposed = true;
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
       if (countdownTimer !== undefined) window.clearInterval(countdownTimer);
-      attachmentSenderRef.current?.disconnect();
+      attachmentSenderRef.current?.dispose();
       attachmentSenderRef.current = null;
       const currentProtocolStream = protocolStreamRef.current;
       if (currentProtocolStream) {

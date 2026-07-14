@@ -8,6 +8,8 @@ import {
   AttachmentCancelSchema,
   AttachmentChunkSchema,
   AttachmentCompleteSchema,
+  AttachmentTransferDisposition,
+  AttachmentTransferStatusRequestSchema,
   AttachmentPromptCancelSchema,
   AttachmentPromptCommitSchema,
   AttachmentPromptDisposition,
@@ -198,6 +200,7 @@ export type AgentStreamMessage =
   | { type: "process-exit"; outcome: ProcessExitOutcome }
   | { type: "error"; code: ErrorCode }
   | { type: "attachment-prompt-preview"; actionId: Uint8Array; disposition: AttachmentPromptDisposition; preview: string; appendEnter: boolean }
+  | { type: "attachment-transfer-status"; transferId: Uint8Array; disposition: AttachmentTransferDisposition; nextOffsetBytes: bigint }
   | { type: "pong" }
   | { type: "acknowledgement" };
 
@@ -427,6 +430,15 @@ export class ProtocolV1ClientStream {
     return this.attachmentPromptAction;
   }
 
+  createAttachmentTransferStatusRequest(transferId: Uint8Array, sentAt = new Date()): SequencedClientEnvelope {
+    this.assertAttachmentTransfer();
+    assertAttachmentTransferId(transferId);
+    return this.encodeSequenced({
+      case: "attachmentTransferStatusRequest",
+      value: create(AttachmentTransferStatusRequestSchema, { transferId }),
+    }, sentAt);
+  }
+
   createAttachmentPromptPrepare(request: AttachmentPromptPrepareRequest, sentAt = new Date()): SequencedClientEnvelope {
     this.assertAttachmentPromptAction();
     assertAttachmentPromptActionId(request.actionId);
@@ -580,6 +592,33 @@ export class ProtocolV1ClientStream {
         }
         message = { type: "terminal-output", data: envelope.payload.value.data.slice() };
         break;
+      case "attachmentTransferStatus": {
+        const value = envelope.payload.value;
+        if (!this.attachmentTransfer) {
+          throw new Error("AttachmentTransferStatus is not valid for this stream state");
+        }
+        assertAttachmentTransferId(value.transferId);
+        if (value.disposition === AttachmentTransferDisposition.ACTIVE) {
+          // Zero is a valid committed cursor for a begun transfer.
+        } else if (
+          value.disposition === AttachmentTransferDisposition.UNKNOWN
+          || value.disposition === AttachmentTransferDisposition.COMPLETED
+          || value.disposition === AttachmentTransferDisposition.CANCELLED
+        ) {
+          if (value.nextOffsetBytes !== 0n) {
+            throw new Error("Only an active attachment transfer status can carry an offset");
+          }
+        } else {
+          throw new Error("AttachmentTransferStatus disposition is invalid");
+        }
+        message = {
+          type: "attachment-transfer-status",
+          transferId: value.transferId.slice(),
+          disposition: value.disposition,
+          nextOffsetBytes: value.nextOffsetBytes,
+        };
+        break;
+      }
       case "attachmentPromptPreview": {
         const value = envelope.payload.value;
         if (!this.attachmentPromptAction) {
