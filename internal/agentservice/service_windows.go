@@ -133,7 +133,7 @@ func buildTaskDefinition(options InstallOptions) ([]byte, error) {
 		return nil, errors.New("resolve current Windows user: SID is empty")
 	}
 
-	arguments := []string{"--background", "--config", options.ConfigPath, "--service-state", options.RuntimeStatePath}
+	arguments := []string{"--background", "--tray", "--config", options.ConfigPath, "--service-state", options.RuntimeStatePath}
 	if options.ProfileID != "" {
 		arguments = append(arguments, "--profile", options.ProfileID)
 	}
