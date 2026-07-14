@@ -20,6 +20,7 @@
       "executable": "pwsh",
       "args": ["-NoLogo", "-NoExit", "-NoProfile"],
       "workspace_id": "default",
+      "tool_adapter": "generic",
       "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
     },
     {
@@ -27,6 +28,7 @@
       "label": "Codex",
       "executable": "codex",
       "workspace_id": "default",
+      "tool_adapter": "generic",
       "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
     },
     {
@@ -34,6 +36,7 @@
       "label": "Claude Code",
       "executable": "claude",
       "workspace_id": "default",
+      "tool_adapter": "generic",
       "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
     }
   ]

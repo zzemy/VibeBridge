@@ -197,6 +197,7 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 			"executable": "codex",
 			"args": ["--model", "gpt 5"],
 			"workspace_id": "repo",
+			"tool_adapter": "generic",
 			"environment_allowlist": ["PATH", "MISSING"]
 		}]
 	}`
@@ -222,6 +223,9 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 	}
 	if options.profileID != "codex" || options.workspaceID != "repo" {
 		t.Fatalf("profile/workspace ID = %q/%q, want codex/repo", options.profileID, options.workspaceID)
+	}
+	if options.toolAdapter != "generic" {
+		t.Fatalf("tool adapter = %q, want generic", options.toolAdapter)
 	}
 	if options.workingDirectory != workspace {
 		t.Fatalf("working directory = %q, want %q", options.workingDirectory, workspace)

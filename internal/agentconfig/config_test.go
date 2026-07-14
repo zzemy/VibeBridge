@@ -217,3 +217,40 @@ func TestLoadRejectsInvalidWorkspaceBindings(t *testing.T) {
 		})
 	}
 }
+
+func TestLaunchProfileDefaultsAndValidatesToolAdapter(t *testing.T) {
+	tests := []struct {
+		name        string
+		adapterJSON string
+		want        string
+		wantError   bool
+	}{
+		{name: "omitted", want: "generic"},
+		{name: "blank", adapterJSON: `,"tool_adapter":"  "`, want: "generic"},
+		{name: "generic", adapterJSON: `,"tool_adapter":"generic"`, want: "generic"},
+		{name: "unknown", adapterJSON: `,"tool_adapter":"codex"`, wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := writeConfig(t, `{"version":1,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"`+test.adapterJSON+`}]}`)
+			config, err := Load(path)
+			if test.wantError {
+				if err == nil {
+					t.Fatal("unsupported tool adapter loaded successfully")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			profile, ok := config.Profile("shell")
+			if !ok {
+				t.Fatal("profile was not found")
+			}
+			if profile.ToolAdapter != test.want {
+				t.Fatalf("tool adapter = %q, want %q", profile.ToolAdapter, test.want)
+			}
+		})
+	}
+}

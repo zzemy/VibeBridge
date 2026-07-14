@@ -90,7 +90,9 @@ Cancellation is best effort. Cancelling while an operation is awaiting acknowled
 
 Generic fallback:
 
-- Insert a relative local path and explicit instruction into the prompt composer.
+- The optional launch-profile `tool_adapter` defaults to `generic`, the only currently supported adapter.
+- It accepts only Agent-resolved paths relative to the active PTY working directory and renders those paths with an explicit instruction.
+- Unknown adapters fail local configuration validation; the remote client never selects an adapter or supplies a path.
 
 Codex adapter:
 

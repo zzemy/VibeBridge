@@ -20,6 +20,7 @@ import (
 	"github.com/zzemy/VibeBridge/internal/agentlog"
 	"github.com/zzemy/VibeBridge/internal/attachment"
 	protocolv1 "github.com/zzemy/VibeBridge/internal/protocol"
+	"github.com/zzemy/VibeBridge/internal/tooladapter"
 	"github.com/zzemy/VibeBridge/internal/workspace"
 	"google.golang.org/protobuf/proto"
 )
@@ -40,6 +41,7 @@ type Config struct {
 	WorkingDirectory      string
 	WorkspaceRoot         string
 	Environment           []string
+	ToolAdapter           string
 	ReconnectTimeout      time.Duration
 	IdleTimeout           time.Duration
 	DisableLegacyProtocol bool
@@ -385,6 +387,15 @@ func (s *Server) getOrCreateSession() (*ptySession, bool, error) {
 	if err != nil {
 		return nil, false, fmt.Errorf("create protocol session ID: %w", err)
 	}
+	adapterName := s.config.ToolAdapter
+	if adapterName == "" {
+		adapterName = tooladapter.Generic
+	}
+	adapter, err := tooladapter.New(adapterName)
+	if err != nil {
+		return nil, false, fmt.Errorf("initialize tool adapter: %w", err)
+	}
+
 	var staging *attachment.SessionStaging
 	if s.config.WorkspaceRoot != "" {
 		staging, err = attachment.CreateSessionStaging(s.config.WorkspaceRoot, protocolSessionID)
@@ -409,6 +420,9 @@ func (s *Server) getOrCreateSession() (*ptySession, bool, error) {
 		}
 		return nil, false, err
 	}
+	session.toolAdapter = adapter
+	session.workspaceRoot = s.config.WorkspaceRoot
+	session.workingDirectory = workingDirectory
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -570,6 +584,9 @@ type ptySession struct {
 	resourcesCloseErr  error
 	telemetry          sessionTelemetry
 	staging            *attachment.SessionStaging
+	workspaceRoot      string
+	workingDirectory   string
+	toolAdapter        tooladapter.Adapter
 	attachmentMu       sync.Mutex
 	attachmentManager  *attachment.Manager
 	attachmentsClosed  bool

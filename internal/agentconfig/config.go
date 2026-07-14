@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zzemy/VibeBridge/internal/tooladapter"
 	"github.com/zzemy/VibeBridge/internal/workspace"
 )
 
@@ -49,6 +50,7 @@ type LaunchProfile struct {
 	WorkspaceID          string   `json:"workspace_id,omitempty"`
 	WorkingDirectory     string   `json:"working_directory,omitempty"`
 	EnvironmentAllowlist []string `json:"environment_allowlist,omitempty"`
+	ToolAdapter          string   `json:"tool_adapter,omitempty"`
 
 	workspaceIDConfigured bool
 }
@@ -216,6 +218,13 @@ func (p *LaunchProfile) validate(baseDirectory string, workspaceRegistry workspa
 	p.Executable = strings.TrimSpace(p.Executable)
 	if p.Executable == "" {
 		return errors.New("executable must not be empty")
+	}
+	p.ToolAdapter = strings.TrimSpace(p.ToolAdapter)
+	if p.ToolAdapter == "" {
+		p.ToolAdapter = tooladapter.Generic
+	}
+	if !tooladapter.IsSupported(p.ToolAdapter) {
+		return fmt.Errorf("tool_adapter %q is not supported", p.ToolAdapter)
 	}
 	for index, arg := range p.Args {
 		if strings.ContainsRune(arg, '\x00') {
