@@ -14,16 +14,21 @@ import (
 )
 
 const (
-	CapabilityTerminalSequencedIO = "terminal.sequenced_io_v1"
-	CapabilityTerminalResizeEnd   = "terminal.resize_end_v1"
-	CapabilitySessionProcessExit  = "session.process_exit_v1"
-	CapabilitySessionResume       = "session.resume_v1"
-	CapabilityControlError        = "control.error_v1"
-	CapabilityControlHealth       = "control.health_v1"
-	CapabilityAttachmentTransfer  = "attachment.transfer_v1"
-	MaxTerminalInputBytes         = 32 * 1024
-	MaxTerminalDimension          = 65_535
-	maxAttachmentTransferIDBytes  = 64
+	CapabilityTerminalSequencedIO    = "terminal.sequenced_io_v1"
+	CapabilityTerminalResizeEnd      = "terminal.resize_end_v1"
+	CapabilitySessionProcessExit     = "session.process_exit_v1"
+	CapabilitySessionResume          = "session.resume_v1"
+	CapabilityControlError           = "control.error_v1"
+	CapabilityControlHealth          = "control.health_v1"
+	CapabilityAttachmentTransfer     = "attachment.transfer_v1"
+	CapabilityAttachmentPromptAction = "attachment.prompt_action_v1"
+	MaxTerminalInputBytes            = 32 * 1024
+	MaxTerminalDimension             = 65_535
+	MaxAttachmentPromptBytes         = 32 * 1024
+	MaxAttachmentPromptPreviewBytes  = 48 * 1024
+	maxAttachmentTransferIDBytes     = 64
+	maxAttachmentPromptActionIDBytes = 64
+	maxAttachmentPromptTransfers     = 10
 )
 
 type ClientStreamMessageKind uint8
@@ -39,6 +44,9 @@ const (
 	ClientStreamMessageAttachmentChunk
 	ClientStreamMessageAttachmentComplete
 	ClientStreamMessageAttachmentCancel
+	ClientStreamMessageAttachmentPromptPrepare
+	ClientStreamMessageAttachmentPromptCommit
+	ClientStreamMessageAttachmentPromptCancel
 )
 
 type ClientStreamMessage struct {
@@ -58,6 +66,10 @@ type ClientStreamMessage struct {
 	TotalSHA256              []byte
 	OffsetBytes              uint64
 	ChunkSHA256              []byte
+	ActionID                 []byte
+	TransferIDs              [][]byte
+	Prompt                   string
+	AppendEnter              bool
 }
 
 // AgentStream owns connection-local ordering state after Hello negotiation and,
@@ -65,22 +77,23 @@ type ClientStreamMessage struct {
 type AgentStream struct {
 	mu sync.Mutex
 
-	connectionID         []byte
-	peerMaxEnvelopeSize  uint32
-	nextOutbound         uint64
-	nextInbound          uint64
-	highestInbound       uint64
-	highestPeerAck       uint64
-	pendingPingSequences []uint64
-	sessionResume        bool
-	terminalResizeEnd    bool
-	sessionProcessExit   bool
-	controlError         bool
-	controlHealth        bool
-	attachmentTransfer   bool
-	sessionBound         bool
-	sessionID            []byte
-	sessionGeneration    uint64
+	connectionID           []byte
+	peerMaxEnvelopeSize    uint32
+	nextOutbound           uint64
+	nextInbound            uint64
+	highestInbound         uint64
+	highestPeerAck         uint64
+	pendingPingSequences   []uint64
+	sessionResume          bool
+	terminalResizeEnd      bool
+	sessionProcessExit     bool
+	controlError           bool
+	controlHealth          bool
+	attachmentTransfer     bool
+	attachmentPromptAction bool
+	sessionBound           bool
+	sessionID              []byte
+	sessionGeneration      uint64
 }
 
 func NewAgentStream(negotiated NegotiatedHello) (*AgentStream, error) {
@@ -91,17 +104,18 @@ func NewAgentStream(negotiated NegotiatedHello) (*AgentStream, error) {
 		return nil, errors.New("peer max envelope bytes must be positive")
 	}
 	return &AgentStream{
-		connectionID:        append([]byte(nil), negotiated.ConnectionID...),
-		peerMaxEnvelopeSize: negotiated.PeerMaxEnvelopeBytes,
-		nextOutbound:        2,
-		nextInbound:         2,
-		highestInbound:      1,
-		sessionResume:       negotiated.HasCapability(CapabilitySessionResume),
-		terminalResizeEnd:   negotiated.HasCapability(CapabilityTerminalResizeEnd),
-		sessionProcessExit:  negotiated.HasCapability(CapabilitySessionProcessExit),
-		controlError:        negotiated.HasCapability(CapabilityControlError),
-		controlHealth:       negotiated.HasCapability(CapabilityControlHealth),
-		attachmentTransfer:  negotiated.HasCapability(CapabilityAttachmentTransfer),
+		connectionID:           append([]byte(nil), negotiated.ConnectionID...),
+		peerMaxEnvelopeSize:    negotiated.PeerMaxEnvelopeBytes,
+		nextOutbound:           2,
+		nextInbound:            2,
+		highestInbound:         1,
+		sessionResume:          negotiated.HasCapability(CapabilitySessionResume),
+		terminalResizeEnd:      negotiated.HasCapability(CapabilityTerminalResizeEnd),
+		sessionProcessExit:     negotiated.HasCapability(CapabilitySessionProcessExit),
+		controlError:           negotiated.HasCapability(CapabilityControlError),
+		controlHealth:          negotiated.HasCapability(CapabilityControlHealth),
+		attachmentTransfer:     negotiated.HasCapability(CapabilityAttachmentTransfer),
+		attachmentPromptAction: negotiated.HasCapability(CapabilityAttachmentPromptAction),
 	}, nil
 }
 
@@ -205,6 +219,45 @@ func (s *AgentStream) DecodeClientMessage(encoded []byte) (ClientStreamMessage, 
 		}
 		message.Kind = ClientStreamMessageAttachmentCancel
 		message.TransferID = append([]byte(nil), payload.AttachmentCancel.TransferId...)
+	case *vibebridgev1.Envelope_AttachmentPromptPrepare:
+		if !s.attachmentPromptAction {
+			return ClientStreamMessage{}, errors.New("attachment prompt action was not negotiated")
+		}
+		prepare := payload.AttachmentPromptPrepare
+		if prepare == nil || !validAttachmentPromptActionID(prepare.ActionId) ||
+			len(prepare.TransferIds) == 0 || len(prepare.TransferIds) > maxAttachmentPromptTransfers ||
+			len(prepare.Prompt) == 0 || len(prepare.Prompt) > MaxAttachmentPromptBytes {
+			return ClientStreamMessage{}, errors.New("AttachmentPromptPrepare has invalid action metadata")
+		}
+		message.Kind = ClientStreamMessageAttachmentPromptPrepare
+		message.ActionID = append([]byte(nil), prepare.ActionId...)
+		message.TransferIDs = make([][]byte, len(prepare.TransferIds))
+		for index, transferID := range prepare.TransferIds {
+			if !validAttachmentTransferID(transferID) {
+				return ClientStreamMessage{}, errors.New("AttachmentPromptPrepare has invalid transfer metadata")
+			}
+			message.TransferIDs[index] = append([]byte(nil), transferID...)
+		}
+		message.Prompt = prepare.Prompt
+		message.AppendEnter = prepare.AppendEnter
+	case *vibebridgev1.Envelope_AttachmentPromptCommit:
+		if !s.attachmentPromptAction {
+			return ClientStreamMessage{}, errors.New("attachment prompt action was not negotiated")
+		}
+		if payload.AttachmentPromptCommit == nil || !validAttachmentPromptActionID(payload.AttachmentPromptCommit.ActionId) {
+			return ClientStreamMessage{}, errors.New("AttachmentPromptCommit has invalid action metadata")
+		}
+		message.Kind = ClientStreamMessageAttachmentPromptCommit
+		message.ActionID = append([]byte(nil), payload.AttachmentPromptCommit.ActionId...)
+	case *vibebridgev1.Envelope_AttachmentPromptCancel:
+		if !s.attachmentPromptAction {
+			return ClientStreamMessage{}, errors.New("attachment prompt action was not negotiated")
+		}
+		if payload.AttachmentPromptCancel == nil || !validAttachmentPromptActionID(payload.AttachmentPromptCancel.ActionId) {
+			return ClientStreamMessage{}, errors.New("AttachmentPromptCancel has invalid action metadata")
+		}
+		message.Kind = ClientStreamMessageAttachmentPromptCancel
+		message.ActionID = append([]byte(nil), payload.AttachmentPromptCancel.ActionId...)
 	default:
 		return ClientStreamMessage{}, errors.New("client envelope contains an unsupported payload")
 	}
@@ -217,6 +270,10 @@ func (s *AgentStream) DecodeClientMessage(encoded []byte) (ClientStreamMessage, 
 
 func validAttachmentTransferID(transferID []byte) bool {
 	return len(transferID) > 0 && len(transferID) <= maxAttachmentTransferIDBytes
+}
+
+func validAttachmentPromptActionID(actionID []byte) bool {
+	return len(actionID) > 0 && len(actionID) <= maxAttachmentPromptActionIDBytes
 }
 
 // CommitClientMessage advances ordering after the caller successfully applies
@@ -356,6 +413,40 @@ func (s *AgentStream) EncodeProcessExit(outcome vibebridgev1.ProcessExitOutcome,
 	}}}, sentAt)
 }
 
+// EncodeAttachmentPromptPreview reports the exact trusted preview for a
+// prepared action or the durable state of an already committed action.
+func (s *AgentStream) EncodeAttachmentPromptPreview(actionID []byte, disposition vibebridgev1.AttachmentPromptDisposition, preview string, appendEnter bool, sentAt time.Time) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.attachmentPromptAction {
+		return nil, errors.New("attachment prompt action was not negotiated")
+	}
+	if s.sessionResume && !s.sessionBound {
+		return nil, errors.New("session must be bound before AttachmentPromptPreview")
+	}
+	if !validAttachmentPromptActionID(actionID) {
+		return nil, errors.New("attachment prompt action ID is invalid")
+	}
+	switch disposition {
+	case vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_PREPARED:
+		if preview == "" || len(preview) > MaxAttachmentPromptPreviewBytes {
+			return nil, errors.New("prepared attachment prompt preview is invalid")
+		}
+	case vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_COMMITTED:
+		if preview != "" || appendEnter {
+			return nil, errors.New("committed attachment prompt preview must be empty")
+		}
+	default:
+		return nil, errors.New("attachment prompt disposition is invalid")
+	}
+	return s.encodeLocked(&vibebridgev1.Envelope{Payload: &vibebridgev1.Envelope_AttachmentPromptPreview{AttachmentPromptPreview: &vibebridgev1.AttachmentPromptPreview{
+		ActionId:    append([]byte(nil), actionID...),
+		Disposition: disposition,
+		Preview:     preview,
+		AppendEnter: appendEnter,
+	}}}, sentAt)
+}
+
 // EncodeError encodes an allowlisted application failure. Unlike terminal
 // traffic, a resumable stream may report a session-start or active-session error
 // before it binds; that envelope carries empty session metadata.
@@ -371,7 +462,8 @@ func (s *AgentStream) EncodeError(code vibebridgev1.ErrorCode, sentAt time.Time)
 		vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED,
 		vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED,
 		vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE,
-		vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED:
+		vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED,
+		vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED:
 	default:
 		return nil, errors.New("error code is invalid")
 	}

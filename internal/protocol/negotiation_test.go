@@ -125,6 +125,28 @@ func TestAcceptClientHelloRejectsWrongRoleAndMalformedRange(t *testing.T) {
 				)
 			},
 		},
+		{
+			name: "attachment prompt action without transfer",
+			mutate: func(envelope *vibebridgev1.Envelope) {
+				envelope.GetHello().Capabilities = append(
+					envelope.GetHello().Capabilities,
+					CapabilityTerminalSequencedIO,
+					CapabilityControlError,
+					CapabilityAttachmentPromptAction,
+				)
+			},
+		},
+		{
+			name: "attachment prompt action without control error",
+			mutate: func(envelope *vibebridgev1.Envelope) {
+				envelope.GetHello().Capabilities = append(
+					envelope.GetHello().Capabilities,
+					CapabilityTerminalSequencedIO,
+					CapabilityAttachmentTransfer,
+					CapabilityAttachmentPromptAction,
+				)
+			},
+		},
 	}
 
 	for _, testCase := range tests {
@@ -158,8 +180,8 @@ func TestNewAgentHelloUsesNegotiatedVersion(t *testing.T) {
 	}
 	wantCapabilities := []string{CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilitySessionResume, CapabilityControlError, CapabilityControlHealth}
 	for _, capability := range envelope.GetHello().GetCapabilities() {
-		if capability == CapabilityAttachmentTransfer {
-			t.Fatal("Agent advertised attachment transfer before implementing the transfer state machine")
+		if capability == CapabilityAttachmentTransfer || capability == CapabilityAttachmentPromptAction {
+			t.Fatalf("Agent advertised dark attachment capability %q", capability)
 		}
 	}
 	for _, want := range wantCapabilities {

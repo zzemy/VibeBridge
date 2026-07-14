@@ -186,3 +186,60 @@ func goldenAttachmentBeginEnvelope() *vibebridgev1.Envelope {
 		}},
 	}
 }
+
+func TestAttachmentPromptPreviewEnvelopeMatchesCrossLanguageGoldenVector(t *testing.T) {
+	goldenPath := filepath.Join("..", "..", "proto", "vibebridge", "v1", "testdata", "attachment_prompt_preview_envelope.bin")
+	want := goldenAttachmentPromptPreviewEnvelope()
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(want)
+	if err != nil {
+		t.Fatalf("encode attachment prompt preview envelope: %v", err)
+	}
+	if os.Getenv("VIBEBRIDGE_UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(goldenPath, encoded, 0o644); err != nil {
+			t.Fatalf("update attachment prompt preview golden vector: %v", err)
+		}
+	}
+
+	golden, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read attachment prompt preview golden vector: %v", err)
+	}
+	if !bytes.Equal(encoded, golden) {
+		t.Fatalf("encoded attachment prompt preview envelope does not match %s", goldenPath)
+	}
+
+	decoded := new(vibebridgev1.Envelope)
+	if err := proto.Unmarshal(golden, decoded); err != nil {
+		t.Fatalf("decode attachment prompt preview golden vector: %v", err)
+	}
+	if !proto.Equal(decoded, want) {
+		t.Fatalf("decoded attachment prompt preview envelope = %v, want %v", decoded, want)
+	}
+}
+
+func goldenAttachmentPromptPreviewEnvelope() *vibebridgev1.Envelope {
+	return &vibebridgev1.Envelope{
+		ProtocolMajor: 1,
+		ConnectionId: []byte{
+			0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+			0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+		},
+		SessionId: []byte{
+			0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+			0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+		},
+		SessionGeneration: 7,
+		Sequence:          10,
+		Acknowledge:       9,
+		SentAt: &timestamppb.Timestamp{
+			Seconds: 1783843203,
+			Nanos:   12_000_000,
+		},
+		Payload: &vibebridgev1.Envelope_AttachmentPromptPreview{AttachmentPromptPreview: &vibebridgev1.AttachmentPromptPreview{
+			ActionId:    []byte{0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7},
+			Disposition: vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_PREPARED,
+			Preview:     "Inspect evidence\n\nUse the following local files:\n- `../.vibebridge/uploads/session/file.txt`",
+			AppendEnter: true,
+		}},
+	}
+}
