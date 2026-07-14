@@ -4,6 +4,10 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   AcknowledgementSchema,
   AttachSessionSchema,
+  AttachmentBeginSchema,
+  AttachmentCancelSchema,
+  AttachmentChunkSchema,
+  AttachmentCompleteSchema,
   EndSessionSchema,
   EnvelopeSchema,
   ErrorCode,
@@ -32,11 +36,16 @@ export const controlErrorCapability = "control.error_v1";
 export const controlHealthCapability = "control.health_v1";
 export const attachmentTransferCapability = "attachment.transfer_v1";
 export const protocolV1MaxTerminalInputBytes = 32 * 1024;
+// Keep chunk payloads below the 64 KiB envelope ceiling after protobuf framing.
+export const protocolV1MaxAttachmentChunkBytes = 48 * 1024;
 export const protocolV1MaxTerminalDimension = 65_535;
 
 const connectionIdBytes = 16;
 const maxCapabilities = 64;
 const maxCapabilityLength = 128;
+const maxUint64 = (1n << 64n) - 1n;
+const maxAttachmentTransferIdBytes = 64;
+const sha256Bytes = 32;
 
 export type NegotiatedAgentHello = {
   protocolMajor: number;
@@ -160,12 +169,29 @@ export type AgentStreamMessage =
   | { type: "pong" }
   | { type: "acknowledgement" };
 
+export type AttachmentBeginRequest = {
+  transferId: Uint8Array;
+  displayName: string;
+  declaredContentType: string;
+  declaredExtension: string;
+  totalSizeBytes: bigint;
+  totalSha256: Uint8Array;
+};
+
+export type AttachmentChunkRequest = {
+  transferId: Uint8Array;
+  offsetBytes: bigint;
+  data: Uint8Array;
+  chunkSha256: Uint8Array;
+};
+
 type ProtocolV1ClientStreamOptions = {
   sessionResume?: boolean;
   sessionProcessExit?: boolean;
   terminalResizeEnd?: boolean;
   controlError?: boolean;
   controlHealth?: boolean;
+  attachmentTransfer?: boolean;
 };
 
 /** Owns connection-local sequence and acknowledgement state after Hello. */
@@ -181,6 +207,7 @@ export class ProtocolV1ClientStream {
   private readonly terminalResizeEnd: boolean;
   private readonly controlError: boolean;
   private readonly controlHealth: boolean;
+  private readonly attachmentTransfer: boolean;
   private readonly outstandingPingSequences: bigint[] = [];
   private sessionBound = false;
   private sessionId = new Uint8Array();
@@ -198,6 +225,7 @@ export class ProtocolV1ClientStream {
     this.terminalResizeEnd = options.terminalResizeEnd === true;
     this.controlError = options.controlError === true;
     this.controlHealth = options.controlHealth === true;
+    this.attachmentTransfer = options.attachmentTransfer === true;
   }
 
   /** Reports whether control.health_v1 was negotiated for this physical connection. */
@@ -257,6 +285,78 @@ export class ProtocolV1ClientStream {
       sessionGeneration: this.sessionGeneration,
       lastAcknowledgedSequence: this.highestInbound,
     };
+  }
+
+  /** Reports whether attachment.transfer_v1 was negotiated for this physical connection. */
+  usesAttachmentTransfer(): boolean {
+    return this.attachmentTransfer;
+  }
+
+  createAttachmentBegin(request: AttachmentBeginRequest, sentAt = new Date()): Uint8Array {
+    this.assertAttachmentTransfer();
+    assertAttachmentTransferId(request.transferId);
+    if (
+      request.totalSizeBytes <= 0n
+      || request.totalSizeBytes > maxUint64
+      || request.totalSha256.byteLength !== sha256Bytes
+      || !request.displayName
+      || !request.declaredContentType
+      || !request.declaredExtension
+    ) {
+      throw new Error("Attachment metadata has an invalid size, checksum, or declaration");
+    }
+    return this.encode({
+      case: "attachmentBegin",
+      value: create(AttachmentBeginSchema, {
+        transferId: request.transferId,
+        displayName: request.displayName,
+        declaredContentType: request.declaredContentType,
+        declaredExtension: request.declaredExtension,
+        totalSizeBytes: request.totalSizeBytes,
+        totalSha256: request.totalSha256,
+      }),
+    }, sentAt);
+  }
+
+  createAttachmentChunk(request: AttachmentChunkRequest, sentAt = new Date()): Uint8Array {
+    this.assertAttachmentTransfer();
+    assertAttachmentTransferId(request.transferId);
+    if (
+      request.offsetBytes < 0n
+      || request.offsetBytes > maxUint64
+      || request.data.byteLength === 0
+      || request.data.byteLength > protocolV1MaxAttachmentChunkBytes
+      || request.chunkSha256.byteLength !== sha256Bytes
+    ) {
+      throw new Error("Attachment chunk has an invalid offset, size, or checksum");
+    }
+    return this.encode({
+      case: "attachmentChunk",
+      value: create(AttachmentChunkSchema, {
+        transferId: request.transferId,
+        offsetBytes: request.offsetBytes,
+        data: request.data,
+        chunkSha256: request.chunkSha256,
+      }),
+    }, sentAt);
+  }
+
+  createAttachmentComplete(transferId: Uint8Array, sentAt = new Date()): Uint8Array {
+    this.assertAttachmentTransfer();
+    assertAttachmentTransferId(transferId);
+    return this.encode({
+      case: "attachmentComplete",
+      value: create(AttachmentCompleteSchema, { transferId }),
+    }, sentAt);
+  }
+
+  createAttachmentCancel(transferId: Uint8Array, sentAt = new Date()): Uint8Array {
+    this.assertAttachmentTransfer();
+    assertAttachmentTransferId(transferId);
+    return this.encode({
+      case: "attachmentCancel",
+      value: create(AttachmentCancelSchema, { transferId }),
+    }, sentAt);
   }
 
   createTerminalInput(data: string, sentAt = new Date()): Uint8Array {
@@ -406,6 +506,12 @@ export class ProtocolV1ClientStream {
     return message;
   }
 
+  private assertAttachmentTransfer() {
+    if (!this.attachmentTransfer) {
+      throw new Error("Attachment transfer was not negotiated");
+    }
+  }
+
   private encode(
     payload: Envelope["payload"],
     sentAt: Date,
@@ -434,6 +540,12 @@ export class ProtocolV1ClientStream {
     }
     this.nextOutbound += 1n;
     return encoded;
+  }
+}
+
+function assertAttachmentTransferId(transferId: Uint8Array) {
+  if (transferId.byteLength === 0 || transferId.byteLength > maxAttachmentTransferIdBytes) {
+    throw new Error(`Attachment transfer ID must be between 1 and ${maxAttachmentTransferIdBytes} bytes`);
   }
 }
 

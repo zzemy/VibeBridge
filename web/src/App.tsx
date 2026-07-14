@@ -1,5 +1,6 @@
 import { Activity, Clock3, Power, Radio, RefreshCw, SendHorizontal, ShieldCheck, WifiOff } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AttachmentComposer } from "./components/AttachmentComposer";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { PromptComposer } from "./components/PromptComposer";
 import { ShortcutBar } from "./components/ShortcutBar";
@@ -20,6 +21,7 @@ import { Button } from "./components/ui/button";
 import { isServerMessage, isSessionStatus, type ServerMessage, type SessionStatus } from "./lib/protocol";
 import {
   acceptAgentHello,
+  attachmentTransferCapability,
   controlErrorCapability,
   controlHealthCapability,
   createClientHello,
@@ -33,6 +35,11 @@ import {
   terminalResizeEndCapability,
   terminalSequencedIoCapability,
 } from "./lib/protocol-v1";
+import {
+  transferAttachments,
+  type AttachmentTransferProgress,
+  type AttachmentTransferSender,
+} from "./lib/attachments";
 import { terminalKeys } from "./lib/terminalKeys";
 
 type ConnectionState = "missing-token" | "connecting" | "reconnecting" | "connected" | "closed" | "error";
@@ -41,6 +48,8 @@ type TerminalChunk = string | Uint8Array;
 const TerminalView = lazy(() => import("./components/TerminalView").then((module) => ({ default: module.TerminalView })));
 const reconnectDelaySeconds = 3;
 const minTerminalFontSize = 11;
+// Keep the prepared client flow dark until the full prompt-action and adapter path is ready.
+const attachmentClientFlowEnabled = false;
 const maxTerminalFontSize = 18;
 
 function stableErrorMessage(code: ErrorCode) {
@@ -100,6 +109,7 @@ export function App() {
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
   const [terminalFontSize, setTerminalFontSize] = useState(readTerminalFontSize);
   const [notice, setNotice] = useState("");
+  const [attachmentTransferAvailable, setAttachmentTransferAvailable] = useState(false);
   const [now, setNow] = useState(Date.now());
   const socketRef = useRef<WebSocket | null>(null);
   const protocolStreamRef = useRef<ProtocolV1ClientStream | null>(null);
@@ -247,6 +257,7 @@ export function App() {
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
       protocolStreamRef.current = null;
+      setAttachmentTransferAvailable(false);
 
       const markConnected = () => {
         if (hasConnectedRef.current) {
@@ -298,12 +309,15 @@ export function App() {
               const terminalResizeEnd = negotiated.capabilities.has(terminalResizeEndCapability);
               const controlError = negotiated.capabilities.has(controlErrorCapability);
               const controlHealth = negotiated.capabilities.has(controlHealthCapability);
+              const attachmentTransfer = attachmentClientFlowEnabled && negotiated.capabilities.has(attachmentTransferCapability);
+              setAttachmentTransferAvailable(attachmentTransfer);
               const stream = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes, {
                 sessionProcessExit,
                 sessionResume,
                 terminalResizeEnd,
                 controlError,
                 controlHealth,
+                attachmentTransfer,
               });
               protocolStreamRef.current = stream;
               protocolNegotiated = true;
@@ -313,6 +327,7 @@ export function App() {
                 markConnected();
               }
             } else {
+              setAttachmentTransferAvailable(false);
               protocolNegotiated = true;
               markConnected();
             }
@@ -433,8 +448,35 @@ export function App() {
       socketRef.current?.close();
       socketRef.current = null;
       protocolStreamRef.current = null;
+      setAttachmentTransferAvailable(false);
     };
   }, [handleApplicationError, handleProcessExit, handleServerMessage, retryTrigger, showNotice, wsUrl]);
+
+  const sendAttachments = useCallback(async (
+    files: readonly File[],
+    signal: AbortSignal,
+    onProgress: (progress: AttachmentTransferProgress) => void,
+  ) => {
+    const socket = socketRef.current;
+    const protocolStream = protocolStreamRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !protocolStream?.usesAttachmentTransfer()) {
+      throw new Error("Attachment transfer is not available");
+    }
+
+    const send = (payload: Uint8Array) => {
+      if (socket.readyState !== WebSocket.OPEN) {
+        throw new Error("Connection lost during attachment transfer");
+      }
+      socket.send(payload.slice().buffer);
+    };
+    const sender: AttachmentTransferSender = {
+      begin: (request) => send(protocolStream.createAttachmentBegin(request)),
+      chunk: (request) => send(protocolStream.createAttachmentChunk(request)),
+      complete: (transferId) => send(protocolStream.createAttachmentComplete(transferId)),
+      cancel: (transferId) => send(protocolStream.createAttachmentCancel(transferId)),
+    };
+    await transferAttachments(files, sender, signal, onProgress);
+  }, []);
 
   const sendInput = useCallback((data: string) => {
     const socket = socketRef.current;
@@ -564,6 +606,13 @@ export function App() {
           ) : null}
 
           <ShortcutBar disabled={!canSend} onInput={sendInput} />
+          {attachmentTransferAvailable ? (
+            <AttachmentComposer
+              disabled={!canSend}
+              transferEnabled={canSend}
+              onTransfer={sendAttachments}
+            />
+          ) : null}
           <PromptComposer
             disabled={!canSend}
             historyStorageKey={token ? `vibebridge:history:${token}` : "vibebridge:history"}
