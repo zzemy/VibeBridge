@@ -136,7 +136,7 @@ func runServiceInstall(args []string, output io.Writer, errorOutput io.Writer, m
 		return err
 	}
 	fmt.Fprintln(output, "Installed the user-scoped VibeBridge background Agent and requested an immediate start.")
-	fmt.Fprintln(output, "Run `vibebridge service status --qr` to display the current connection URL and QR code.")
+	fmt.Fprintln(output, "Use the VibeBridge tray icon, or run `vibebridge service status --qr` as a terminal fallback.")
 	return nil
 }
 
