@@ -17,6 +17,7 @@ import {
 } from "../gen/vibebridge/v1/envelope_pb";
 import {
   ProtocolV1ClientStream,
+  protocolV1MaxAttachmentChunkBytes,
   protocolV1MaxEnvelopeBytes,
   protocolV1MaxTerminalDimension,
 } from "./protocol-v1";
@@ -301,4 +302,52 @@ describe("Protocol V1 sequenced terminal stream", () => {
     });
     expect(() => stream.acceptAgentMessage(encoded)).toThrow();
   });
+
+  test("encodes negotiated attachment begin, chunk, complete, and cancel operations", () => {
+    const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { attachmentTransfer: true });
+    const transferId = Uint8Array.from({ length: 16 }, (_, index) => 240 + index);
+    const hash = new Uint8Array(32);
+
+    const begin = fromBinary(EnvelopeSchema, stream.createAttachmentBegin({
+      transferId,
+      displayName: "notes.md",
+      declaredContentType: "text/markdown",
+      declaredExtension: "md",
+      totalSizeBytes: 5n,
+      totalSha256: hash,
+    }, sentAt));
+    expect(begin.sequence).toBe(2n);
+    expect(begin.payload.case).toBe("attachmentBegin");
+
+    const chunkData = new Uint8Array(protocolV1MaxAttachmentChunkBytes);
+    const encodedChunk = stream.createAttachmentChunk({
+      transferId,
+      offsetBytes: 0n,
+      data: chunkData,
+      chunkSha256: hash,
+    }, sentAt);
+    const chunk = fromBinary(EnvelopeSchema, encodedChunk);
+    expect(encodedChunk.byteLength).toBeLessThanOrEqual(protocolV1MaxEnvelopeBytes);
+    expect(chunk.sequence).toBe(3n);
+    expect(chunk.payload.case).toBe("attachmentChunk");
+
+    expect(fromBinary(EnvelopeSchema, stream.createAttachmentComplete(transferId, sentAt)).payload.case).toBe("attachmentComplete");
+    expect(fromBinary(EnvelopeSchema, stream.createAttachmentCancel(transferId, sentAt)).payload.case).toBe("attachmentCancel");
+  });
+
+  test("rejects attachment operations without negotiation or with invalid chunk metadata", () => {
+    const transferId = new Uint8Array(16);
+    const hash = new Uint8Array(32);
+    const unavailable = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes);
+    expect(() => unavailable.createAttachmentComplete(transferId, sentAt)).toThrow("not negotiated");
+
+    const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { attachmentTransfer: true });
+    expect(() => stream.createAttachmentChunk({
+      transferId,
+      offsetBytes: 0n,
+      data: new Uint8Array(protocolV1MaxAttachmentChunkBytes + 1),
+      chunkSha256: hash,
+    }, sentAt)).toThrow("invalid offset, size, or checksum");
+  });
+
 });
