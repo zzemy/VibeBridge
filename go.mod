@@ -5,6 +5,7 @@ go 1.26.5
 require (
 	fyne.io/systray v1.12.2
 	github.com/aymanbagabas/go-pty v0.2.3
+	github.com/flynn/noise v1.1.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/mdp/qrterminal/v3 v3.2.1
 	golang.org/x/sys v0.47.0
