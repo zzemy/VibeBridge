@@ -13,7 +13,7 @@ Move a phone-selected image or file into the local workspace safely, then make i
 5. Agent validates policy and reserves quota.
 6. Client sends bounded encrypted chunks with offset and checksum state.
 7. Agent writes to a temporary file in the session staging directory.
-8. Agent verifies final size and checksum, then atomically renames.
+8. Agent verifies final size and checksum, then atomically publishes the generated final name without replacing an existing entry.
 9. Client asks the selected tool adapter to reference the staged relative path.
 10. Cleanup policy removes the file at session end or explicit user action.
 
@@ -26,11 +26,14 @@ Default location:
 ```
 
 - `.vibebridge/` is added to Git ignore guidance.
-- The Agent generates the physical name.
+- The Agent generates the physical name as a 128-bit lowercase hexadecimal identifier plus a policy-allowlisted suffix.
 - Original name is display metadata and never used directly for path construction.
 - Workspace roots come only from the validated local registry; the remote client selects an advertised opaque ID and never supplies a filesystem root.
 - Canonical resolved paths must remain under the session staging root. Registry validation at startup does not replace containment and no-follow checks before every attachment file operation.
+- The Agent binds file operations to an `os.Root` directory handle, revalidates the workspace, staging path, and directory identity before create, chunk write, rename, and removal, and fails closed if the boundary moves or is replaced.
+- Creates are exclusive, publication uses a no-replace hard link before removing the partial name, and remove is idempotent. The Agent probes hard-link support before accepting transfers for a staging filesystem and fails closed rather than falling back to an overwriting rename. Session cleanup refuses to run while a directory handle is open and remains retryable after the owner closes it.
 - Partial files use a non-executable temporary suffix.
+- These checks constrain remote path input and detect replacement before each operation. As documented in the threat model, they do not protect a fully compromised endpoint or a same-user local process that races filesystem syscalls.
 - No archive extraction in V1.
 
 When no workspace is selected, the Agent uses an OS-local application data directory and tells the tool adapter the permitted path. Sandbox access must be checked before the transfer begins.
