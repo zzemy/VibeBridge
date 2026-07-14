@@ -15,6 +15,7 @@ Control local AI CLI sessions such as Codex and Claude Code from your phone over
 - Short-disconnect resume, byte/time-bounded replay, idle cleanup, and idempotent PTY process-tree termination.
 - Versioned workspace roots and launch profiles, privacy-safe lifecycle logs, and local diagnostics.
 - A least-privilege, user-scoped Windows background Agent installed through Task Scheduler, with a system tray for status, local UI, pairing, and graceful exit.
+- A persistent Agent device identity protected by Windows DPAPI, canonical signed descriptors, five-minute single-use pairing invitations, and local device revocation foundations.
 - Canonical Protocol V1 Protobuf schemas, generated Go/TypeScript packages, golden vectors, and compatibility CI.
 
 The browser endpoint now negotiates Protocol V1. When both peers support sequenced I/O and `session.resume_v1`, terminal traffic, acknowledgements, session attachment, and bounded reconnect replay use ordered Protobuf envelopes with explicit `FRESH`, `RESUMED`, or `RESYNC_REQUIRED` results. Peers that also negotiate `terminal.resize_end_v1` carry terminal resize and explicit end controls in the same ordered stream, `session.process_exit_v1` reports a safe final process outcome, `control.error_v1` reports allowlisted application failures without exposing host errors, and `control.health_v1` sequences application Ping/Pong independently of WebSocket transport keepalive. Older peers retain safe JSON adapters during this staged transition.
@@ -117,13 +118,17 @@ Use `--profile <id>` during installation to select a non-default launch profile.
 & $agent service uninstall
 ```
 
-The installer starts the Agent and its tray icon immediately and at future sign-ins. `service status` remains the terminal fallback: it probes the local authenticated status endpoint, distinguishes installed/stopped/stale/running states, and prints the current connection URLs only when the Agent responds. `service uninstall` stops and removes the task but does not delete the executable or configuration.
+The installer starts the Agent and its tray icon immediately and at future sign-ins. `service status` remains the terminal fallback: it probes the local authenticated status endpoint, distinguishes installed/stopped/stale/running states, and prints the current connection URLs only when the Agent responds. `service uninstall` stops and removes the task but does not delete the executable, configuration, or durable device identity.
 
 The background Agent stores its current PID, start time, listener, and random per-run token in `%LOCALAPPDATA%\VibeBridge\runtime.json`. The file is written atomically under the current user's local application-data directory and removed on graceful shutdown. It is sensitive runtime state: do not copy, publish, or commit it. Structured lifecycle logs still exclude the token, command, paths, terminal content, and environment values.
+
+The durable Agent identity defaults to `%LOCALAPPDATA%\VibeBridge\identity.json`; `--identity-store <absolute-path>` overrides it for testing or an explicit direct launch. It contains a versioned envelope protected with current-user Windows DPAPI and purpose-bound optional entropy. First creation is serialized across processes, corrupt or undecryptable state fails closed, and restart preserves the same random device ID, Ed25519 signing key, X25519 key-agreement key, authorization counter, and revocation epoch. On macOS/Linux source builds the current fallback is a mode-`0600` file rather than an OS keychain and therefore has explicitly lower assurance.
 
 ## Connection and Security
 
 - Each run creates a cryptographically random session token. WebSocket connections without that token are rejected.
+- The tray pairing page is local-machine-only and requires that per-run management token. Its QR contains a signed Agent descriptor and a 256-bit bootstrap secret only after the URL `#` fragment, so the secret is not sent in an HTTP request target.
+- Only one pairing invitation is active at a time; it expires after five minutes, a newer invitation supersedes it, and successful approval will consume it exactly once. Device authorization and revocation state is persisted with monotonic versions and revocation epochs.
 - Browser WebSocket connections must be same-origin. Native clients without an `Origin` header remain supported.
 - One browser controls a PTY at a time. A short disconnect keeps the session alive for `--reconnect-timeout`.
 - The server sends WebSocket Ping control frames every four minutes. Browsers reply with Pong automatically, preventing idle connections from being closed by the five-minute read deadline.
@@ -189,7 +194,7 @@ The resulting binary contains the React frontend and does not require `web/dist`
 ## Current Limitations
 
 - One browser client can control a session at a time.
-- Access uses a per-run token in the QR URL, but transport is not encrypted by VibeBridge itself.
+- Terminal access still uses a per-run bearer token and transport is not encrypted by VibeBridge itself. The new device identity, pairing invitation, and revocation foundations do **not** yet expose the phone-facing encrypted `/pairing/v1` endpoint; scanning the tray invitation is not a completed pairing flow until the E2EE handshake and client UI land.
 - The browser does not yet schedule Protocol V1 application health probes.
 - Public relay, native mobile clients, file attachments, and packaged releases are roadmap work, not current features.
 

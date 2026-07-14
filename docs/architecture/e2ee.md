@@ -15,6 +15,12 @@ Only the paired client and Local Agent may read or modify terminal and attachmen
 
 Reference: [Noise Protocol Framework](https://noiseprotocol.org/noise.html).
 
+## Implementation Status (2026-07-15)
+
+Device descriptors and five-minute bootstrap invitations are implemented as canonical Protobuf messages with deterministic Go/TypeScript vectors. The Agent has persistent Ed25519/X25519 identity material and replay-safe in-memory invitation consumption. No E2EE handshake, traffic encryption, phone-facing `/pairing/v1` transport, or paired-session authentication is implemented yet. The invitation verification code currently authenticates the QR payload only; the final short authentication string must be derived independently from the complete two-party Noise transcript and shown during Agent approval.
+
+Remote exposure remains prohibited until the exact Noise pattern/PSK placement, browser-compatible implementation, transcript binding, directional counters, negative vectors, and cryptographic review gates below are complete.
+
 ## Primitive Baseline
 
 Target baseline, subject to implementation-library review:

@@ -34,6 +34,8 @@ pnpm --dir web build
 - [ ] The complete real-device workflow in the README passes on supported phone/browser combinations.
 - [ ] Explicit End, process exit, reconnect expiry, idle expiry, and Ctrl+C shutdown leave no PTY child process.
 - [ ] A previous supported client/build still behaves according to the declared compatibility range.
+- [ ] Agent restart preserves the same signed device descriptor; concurrent first startup converges on one identity; corrupt or wrong-purpose protected state fails closed.
+- [ ] Identity/pairing Go and TypeScript golden vectors match; invitation expiry, supersession, replay, concurrent consume, authorization reload, and local revocation tests pass.
 
 ## 4. Artifact validation
 
@@ -52,7 +54,7 @@ Get-FileHash -Algorithm SHA256 bin/vibebridge.exe
 
 - [ ] GitHub private vulnerability reporting is enabled and [SECURITY.md](../SECURITY.md) is current.
 - [ ] Security-sensitive fixes have coordinated disclosure notes where required.
-- [ ] Release notes repeat the trusted-private-network limitation until remote transport is supported.
+- [ ] Release notes repeat the trusted-private-network limitation until remote transport is supported, and do not describe invitation generation as completed encrypted pairing.
 - [ ] Checksums and compatibility/rollback notes are attached to the release.
 - [ ] Stable releases are signed; an unsigned artifact must not be labeled stable.
 

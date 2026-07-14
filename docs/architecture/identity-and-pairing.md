@@ -1,5 +1,13 @@
 # Identity and Pairing
 
+## Current Implementation Boundary (2026-07-15)
+
+The Local Agent now generates and persists one random 16-byte device ID, Ed25519 signing key, and X25519 static key. Its signed descriptor and the pairing invitation have canonical Protobuf definitions plus shared Go/TypeScript binary vectors. Windows stores the versioned identity/authorization state at `%LOCALAPPDATA%\VibeBridge\identity.json` using current-user DPAPI with purpose-bound optional entropy; `--identity-store` accepts an absolute override. First creation is serialized across processes, writes are atomic, and malformed, unknown-version, or undecryptable state fails closed. The current macOS/Linux source-build fallback relies on an owner-only mode-`0600` file and is lower assurance than a platform keychain.
+
+The Agent can issue one five-minute invitation at a time. Each contains a 128-bit invitation ID and 256-bit bootstrap secret, a new invitation supersedes the old one, and successful consumption is atomic and replay-safe. The full invitation is encoded only in the URL fragment. The Agent also persists client authorization versions and monotonic revocation epochs; its local authenticated management page can list and revoke devices.
+
+This is a foundation, not yet an end-user pairing path. The advertised `/pairing/v1` connection hint is reserved for the next implementation stage: no phone-facing endpoint currently accepts it, no encrypted handshake or Agent approval exchange has occurred, and the browser client does not yet persist a trusted device. Legacy local terminal access therefore remains on the per-run bearer token and must not be exposed publicly.
+
 ## Identity Layers
 
 VibeBridge separates three concepts:
