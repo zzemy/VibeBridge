@@ -27,9 +27,11 @@ type SessionStaging struct {
 	workspaceRoot string
 	path          string
 
-	mu              sync.Mutex
-	cleaned         bool
-	openDirectories int
+	mu                     sync.Mutex
+	cleaned                bool
+	openDirectories        int
+	transferManagerOpen    bool
+	completedBytesReserved uint64
 }
 
 // CreateSessionStaging creates a new, empty staging directory beneath the
@@ -84,7 +86,7 @@ func (s *SessionStaging) Cleanup() error {
 	if s.cleaned {
 		return nil
 	}
-	if s.openDirectories > 0 {
+	if s.openDirectories > 0 || s.transferManagerOpen {
 		return errors.New("session staging directory is still in use")
 	}
 
@@ -95,6 +97,7 @@ func (s *SessionStaging) Cleanup() error {
 	info, err := os.Lstat(s.path)
 	if os.IsNotExist(err) {
 		s.cleaned = true
+		s.completedBytesReserved = 0
 		return nil
 	}
 	if err != nil {
@@ -105,6 +108,7 @@ func (s *SessionStaging) Cleanup() error {
 			return newPathOperationError("remove replaced session staging entry", err)
 		}
 		s.cleaned = true
+		s.completedBytesReserved = 0
 		return nil
 	}
 	if err := validateCanonicalDirectory(s.workspaceRoot, s.path); err != nil {
@@ -114,7 +118,45 @@ func (s *SessionStaging) Cleanup() error {
 		return newPathOperationError("remove session staging directory", err)
 	}
 	s.cleaned = true
+	s.completedBytesReserved = 0
 	return nil
+}
+
+func (s *SessionStaging) completedBytes() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.completedBytesReserved
+}
+
+func (s *SessionStaging) recordCompletedBytes(size uint64) {
+	s.mu.Lock()
+	s.completedBytesReserved += size
+	s.mu.Unlock()
+}
+
+func claimTransferManager(staging *SessionStaging) error {
+	if staging == nil {
+		return errors.New("session staging is required")
+	}
+	staging.mu.Lock()
+	defer staging.mu.Unlock()
+	if staging.cleaned {
+		return errors.New("session staging is already cleaned")
+	}
+	if staging.transferManagerOpen {
+		return errors.New("session staging already has a transfer manager")
+	}
+	staging.transferManagerOpen = true
+	return nil
+}
+
+func releaseTransferManager(staging *SessionStaging) {
+	if staging == nil {
+		return
+	}
+	staging.mu.Lock()
+	staging.transferManagerOpen = false
+	staging.mu.Unlock()
 }
 
 func ensureCanonicalDirectory(workspaceRoot string, path string) error {

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"strings"
 	"sync"
@@ -22,6 +23,10 @@ type stagingDirectory struct {
 	staging  *SessionStaging
 	root     *os.Root
 	identity os.FileInfo
+
+	// publicationRemove is a narrow failure-injection seam for the two
+	// post-link removals that make publication retryable.
+	publicationRemove func(string) error
 
 	mu     sync.Mutex
 	closed bool
@@ -51,9 +56,10 @@ func openStagingDirectory(staging *SessionStaging) (*stagingDirectory, error) {
 		return nil, newPathOperationError("inspect opened session staging directory", err)
 	}
 	directory := &stagingDirectory{
-		staging:  staging,
-		root:     root,
-		identity: identity,
+		staging:           staging,
+		root:              root,
+		identity:          identity,
+		publicationRemove: root.Remove,
 	}
 	if err := directory.validateBoundDirectory(); err != nil {
 		_ = root.Close()
@@ -72,11 +78,10 @@ func openStagingDirectory(staging *SessionStaging) (*stagingDirectory, error) {
 // names avoid colliding with abandoned probes; all entries are best-effort
 // removed before an error is returned and session cleanup handles crash residue.
 func probeHardLinkPublication(root *os.Root) error {
-	identifier := make([]byte, generatedFileIDBytes)
-	if _, err := rand.Read(identifier); err != nil {
+	prefix, err := generatedStoragePrefix()
+	if err != nil {
 		return errors.New("generate staging publication probe failed")
 	}
-	prefix := hex.EncodeToString(identifier)
 	sourceName := prefix + ".partial"
 	destinationName := prefix + ".txt"
 
@@ -215,42 +220,94 @@ func (d *stagingDirectory) rename(oldName string, newName string) error {
 		return errors.New("staged rename source changed while opening")
 	}
 
-	if err := d.root.Link(oldName, newName); err != nil {
+	linkErr := d.root.Link(oldName, newName)
+	linkCreated := linkErr == nil
+	if linkErr != nil && !errors.Is(linkErr, fs.ErrExist) {
 		_ = source.Close()
-		return newPathOperationError("publish staged file", err)
-	}
-	rollbackDestination := func() {
-		_ = d.root.Remove(newName)
+		return newPathOperationError("publish staged file", linkErr)
 	}
 	destinationInfo, err := d.root.Lstat(newName)
 	if err != nil {
 		_ = source.Close()
-		rollbackDestination()
-		return newPathOperationError("inspect published staged file", err)
+		cause := newPathOperationError("inspect published staged file", err)
+		if linkCreated {
+			return d.rollbackPublication(newName, cause)
+		}
+		return newPathOperationError("publish staged file", linkErr)
 	}
 	if !destinationInfo.Mode().IsRegular() || !os.SameFile(sourceInfo, destinationInfo) {
 		_ = source.Close()
-		rollbackDestination()
-		return errors.New("published staged file identity does not match source")
+		if linkCreated {
+			return d.rollbackPublication(newName, errors.New("published staged file identity does not match source"))
+		}
+		return newPathOperationError("publish staged file", linkErr)
 	}
+
+	// If Link reported ErrExist but both entries identify the same regular
+	// file, this resumes a prior publication whose rollback could not finish.
 	if err := source.Close(); err != nil {
-		rollbackDestination()
-		return newPathOperationError("close staged rename source", err)
+		return d.rollbackPublication(newName, newPathOperationError("close staged rename source", err))
 	}
 	currentSourceInfo, err := d.root.Lstat(oldName)
 	if err != nil {
-		rollbackDestination()
-		return newPathOperationError("reinspect staged rename source", err)
+		return d.rollbackPublication(newName, newPathOperationError("reinspect staged rename source", err))
 	}
 	if !currentSourceInfo.Mode().IsRegular() || !os.SameFile(sourceInfo, currentSourceInfo) {
-		rollbackDestination()
-		return errors.New("staged rename source changed before removal")
+		return d.rollbackPublication(newName, errors.New("staged rename source changed before removal"))
 	}
-	if err := d.root.Remove(oldName); err != nil {
-		rollbackDestination()
-		return newPathOperationError("remove published staged source", err)
+	if err := d.removePublicationEntry(oldName); err != nil {
+		return d.rollbackPublication(newName, newPathOperationError("remove published staged source", err))
 	}
 	return nil
+}
+
+// removePublishedLink removes a final entry left by an interrupted publication
+// only when it is still a hard link to the active partial file.
+func (d *stagingDirectory) removePublishedLink(sourceName string, destinationName string) error {
+	if !validGeneratedStagingName(sourceName) || !validGeneratedStagingName(destinationName) {
+		return errors.New("staged filename is invalid")
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if err := d.validateOperation(); err != nil {
+		return err
+	}
+	sourceInfo, err := d.root.Lstat(sourceName)
+	if err != nil {
+		return newPathOperationError("inspect interrupted publication source", err)
+	}
+	if !sourceInfo.Mode().IsRegular() {
+		return errors.New("interrupted publication source must be a regular file")
+	}
+	destinationInfo, err := d.root.Lstat(destinationName)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return newPathOperationError("inspect interrupted publication destination", err)
+	}
+	if !destinationInfo.Mode().IsRegular() || !os.SameFile(sourceInfo, destinationInfo) {
+		return nil
+	}
+	if err := d.removePublicationEntry(destinationName); err != nil && !os.IsNotExist(err) {
+		return newPathOperationError("remove interrupted publication destination", err)
+	}
+	return nil
+}
+
+func (d *stagingDirectory) rollbackPublication(name string, cause error) error {
+	if err := d.removePublicationEntry(name); err != nil && !os.IsNotExist(err) {
+		return errors.Join(cause, newPathOperationError("roll back staged publication", err))
+	}
+	return cause
+}
+
+func (d *stagingDirectory) removePublicationEntry(name string) error {
+	if d.publicationRemove != nil {
+		return d.publicationRemove(name)
+	}
+	return d.root.Remove(name)
 }
 
 // remove deletes one generated staging entry. Missing files are already in the
@@ -331,6 +388,14 @@ func (d *stagingDirectory) validateBoundDirectory() error {
 		return errors.New("session staging directory identity changed")
 	}
 	return nil
+}
+
+func generatedStoragePrefix() (string, error) {
+	identifier := make([]byte, generatedFileIDBytes)
+	if _, err := rand.Read(identifier); err != nil {
+		return "", errors.New("generate attachment storage identifier failed")
+	}
+	return hex.EncodeToString(identifier), nil
 }
 
 func validGeneratedStagingName(name string) bool {

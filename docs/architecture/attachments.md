@@ -48,7 +48,13 @@ Initial product allowlist:
 
 Office documents and archives require separate preview and security decisions. Executables, scripts, installers, and disk images are not automatically referenced by V1 attachment flows.
 
-Content type is detected from bytes and compared with the declared type and extension.
+Content type is detected from bytes and compared with the declared type and extension. The Agent uses a fixed, cross-platform declaration table rather than OS MIME registries:
+
+- `png` maps to `image/png`; `jpg`/`jpeg` to `image/jpeg`; `webp` to `image/webp`; `gif` to `image/gif`; `pdf` to `application/pdf`.
+- `txt`/`log` map to `text/plain`; Markdown accepts `text/markdown` or the common `text/plain` fallback; JSON, YAML, TOML, and CSV require their explicitly allowlisted structured media types.
+- MIME parameters are rejected except UTF-8 charset declarations for text. Extensions are normalized to an allowlisted lowercase suffix and never inferred from the display name.
+
+Completion checks the first 512 bytes with Go's deterministic content sniffer plus format-specific header checks. Text is also validated incrementally across every chunk for complete UTF-8 encoding and NUL exclusion; HTML, SVG, XML, and script-like active markup detected at the content boundary are rejected rather than reclassified as text. V1 does not claim full image/PDF decoding, malware scanning, or JSON/YAML/TOML/CSV syntax validation.
 
 ## Limits
 
@@ -58,7 +64,7 @@ Default safety limits:
 - 100 MB temporary attachment data per session.
 - 10 files per prompt action.
 - 256 KiB maximum protocol chunk before encryption.
-- Bounded concurrent transfers per device and Agent.
+- Four active transfers per session-side manager by default, plus a bounded aggregate across each device and Agent; completed bytes remain reserved until session cleanup.
 
 Self-hosted operators may lower limits. Raising them requires local disk and relay policy checks.
 
@@ -66,7 +72,9 @@ Self-hosted operators may lower limits. Raising them requires local disk and rel
 
 V1 may restart small failed transfers from zero. Resumable transfers are added when real usage justifies complexity.
 
-The protocol already includes transfer identifier, byte offset, chunk hash, and total hash so resume can be added compatibly. A resume implementation must reject mixed file generations and stale partial data.
+The protocol already includes transfer identifier, byte offset, chunk hash, and total hash so resume can be added compatibly. The V1 manager currently requires an exact next offset, rejects duplicate or gapped chunks without advancing state, and restarts cancelled transfers from zero. A resume implementation must reject mixed file generations and stale partial data.
+
+A `SessionStaging` permits exactly one live transfer manager so parallel managers cannot bypass session quota. The manager reserves declared bytes before creating transfer state, keeps successful files charged across manager reopen until session cleanup, and releases failed or cancelled reservations only after partial removal succeeds. `Complete` is idempotent after publication, while `Cancel` is idempotent and never removes an already-published file. Connection/session owners must close the manager before running staging cleanup. Stable errors do not include remote transfer IDs, display names, or local paths.
 
 ## Tool Adapters
 
