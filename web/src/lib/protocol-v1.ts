@@ -40,6 +40,9 @@ export const protocolV1MaxTerminalInputBytes = 32 * 1024;
 export const protocolV1MaxAttachmentChunkBytes = 48 * 1024;
 export const protocolV1MaxTerminalDimension = 65_535;
 
+// Transfer IDs, hashes, session metadata, timestamps, and protobuf tags remain outside the data payload.
+const attachmentEnvelopeFramingReserveBytes = 1024;
+
 const connectionIdBytes = 16;
 const maxCapabilities = 64;
 const maxCapabilityLength = 128;
@@ -290,6 +293,17 @@ export class ProtocolV1ClientStream {
   /** Reports whether attachment.transfer_v1 was negotiated for this physical connection. */
   usesAttachmentTransfer(): boolean {
     return this.attachmentTransfer;
+  }
+
+  /** Returns a conservative data payload limit under the peer's downward-negotiated envelope ceiling. */
+  maxAttachmentChunkBytes(): number {
+    this.assertAttachmentTransfer();
+    const envelopeLimit = Math.min(protocolV1MaxEnvelopeBytes, this.peerMaxEnvelopeBytes);
+    const availablePayloadBytes = envelopeLimit - attachmentEnvelopeFramingReserveBytes;
+    if (availablePayloadBytes <= 0) {
+      throw new Error("Negotiated envelope limit is too small for attachment chunks");
+    }
+    return Math.min(protocolV1MaxAttachmentChunkBytes, availablePayloadBytes);
   }
 
   createAttachmentBegin(request: AttachmentBeginRequest, sentAt = new Date()): Uint8Array {

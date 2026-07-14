@@ -63,7 +63,7 @@ Default safety limits:
 - 25 MB per file.
 - 100 MB temporary attachment data per session.
 - 10 files per prompt action.
-- 256 KiB session-manager chunk policy ceiling before encryption. With the current 64 KiB Protocol V1 envelope ceiling, the staged browser client emits 48 KiB data chunks so protobuf metadata remains within the negotiated envelope.
+- 256 KiB session-manager chunk policy ceiling before encryption. With the current 64 KiB Protocol V1 envelope ceiling, the staged browser client emits at most 48 KiB data chunks and reduces that ceiling for a peer's smaller negotiated envelope so protobuf metadata remains within the limit.
 - Four active transfers per session-side manager by default, plus a bounded aggregate across each device and Agent; completed bytes remain reserved until session cleanup.
 
 Self-hosted operators may lower limits. Raising them requires local disk and relay policy checks.
@@ -82,7 +82,7 @@ The Protocol V1 Agent decoder accepts begin/chunk/complete/cancel envelopes only
 
 A workspace-bound PTY session lazily creates at most one transfer manager and reuses it for all attachment messages. The server applies the manager side effect before committing the inbound sequence and sending its acknowledgement. A rejected operation therefore leaves that client sequence uncommitted and returns only the allowlisted `ATTACHMENT_TRANSFER_FAILED` error; transfer IDs, display names, paths, and underlying filesystem errors are not sent to the client. Session exit prevents manager recreation, closes the manager, and only then removes staging. If manager close or staging cleanup fails, the session retains the boundary and emits only the privacy-safe `session.cleanup_failed` diagnostic event.
 
-This remains a dark tracer bullet rather than a user-facing feature. A capability-gated browser flow now provides allowlisted file and camera selection, image preview, explicit review/confirmation, bounded hashing and 48 KiB checksummed chunks, aggregate progress, cancellation, and local error recovery. The browser-side 10-file check is only a usability guard until trusted prompt-action context exists. The production Agent Hello and browser Client Hello still do not advertise `attachment.transfer_v1`, and the App keeps the prepared flow disabled; trusted prompt-action enforcement and tool-adapter path delivery must be complete before advertisement is enabled.
+This remains a dark tracer bullet rather than a user-facing feature. A capability-gated browser flow now provides allowlisted file and camera selection, image preview, explicit review/confirmation, whole-file Web Crypto hashing bounded by the 25 MB file limit, downward-sized checksummed chunks, aggregate WebSocket queue progress, best-effort cancellation, and local error recovery. Progress and the success notice do not mean that the Agent acknowledged or verified the transfer. Cancelling a multi-file action stops the current transfer, while files completed earlier in that action remain staged until session cleanup. The browser-side 10-file check is only a usability guard until trusted prompt-action context exists. The production Agent Hello and browser Client Hello still do not advertise `attachment.transfer_v1`, and the App keeps the prepared flow disabled; acknowledgement-correlated backpressure and server-error handling, trusted prompt-action enforcement, explicit action-level cancellation semantics, and tool-adapter path delivery must be complete before advertisement is enabled.
 
 ## Tool Adapters
 

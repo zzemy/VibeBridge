@@ -28,8 +28,12 @@ describe("attachment client policy", () => {
       totalSizeBytes: 5,
     });
 
+    expect(describeAttachment(new File(["x"], "notes.txt", { type: "text/plain; charset=UTF-8" }))).toMatchObject({
+      declaredContentType: "text/plain; charset=utf-8",
+    });
     expect(() => describeAttachment(new File(["x"], "run.exe", { type: "application/octet-stream" }))).toThrow("unsupported file type");
     expect(() => describeAttachment(new File(["x"], "notes.md", { type: "text/html" }))).toThrow("mismatched content type");
+    expect(() => describeAttachment(new File(["x"], "image.png", { type: "image/png; charset=utf-8" }))).toThrow("mismatched content type");
     expect(() => describeAttachment(new File([new Uint8Array(attachmentMaxFileBytes + 1)], "large.txt", { type: "text/plain" }))).toThrow("25 MB");
   });
 
@@ -91,6 +95,21 @@ describe("attachment transfer", () => {
 
     await expect(transferAttachments([file], sender, controller.signal, () => controller.abort())).rejects.toMatchObject({ name: "AbortError" });
     expect(calls).toEqual(["begin", "chunk:0:49152", "cancel"]);
+  });
+
+  test("uses a downward-negotiated chunk limit", async () => {
+    const file = new File([new Uint8Array(20 * 1024).fill(97)], "large.txt", { type: "text/plain" });
+    const chunkSizes: number[] = [];
+    const sender: AttachmentTransferSender = {
+      begin() {},
+      chunk(request) { chunkSizes.push(request.data.byteLength); },
+      complete() {},
+      cancel() {},
+    };
+
+    await transferAttachments([file], sender, new AbortController().signal, () => {}, 8 * 1024);
+
+    expect(chunkSizes).toEqual([8 * 1024, 8 * 1024, 4 * 1024]);
   });
 
   test("cancels a begun transfer when a chunk fails", async () => {
