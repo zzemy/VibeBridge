@@ -153,6 +153,13 @@ message AttachmentCancel {
   bytes transfer_id = 1;
 }
 
+// AttachmentDiscard idempotently removes one validated transfer batch,
+// including completed files. Transfer identifiers remain opaque and local to
+// the bound PTY session.
+message AttachmentDiscard {
+  repeated bytes transfer_ids = 1;
+}
+
 // AttachmentTransferDisposition reports only session-local lifecycle state.
 enum AttachmentTransferDisposition {
   ATTACHMENT_TRANSFER_DISPOSITION_UNSPECIFIED = 0;
@@ -247,5 +254,6 @@ message Envelope {
     AttachmentPromptCancel attachment_prompt_cancel = 47;
     AttachmentTransferStatusRequest attachment_transfer_status_request = 48;
     AttachmentTransferStatus attachment_transfer_status = 49;
+    AttachmentDiscard attachment_discard = 50;
   }
 }

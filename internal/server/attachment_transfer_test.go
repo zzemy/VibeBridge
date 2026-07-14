@@ -265,6 +265,49 @@ func TestProtocolV1TransfersAttachmentIntoWorkspaceSession(t *testing.T) {
 		t.Fatalf("published attachment = %q, want %q", published, content)
 	}
 
+	activeID := []byte("phone-transfer-2")
+	activeContent := []byte("active")
+	activeHash := sha256.Sum256(activeContent)
+	activeBegin := newClientProtocolEnvelope(nil, 0, 7, 7)
+	activeBegin.Payload = &vibebridgev1.Envelope_AttachmentBegin{AttachmentBegin: &vibebridgev1.AttachmentBegin{
+		TransferId:          activeID,
+		DisplayName:         "active.txt",
+		DeclaredContentType: "text/plain",
+		DeclaredExtension:   "txt",
+		TotalSizeBytes:      uint64(len(activeContent)),
+		TotalSha256:         activeHash[:],
+	}}
+	writeProtocolAttachmentMessage(t, connection, activeBegin)
+	assertAttachmentAcknowledgement(t, connection, 8, 7)
+
+	unknownID := []byte("phone-transfer-unknown")
+	discard := newClientProtocolEnvelope(nil, 0, 8, 8)
+	discard.Payload = &vibebridgev1.Envelope_AttachmentDiscard{AttachmentDiscard: &vibebridgev1.AttachmentDiscard{
+		TransferIds: [][]byte{transferID, activeID, unknownID},
+	}}
+	writeProtocolAttachmentMessage(t, connection, discard)
+	assertAttachmentAcknowledgement(t, connection, 9, 8)
+
+	for index, discardedID := range [][]byte{transferID, activeID, unknownID} {
+		clientSequence := uint64(9 + index)
+		statusRequest := newClientProtocolEnvelope(nil, 0, clientSequence, clientSequence)
+		statusRequest.Payload = &vibebridgev1.Envelope_AttachmentTransferStatusRequest{AttachmentTransferStatusRequest: &vibebridgev1.AttachmentTransferStatusRequest{TransferId: discardedID}}
+		writeProtocolAttachmentMessage(t, connection, statusRequest)
+		status := readProtocolEnvelope(t, connection)
+		if status.Sequence != clientSequence+1 || status.Acknowledge != clientSequence ||
+			status.GetAttachmentTransferStatus().GetDisposition() != vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_CANCELLED ||
+			!bytes.Equal(status.GetAttachmentTransferStatus().GetTransferId(), discardedID) {
+			t.Fatalf("discarded attachment status sequence/ack/payload = %d/%d/%+v", status.Sequence, status.Acknowledge, status.GetAttachmentTransferStatus())
+		}
+	}
+	entries, err = os.ReadDir(session.staging.Path())
+	if err != nil {
+		t.Fatalf("read discarded attachment staging: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("discarded attachment entries = %v, want none", entries)
+	}
+
 	stagingPath := session.staging.Path()
 	_ = connection.Close()
 	stopProcess()
