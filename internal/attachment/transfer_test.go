@@ -449,6 +449,194 @@ func TestTransferManagerCompletedQuotaSurvivesManagerReopen(t *testing.T) {
 	}
 }
 
+func TestTransferManagerDiscardsMixedBatchAndReleasesQuota(t *testing.T) {
+	manager, staging := newTestTransferManagerWithStaging(t, managerLimits{
+		maxFileBytes:    8,
+		maxSessionBytes: 8,
+		maxChunkBytes:   8,
+		maxActive:       2,
+	})
+	completedID := []byte("completed")
+	completedContent := []byte("done")
+	beginTransfer(t, manager, validBeginRequest(completedID, completedContent))
+	writeTransferChunk(t, manager, completedID, 0, completedContent)
+	if _, err := manager.Complete(completedID); err != nil {
+		t.Fatalf("complete attachment: %v", err)
+	}
+	activeID := []byte("active")
+	beginTransfer(t, manager, validBeginRequest(activeID, []byte("work")))
+	cancelledID := []byte("cancelled")
+	if err := manager.Cancel(cancelledID); err != nil {
+		t.Fatalf("seed cancelled outcome: %v", err)
+	}
+
+	if err := manager.Discard([][]byte{completedID, activeID, cancelledID, []byte("unknown")}); err != nil {
+		t.Fatalf("discard attachment batch: %v", err)
+	}
+	if err := manager.Discard([][]byte{completedID, activeID, cancelledID, []byte("unknown")}); err != nil {
+		t.Fatalf("repeat discard attachment batch: %v", err)
+	}
+	assertStagingEntryCount(t, staging, 0)
+	if got := staging.completedBytes(); got != 0 {
+		t.Fatalf("completed staged bytes = %d, want 0", got)
+	}
+	for _, transferID := range [][]byte{completedID, activeID, cancelledID, []byte("unknown")} {
+		outcome, err := manager.Outcome(transferID)
+		if err != nil {
+			t.Fatalf("query discarded transfer %q: %v", transferID, err)
+		}
+		if outcome.Disposition != TransferDispositionCancelled || outcome.NextOffsetBytes != 0 {
+			t.Fatalf("discarded transfer %q outcome = %+v, want cancelled", transferID, outcome)
+		}
+	}
+
+	fullQuotaContent := []byte("12345678")
+	if err := manager.Begin(validBeginRequest([]byte("replacement"), fullQuotaContent)); err != nil {
+		t.Fatalf("begin after discard released quota: %v", err)
+	}
+}
+
+func TestTransferManagerDiscardRetainsEveryBatchTombstoneAtCapacity(t *testing.T) {
+	manager, _ := newTestTransferManager(t, managerLimits{
+		maxFileBytes:    8,
+		maxSessionBytes: 8,
+		maxChunkBytes:   8,
+		maxActive:       1,
+	})
+	for index := 0; index < maxCancelledOutcomes; index++ {
+		if err := manager.Cancel([]byte(fmt.Sprintf("cancel-%d", index))); err != nil {
+			t.Fatalf("seed cancelled transfer %d: %v", index, err)
+		}
+	}
+	oldestID := []byte("cancel-0")
+	newID := []byte("discard-new")
+
+	if err := manager.Discard([][]byte{oldestID, newID}); err != nil {
+		t.Fatalf("discard at tombstone capacity: %v", err)
+	}
+	for _, transferID := range [][]byte{oldestID, newID} {
+		outcome, err := manager.Outcome(transferID)
+		if err != nil {
+			t.Fatalf("query discarded transfer %q: %v", transferID, err)
+		}
+		if outcome.Disposition != TransferDispositionCancelled {
+			t.Fatalf("discarded transfer %q outcome = %+v, want cancelled", transferID, outcome)
+		}
+	}
+}
+
+func TestTransferManagerRetriesDiscardAfterPartialFilesystemFailure(t *testing.T) {
+	manager, staging := newTestTransferManagerWithStaging(t, managerLimits{
+		maxFileBytes:    8,
+		maxSessionBytes: 8,
+		maxChunkBytes:   8,
+		maxActive:       2,
+	})
+	completedID := []byte("completed")
+	content := []byte("done")
+	beginTransfer(t, manager, validBeginRequest(completedID, content))
+	writeTransferChunk(t, manager, completedID, 0, content)
+	completed, err := manager.Complete(completedID)
+	if err != nil {
+		t.Fatalf("complete attachment: %v", err)
+	}
+	activeID := []byte("active")
+	beginTransfer(t, manager, validBeginRequest(activeID, content))
+
+	completedPath := filepath.Join(staging.workspaceRoot, completed.RelativePath)
+	if err := os.Remove(completedPath); err != nil {
+		t.Fatalf("replace completed file for failure test: %v", err)
+	}
+	if err := os.Mkdir(completedPath, 0o700); err != nil {
+		t.Fatalf("create replacement directory for failure test: %v", err)
+	}
+
+	if err := manager.Discard([][]byte{activeID, completedID}); err == nil {
+		t.Fatal("discard with replaced completed entry succeeded, want failure")
+	}
+	activeOutcome, err := manager.Outcome(activeID)
+	if err != nil {
+		t.Fatalf("query active transfer after partial failure: %v", err)
+	}
+	if activeOutcome.Disposition != TransferDispositionCancelled {
+		t.Fatalf("active transfer after partial failure = %+v, want cancelled", activeOutcome)
+	}
+	completedOutcome, err := manager.Outcome(completedID)
+	if err != nil {
+		t.Fatalf("query completed transfer after partial failure: %v", err)
+	}
+	if completedOutcome.Disposition != TransferDispositionCompleted {
+		t.Fatalf("completed transfer after partial failure = %+v, want completed", completedOutcome)
+	}
+	if got := staging.completedBytes(); got != uint64(len(content)) {
+		t.Fatalf("completed quota after failed removal = %d, want %d", got, len(content))
+	}
+
+	replacementID := []byte("replacement")
+	beginTransfer(t, manager, validBeginRequest(replacementID, content))
+	if err := manager.Cancel(replacementID); err != nil {
+		t.Fatalf("cancel replacement transfer: %v", err)
+	}
+	if err := manager.Begin(validBeginRequest([]byte("over-quota"), []byte("12345"))); !errors.Is(err, ErrSessionQuotaExceeded) {
+		t.Fatalf("begin while completed quota remains error = %v, want %v", err, ErrSessionQuotaExceeded)
+	}
+
+	if err := os.Remove(completedPath); err != nil {
+		t.Fatalf("remove replacement directory before retry: %v", err)
+	}
+	if err := manager.Discard([][]byte{activeID, completedID}); err != nil {
+		t.Fatalf("retry discard after filesystem recovery: %v", err)
+	}
+	if got := staging.completedBytes(); got != 0 {
+		t.Fatalf("completed quota after retry = %d, want 0", got)
+	}
+	if err := manager.Begin(validBeginRequest([]byte("full-quota"), []byte("12345678"))); err != nil {
+		t.Fatalf("begin after retry released quota: %v", err)
+	}
+}
+
+func TestTransferManagerValidatesDiscardBatchBeforeMutation(t *testing.T) {
+	manager, staging := newTestTransferManagerWithStaging(t, managerLimits{
+		maxFileBytes:    8,
+		maxSessionBytes: 8,
+		maxChunkBytes:   8,
+		maxActive:       1,
+	})
+	transferID := []byte("completed")
+	content := []byte("data")
+	beginTransfer(t, manager, validBeginRequest(transferID, content))
+	writeTransferChunk(t, manager, transferID, 0, content)
+	if _, err := manager.Complete(transferID); err != nil {
+		t.Fatalf("complete attachment: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		ids  [][]byte
+		want error
+	}{
+		{name: "empty", want: ErrInvalidAttachmentSelection},
+		{name: "over limit", ids: makeTransferIDs(maxDiscardAttachments + 1), want: ErrAttachmentSelectionLimit},
+		{name: "invalid ID", ids: [][]byte{transferID, nil}, want: ErrInvalidTransfer},
+		{name: "duplicate", ids: [][]byte{transferID, transferID}, want: ErrDuplicateAttachment},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := manager.Discard(test.ids); !errors.Is(err, test.want) {
+				t.Fatalf("Discard() error = %v, want %v", err, test.want)
+			}
+			outcome, err := manager.Outcome(transferID)
+			if err != nil {
+				t.Fatalf("query completed transfer: %v", err)
+			}
+			if outcome.Disposition != TransferDispositionCompleted {
+				t.Fatalf("completed transfer mutated after invalid discard: %+v", outcome)
+			}
+			assertStagingEntryCount(t, staging, 1)
+		})
+	}
+}
+
 func TestTransferManagerCloseRemovesActiveTransfersBeforeStagingCleanup(t *testing.T) {
 	workspaceRoot := canonicalTestDirectory(t, t.TempDir())
 	staging, err := CreateSessionStaging(workspaceRoot, []byte("manager-close"))

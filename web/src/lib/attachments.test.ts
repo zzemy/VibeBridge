@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import {
+  AttachmentBatchCleanupError,
   attachmentMaxFileBytes,
   attachmentMaxSelectionBytes,
   describeAttachment,
@@ -63,6 +64,7 @@ describe("attachment transfer", () => {
       async chunk() {},
       async complete() {},
       async cancel() {},
+      async discard() {},
     };
 
     await transferAttachments([file], sender, new AbortController().signal, () => {});
@@ -90,6 +92,7 @@ describe("attachment transfer", () => {
       chunk: vi.fn(),
       complete: vi.fn(),
       cancel: vi.fn(),
+      discard: vi.fn(),
     };
 
     await expect(transferAttachments([file], sender, controller.signal, () => {}, 4)).rejects.toMatchObject({ name: "AbortError" });
@@ -97,6 +100,7 @@ describe("attachment transfer", () => {
     expect(slice).toHaveBeenCalledTimes(1);
     expect(sender.begin).not.toHaveBeenCalled();
     expect(sender.cancel).not.toHaveBeenCalled();
+    expect(sender.discard).not.toHaveBeenCalled();
   });
 
   test("waits for acknowledged operations before progress and completion", async () => {
@@ -106,6 +110,7 @@ describe("attachment transfer", () => {
     const beginAcknowledged = new Promise<void>((resolve) => { acknowledgeBegin = resolve; });
     const chunkAcknowledged = new Promise<void>((resolve) => { acknowledgeChunk = resolve; });
     let completedTransferId: Uint8Array | undefined;
+    const discard = vi.fn();
     const sender: AttachmentTransferSender = {
       async begin(request) {
         calls.push(`begin:${request.displayName}:${request.totalSizeBytes}`);
@@ -125,6 +130,7 @@ describe("attachment transfer", () => {
       async cancel() {
         calls.push("cancel");
       },
+      discard,
     };
     const progress = vi.fn();
 
@@ -143,6 +149,7 @@ describe("attachment transfer", () => {
     if (completedIds[0]) completedIds[0][0] ^= 255;
     expect(completedTransferId?.[0]).toBe(firstCompletedByte);
     expect(calls).toEqual(["begin:notes.md:5", "chunk:0:5", "complete:16"]);
+    expect(discard).not.toHaveBeenCalled();
     expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({
       fileName: "notes.md",
       fileBytesSent: 5,
@@ -150,19 +157,24 @@ describe("attachment transfer", () => {
     }));
   });
 
-  test("uses bounded chunks and stops after cancellation", async () => {
+  test("uses bounded chunks and discards the started batch after cancellation", async () => {
     const file = new File([new Uint8Array(49 * 1024).fill(97)], "large.txt", { type: "text/plain" });
     const controller = new AbortController();
     const calls: string[] = [];
+    const startedIds: Uint8Array[] = [];
     const sender: AttachmentTransferSender = {
-      async begin() { calls.push("begin"); },
+      async begin(request) { startedIds.push(request.transferId.slice()); calls.push("begin"); },
       async chunk(request) { calls.push(`chunk:${request.offsetBytes}:${request.data.byteLength}`); },
       async complete() { calls.push("complete"); },
       async cancel() { calls.push("cancel"); },
+      async discard(transferIds) {
+        expect(transferIds).toEqual(startedIds);
+        calls.push(`discard:${transferIds.length}`);
+      },
     };
 
     await expect(transferAttachments([file], sender, controller.signal, () => controller.abort())).rejects.toMatchObject({ name: "AbortError" });
-    expect(calls).toEqual(["begin", "chunk:0:49152", "cancel"]);
+    expect(calls).toEqual(["begin", "chunk:0:49152", "discard:1"]);
   });
 
   test("uses a downward-negotiated chunk limit", async () => {
@@ -173,6 +185,7 @@ describe("attachment transfer", () => {
       async chunk(request) { chunkSizes.push(request.data.byteLength); },
       async complete() {},
       async cancel() {},
+      async discard() {},
     };
 
     await transferAttachments([file], sender, new AbortController().signal, () => {}, 8 * 1024);
@@ -180,22 +193,88 @@ describe("attachment transfer", () => {
     expect(chunkSizes).toEqual([8 * 1024, 8 * 1024, 4 * 1024]);
   });
 
-  test("cancels a begun transfer when a chunk fails and preserves the original error", async () => {
+  test("discards completed and active IDs together when a later file fails", async () => {
     const calls: string[] = [];
+    const startedIds: Uint8Array[] = [];
+    let currentFile = 0;
     const sender: AttachmentTransferSender = {
-      async begin() { calls.push("begin"); },
-      async chunk() {
-        calls.push("chunk");
-        throw new Error("send failed");
+      async begin(request) {
+        currentFile += 1;
+        startedIds.push(request.transferId.slice());
+        calls.push(`begin:${currentFile}`);
       },
-      async complete() { calls.push("complete"); },
-      async cancel() {
-        calls.push("cancel");
-        throw new Error("cancel failed");
+      async chunk() {
+        calls.push(`chunk:${currentFile}`);
+        if (currentFile === 2) throw new Error("second file failed");
+      },
+      async complete() { calls.push(`complete:${currentFile}`); },
+      async cancel() { calls.push("cancel"); },
+      async discard(transferIds) {
+        expect(transferIds).toEqual(startedIds);
+        calls.push(`discard:${transferIds.length}`);
       },
     };
 
-    await expect(transferAttachments([textFile()], sender, new AbortController().signal, () => {})).rejects.toThrow("send failed");
-    expect(calls).toEqual(["begin", "chunk", "cancel"]);
+    await expect(transferAttachments(
+      [textFile("first.md"), textFile("second.md")],
+      sender,
+      new AbortController().signal,
+      () => {},
+    )).rejects.toThrow("second file failed");
+
+    expect(calls).toEqual(["begin:1", "chunk:1", "complete:1", "begin:2", "chunk:2", "discard:2"]);
+  });
+
+  test("discards the completed and current IDs when the user aborts the second file", async () => {
+    const controller = new AbortController();
+    const startedIds: Uint8Array[] = [];
+    let currentFile = 0;
+    const discard = vi.fn(async (transferIds: readonly Uint8Array[]) => {
+      expect(transferIds).toEqual(startedIds);
+    });
+    const sender: AttachmentTransferSender = {
+      async begin(request) { currentFile += 1; startedIds.push(request.transferId.slice()); },
+      async chunk() { if (currentFile === 2) controller.abort(); },
+      async complete() {},
+      async cancel() {},
+      discard,
+    };
+
+    await expect(transferAttachments(
+      [textFile("first.md"), textFile("second.md")],
+      sender,
+      controller.signal,
+      () => {},
+    )).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(discard).toHaveBeenCalledTimes(1);
+    expect(startedIds).toHaveLength(2);
+  });
+
+  test("preserves the transfer failure when batch cleanup cannot be confirmed", async () => {
+    const transferFailure = new Error("send failed");
+    const cleanupFailure = new Error("discard failed");
+    const sender: AttachmentTransferSender = {
+      async begin() {},
+      async chunk() { throw transferFailure; },
+      async complete() {},
+      async cancel() {},
+      async discard() { throw cleanupFailure; },
+    };
+
+    let caught: unknown;
+    try {
+      await transferAttachments([textFile()], sender, new AbortController().signal, () => {});
+    } catch (cause) {
+      caught = cause;
+    }
+
+    expect(caught).toBeInstanceOf(AttachmentBatchCleanupError);
+    expect(caught).toMatchObject({
+      message: "send failed",
+      transferCause: transferFailure,
+      cleanupCause: cleanupFailure,
+      cause: transferFailure,
+    });
   });
 });

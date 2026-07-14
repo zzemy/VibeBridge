@@ -306,7 +306,7 @@ describe("Protocol V1 sequenced terminal stream", () => {
     expect(() => stream.acceptAgentMessage(encoded)).toThrow();
   });
 
-  test("encodes negotiated attachment begin, chunk, complete, and cancel operations", () => {
+  test("encodes negotiated attachment begin, chunk, complete, cancel, and discard operations", () => {
     const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { attachmentTransfer: true });
     const transferId = Uint8Array.from({ length: 16 }, (_, index) => 240 + index);
     const hash = new Uint8Array(32);
@@ -339,8 +339,14 @@ describe("Protocol V1 sequenced terminal stream", () => {
 
     const complete = stream.createAttachmentComplete(transferId, sentAt);
     const cancel = stream.createAttachmentCancel(transferId, sentAt);
+    const secondTransferId = Uint8Array.from(transferId, (value) => value - 16);
+    const discard = stream.createAttachmentDiscard([transferId, secondTransferId], sentAt);
     expect(fromBinary(EnvelopeSchema, complete.encoded).payload.case).toBe("attachmentComplete");
     expect(fromBinary(EnvelopeSchema, cancel.encoded).payload.case).toBe("attachmentCancel");
+    const discardPayload = fromBinary(EnvelopeSchema, discard.encoded).payload;
+    expect(discardPayload.case).toBe("attachmentDiscard");
+    if (discardPayload.case !== "attachmentDiscard") throw new Error("attachment discard payload missing");
+    expect(discardPayload.value.transferIds).toEqual([transferId, secondTransferId]);
   });
 
   test("reduces attachment chunks under a smaller negotiated envelope ceiling", () => {
@@ -365,6 +371,8 @@ describe("Protocol V1 sequenced terminal stream", () => {
     expect(() => unavailable.createAttachmentComplete(transferId, sentAt)).toThrow("not negotiated");
 
     const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { attachmentTransfer: true });
+    expect(() => stream.createAttachmentDiscard([], sentAt)).toThrow("between 1 and 10");
+    expect(() => stream.createAttachmentDiscard([transferId, transferId], sentAt)).toThrow("must be unique");
     expect(() => stream.createAttachmentChunk({
       transferId,
       offsetBytes: 0n,

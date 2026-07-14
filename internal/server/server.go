@@ -499,7 +499,8 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 				case protocolv1.ClientStreamMessageAttachmentBegin,
 					protocolv1.ClientStreamMessageAttachmentChunk,
 					protocolv1.ClientStreamMessageAttachmentComplete,
-					protocolv1.ClientStreamMessageAttachmentCancel:
+					protocolv1.ClientStreamMessageAttachmentCancel,
+					protocolv1.ClientStreamMessageAttachmentDiscard:
 					if err := session.applyAttachmentMessage(streamMessage); err != nil {
 						_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED)
 						return
@@ -813,11 +814,18 @@ func (s *ptySession) applyAttachmentMessage(message protocolv1.ClientStreamMessa
 		_, operationErr = manager.Complete(message.TransferID)
 	case protocolv1.ClientStreamMessageAttachmentCancel:
 		operationErr = manager.Cancel(message.TransferID)
+	case protocolv1.ClientStreamMessageAttachmentDiscard:
+		operationErr = manager.Discard(message.TransferIDs)
 	default:
 		return errors.New("message is not an attachment transfer")
 	}
 	if operationErr == nil {
 		return nil
+	}
+	if message.Kind == protocolv1.ClientStreamMessageAttachmentDiscard {
+		// Discard validates the whole selection before mutation and is itself
+		// idempotently retryable after a partial filesystem failure.
+		return operationErr
 	}
 
 	// A rejected operation is not committed to the ordered stream. Abandon its
