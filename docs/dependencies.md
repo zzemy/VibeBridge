@@ -1,6 +1,6 @@
 # Dependency Inventory and License Review
 
-Review date: 2026-07-12
+Review date: 2026-07-15
 
 This inventory covers dependencies reachable from the current Go executable and production dependencies installed for the web client. Exact versions are authoritative in `go.mod`, `go.sum`, `web/package.json`, and `web/pnpm-lock.yaml`.
 
@@ -21,19 +21,21 @@ License names were checked from module/package metadata and bundled license file
 
 | Module | Version | Role | License |
 | --- | --- | --- | --- |
+| `fyne.io/systray` | `v1.12.2` | Windows notification-area icon and native menu | Apache-2.0 |
 | `github.com/aymanbagabas/go-pty` | `v0.2.3` | Cross-platform PTY/ConPTY adapter | MIT |
 | `github.com/creack/pty` | `v1.1.24` | Unix PTY backend used by `go-pty` | MIT |
+| `github.com/godbus/dbus/v5` | `v5.1.0` | Cross-platform system-tray transport dependency | BSD-2-Clause |
 | `github.com/gorilla/websocket` | `v1.5.3` | WebSocket transport | BSD-2-Clause |
 | `github.com/mdp/qrterminal/v3` | `v3.2.1` | Terminal QR rendering | MIT |
 | `github.com/u-root/u-root` | `v0.16.0` | Unix process/PTY support used by `go-pty` | BSD-3-Clause |
 | `golang.org/x/crypto` | `v0.51.0` | Transitive SSH/terminal support | BSD-3-Clause |
-| `golang.org/x/sys` | `v0.44.0` | Windows Job Objects and platform syscalls | BSD-3-Clause |
+| `golang.org/x/sys` | `v0.47.0` | Windows Job Objects and platform syscalls | BSD-3-Clause |
 | `golang.org/x/term` | `v0.43.0` | Transitive terminal support | BSD-3-Clause |
-| `rsc.io/qr` | `v0.2.0` | Transitive QR encoding | BSD-3-Clause |
+| `rsc.io/qr` | `v0.2.0` | Terminal and local tray pairing-page QR encoding | BSD-3-Clause |
 
 The generated protocol package uses `google.golang.org/protobuf` `v1.36.11` (BSD-3-Clause). It is reachable from the Agent through negotiated Protocol V1 Hello, sequenced terminal I/O, acknowledgement, session-resume, terminal resize/end, process-exit, stable error, and application health paths; the legacy adapter remains available only for staged compatibility.
 
-`github.com/creack/pty` and `github.com/u-root/u-root` are reachable only in Unix builds; Windows builds use the ConPTY implementation and `golang.org/x/sys/windows`. The table is the union of Windows and Linux `go list -deps` results.
+`github.com/creack/pty` and `github.com/u-root/u-root` are reachable only in Unix builds; Windows builds use the ConPTY implementation, `fyne.io/systray`, and `golang.org/x/sys/windows`. `github.com/godbus/dbus/v5` is imported by the cross-platform systray package; its D-Bus behavior is used on Unix rather than by the Windows tray adapter. The table is the union of Windows and Linux `go list -deps` results.
 
 ## Web production dependencies
 
@@ -53,7 +55,7 @@ The production web dependency closure currently reports only MIT, ISC, Apache-2.
 
 ## Vulnerability review
 
-On 2026-07-12, `govulncheck` reported zero reachable vulnerabilities (with findings present only in imported but uncalled code), and `pnpm audit --prod` reported no known vulnerabilities. These results are point-in-time evidence, not a substitute for scanning each release and dependency update.
+On 2026-07-15, `govulncheck` reported zero reachable vulnerabilities (with findings present only in imported but uncalled code), and `pnpm audit --prod` reported no known vulnerabilities. These results are point-in-time evidence, not a substitute for scanning each release and dependency update.
 
 ## Review result
 
