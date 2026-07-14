@@ -51,6 +51,54 @@ describe("attachment client policy", () => {
 });
 
 describe("attachment transfer", () => {
+  test("computes the total checksum incrementally without buffering the whole file", async () => {
+    const hashReadBytes = 1024 * 1024;
+    const content = new Uint8Array(hashReadBytes + 17).fill(97);
+    const file = new File([content], "notes.txt", { type: "text/plain" });
+    const wholeFileRead = vi.spyOn(file, "arrayBuffer").mockRejectedValue(new Error("whole-file read is forbidden"));
+    const slices = vi.spyOn(file, "slice");
+    let totalSha256: Uint8Array | undefined;
+    const sender: AttachmentTransferSender = {
+      async begin(request) { totalSha256 = request.totalSha256; },
+      async chunk() {},
+      async complete() {},
+      async cancel() {},
+    };
+
+    await transferAttachments([file], sender, new AbortController().signal, () => {});
+
+    expect(wholeFileRead).not.toHaveBeenCalled();
+    expect(slices.mock.calls.slice(0, 2).map(([start, end]) => [start, end])).toEqual([
+      [0, hashReadBytes],
+      [hashReadBytes, hashReadBytes + 17],
+    ]);
+    expect(totalSha256 ? Array.from(totalSha256, (byte) => byte.toString(16).padStart(2, "0")).join("") : "").toBe(
+      "c26032d5154f96bd29c799447d715ab681d8d0aa308ecc6f321a35d98f0672da",
+    );
+  });
+
+  test("can cancel during incremental hashing before a transfer begins", async () => {
+    const file = new File(["abcdefghijk"], "notes.txt", { type: "text/plain" });
+    const controller = new AbortController();
+    const originalSlice = file.slice.bind(file);
+    const slice = vi.spyOn(file, "slice").mockImplementation((start, end, contentType) => {
+      controller.abort();
+      return originalSlice(start, end, contentType);
+    });
+    const sender: AttachmentTransferSender = {
+      begin: vi.fn(),
+      chunk: vi.fn(),
+      complete: vi.fn(),
+      cancel: vi.fn(),
+    };
+
+    await expect(transferAttachments([file], sender, controller.signal, () => {}, 4)).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(slice).toHaveBeenCalledTimes(1);
+    expect(sender.begin).not.toHaveBeenCalled();
+    expect(sender.cancel).not.toHaveBeenCalled();
+  });
+
   test("waits for acknowledged operations before progress and completion", async () => {
     const calls: string[] = [];
     let acknowledgeBegin: () => void = () => { throw new Error("begin acknowledgement was not initialized"); };
