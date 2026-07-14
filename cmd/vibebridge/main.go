@@ -103,6 +103,7 @@ func runAgent(args []string) error {
 		WorkingDirectory:      options.workingDirectory,
 		WorkspaceRoot:         options.workspaceRoot,
 		Environment:           options.environment,
+		ToolAdapter:           options.toolAdapter,
 		ReconnectTimeout:      options.reconnectTimeout,
 		IdleTimeout:           options.idleTimeout,
 		DisableLegacyProtocol: options.disableLegacyProtocol,
@@ -206,6 +207,7 @@ type startupOptions struct {
 	profileID             string
 	workspaceID           string
 	workspaceRoot         string
+	toolAdapter           string
 }
 
 func resolveStartupOptions(options startupOptions, configPath string, requestedProfile string, explicitFlags map[string]bool, lookupEnv func(string) (string, bool)) (startupOptions, error) {
@@ -275,6 +277,7 @@ func resolveStartupOptions(options startupOptions, configPath string, requestedP
 	options.command = append([]string{profile.Executable}, profile.Args...)
 	options.workingDirectory = profile.WorkingDirectory
 	options.environment = resolveEnvironment(profile.EnvironmentAllowlist, lookupEnv)
+	options.toolAdapter = profile.ToolAdapter
 	return options, nil
 }
 
