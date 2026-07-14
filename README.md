@@ -13,11 +13,11 @@ Control local AI CLI sessions such as Codex and Claude Code from your phone over
 - Mobile terminal access with ANSI and raw PTY output preserved over WebSocket binary frames.
 - Prompt composition, direct keyboard input, clipboard paste, search, reconnect feedback, and portrait/landscape layouts.
 - Short-disconnect resume, byte/time-bounded replay, idle cleanup, and idempotent PTY process-tree termination.
-- Versioned launch profiles, privacy-safe lifecycle logs, and local diagnostics.
+- Versioned workspace roots and launch profiles, privacy-safe lifecycle logs, and local diagnostics.
 - A least-privilege, user-scoped Windows background Agent installed through Task Scheduler.
 - Canonical Protocol V1 Protobuf schemas, generated Go/TypeScript packages, golden vectors, and compatibility CI.
 
-The browser endpoint still uses the legacy JSON/raw-binary adapter while Protocol V1 negotiation, sequencing, acknowledgements, and resume behavior are integrated incrementally.
+The browser endpoint now negotiates Protocol V1. When both peers support sequenced I/O and `session.resume_v1`, terminal traffic, acknowledgements, session attachment, and bounded reconnect replay use ordered Protobuf envelopes with explicit `FRESH`, `RESUMED`, or `RESYNC_REQUIRED` results. Peers that also negotiate `terminal.resize_end_v1` carry terminal resize and explicit end controls in the same ordered stream, `session.process_exit_v1` reports a safe final process outcome, `control.error_v1` reports allowlisted application failures without exposing host errors, and `control.health_v1` sequences application Ping/Pong independently of WebSocket transport keepalive. Older peers retain safe JSON adapters during this staged transition.
 
 ## Platform Status
 
@@ -63,12 +63,13 @@ go run ./cmd/vibebridge --cmd "codex"
 go run ./cmd/vibebridge --addr "0.0.0.0:8787"
 go run ./cmd/vibebridge --reconnect-timeout 90s
 go run ./cmd/vibebridge --idle-timeout 30m
+go run ./cmd/vibebridge --disable-legacy-protocol
 go run ./cmd/vibebridge --diagnose
 ```
 
 Set `--idle-timeout 0` to disable idle cleanup.
 
-`--diagnose` reports the host PTY support status, user-scoped background Agent installation, configured command or launch profile, working directory, HTTP listen port, frontend build, listener exposure, private LAN addresses, and platform-appropriate firewall guidance without starting a PTY or generating a session token. It runs all independent checks before returning a failure summary, so one run can reveal multiple configuration problems.
+`--diagnose` reports the host PTY support status, user-scoped background Agent installation, configured command or launch profile, selected workspace/working directory, HTTP listen port, frontend build, listener exposure, private LAN addresses, and platform-appropriate firewall guidance without starting a PTY or generating a session token. It runs all independent checks before returning a failure summary, so one run can reveal multiple configuration problems.
 
 ## Local Configuration and Launch Profiles
 
@@ -81,11 +82,15 @@ go run ./cmd/vibebridge --config config.local.json --profile codex
 go run ./cmd/vibebridge --config config.local.json --profile claude --diagnose
 ```
 
-The configuration format is explicitly versioned. Version 1 supports listener/static-asset settings, reconnect and idle durations, a default profile, and structured launch profiles. Each profile declares an executable, an argument array, an optional working directory, and an environment-variable allowlist. Arguments are passed directly to the executable without shell interpolation. Relative working directories are resolved relative to the configuration file.
+The configuration format is explicitly versioned. Version 1 remains supported for listener/static-asset settings, reconnect and idle durations, the optional `disable_legacy_protocol` migration gate, a default profile, and structured launch profiles. Version 2 adds the local workspace registry and `workspace_id` profile binding. Each workspace declares a stable lowercase ID, display label, and existing directory root. Relative roots are resolved from the configuration file, symlinks and Windows junctions are resolved to a canonical absolute root, and duplicate canonical roots are rejected.
 
-Profile sessions inherit only environment variables named in `environment_allowlist`; missing variables are omitted. Include variables required by the selected tool, such as `PATH`, `PATHEXT`, `SYSTEMROOT`, `TEMP`, `TMP`, and `USERPROFILE` on Windows. The example is Windows-oriented; change the shell executable and environment names for another supported platform.
+A profile may bind to a configured workspace with `workspace_id`. Its empty `working_directory` defaults to that root; a relative value is resolved from the workspace, and an absolute value is accepted only when its canonical directory remains inside the workspace. Profiles without `workspace_id` retain the previous behavior, including resolving relative working directories from the configuration file. Arguments are passed directly to the executable without shell interpolation. The optional local `tool_adapter` defaults to `generic`; it is reserved for Agent-generated attachment prompt actions, and unknown adapters are rejected before launch. Profile sessions inherit only environment variables named in `environment_allowlist`; missing variables are omitted. Include variables required by the selected tool, such as `PATH`, `PATHEXT`, `SYSTEMROOT`, `TEMP`, `TMP`, and `USERPROFILE` on Windows.
 
-Unknown fields, unsupported versions, duplicate profile IDs, invalid durations, missing default profiles, invalid environment names, and configuration files larger than 1 MiB are rejected. Command-line `--addr`, `--web-dir`, `--reconnect-timeout`, and `--idle-timeout` values override configured values. An explicit `--cmd` preserves the legacy flow and overrides the configured default profile; `--cmd` and `--profile` cannot be combined.
+Each workspace-bound PTY session reserves `.vibebridge/uploads/<session-id>/` for temporary attachment staging and removes that session directory after the PTY ends or fails to launch when cleanup succeeds; a cleanup failure retains the boundary and emits a privacy-safe diagnostic event. Physical names come from an Agent-generated opaque ID, and link escapes are rejected. Protocol V1 includes acknowledged begin/chunk/complete/cancel transfer envelopes behind `attachment.transfer_v1` and trusted prepare/preview/commit/cancel prompt actions behind `attachment.prompt_action_v1`. Only acknowledged completed transfer IDs enter a prompt action; the Agent resolves their relative paths, uses the profile-selected generic adapter to generate exact terminal text, and returns that preview plus the effective `append_enter` choice for explicit user confirmation. The browser retains one session-local action ID across reconnect retries, while the Agent makes commit exactly once and cancel leaves staged files available. Failures use the stable `ATTACHMENT_TRANSFER_FAILED` or `ATTACHMENT_PROMPT_ACTION_FAILED` code without exposing host paths. This remains a dark flow: the production Agent Hello and browser Client Hello do not advertise either attachment capability, and the App feature flag is off. Pre-acknowledgement transfer outcome reconciliation, explicit multi-file transfer cancellation, aggregate limits, crash recovery, no-workspace staging, and end-to-end/real-device validation remain incomplete. Add `/.vibebridge/` to every registered repository's ignore rules; this repository already includes it.
+
+Unknown fields, unsupported versions, workspace fields in a Version 1 file, duplicate profile/workspace IDs, duplicate canonical workspace roots, missing or non-directory workspace roots, workspace boundary escapes, invalid durations, missing default profiles, invalid environment names, and configuration files larger than 1 MiB are rejected. New Agents accept both Version 1 and Version 2 files. To roll back to an older Agent that predates workspace support, retain or restore a Version 1 file without `workspaces` or `workspace_id`. Command-line `--addr`, `--web-dir`, `--reconnect-timeout`, `--idle-timeout`, and explicit `--disable-legacy-protocol=true|false` values override configured values. An explicit `--cmd` preserves the legacy flow and overrides the configured default profile; `--cmd` and `--profile` cannot be combined.
+
+Legacy compatibility is enabled by default. Set `disable_legacy_protocol` to `true` or pass `--disable-legacy-protocol` only after all deployed clients support the complete current Protocol V1 capability set. In that mode, clients without the `vibebridge.v1` WebSocket subprotocol receive HTTP `426` and V1 clients missing a required current capability receive WebSocket close `1002`; both checks happen before PTY/session creation.
 
 ## Windows Background Agent
 
@@ -125,13 +130,13 @@ The background Agent stores its current PID, start time, listener, and random pe
 - Sending `Ctrl+C` to the VibeBridge process or receiving `SIGTERM` closes the active PTY before the HTTP server exits.
 - `GET /status?token=...` reports the session state, start time, last activity time, and configured timeouts without exposing terminal output or the configured command.
 
-Terminal output is sent as WebSocket binary frames so ANSI sequences and raw PTY bytes are preserved. Structured input, resize, exit, error, and status messages use JSON text frames.
+Terminal bytes and ANSI sequences are preserved in WebSocket binary frames. Negotiated Protocol V1 peers carry terminal input, terminal output, acknowledgements, `AttachSession`, and `SessionStatus` in binary Protobuf envelopes. Every physical WebSocket starts new sequence state; a reconnect supplies the prior session identity, generation, and highest processed Agent sequence. If the exact checkpoint or complete bounded replay is unavailable, the Agent returns `RESYNC_REQUIRED` and the browser clears stale terminal history before showing the retained tail. Peers that negotiate `terminal.resize_end_v1` also send `TerminalResize` and `EndSession` as ordered Protobuf envelopes; dimensions must be integers from 1 through 65,535. Without that capability, resize and explicit end retain their JSON adapter. Peers that negotiate `session.process_exit_v1` receive an ordered `ProcessExit` with only `SUCCESS` or `FAILURE`; the host process error is never sent in that payload. Peers that negotiate `control.error_v1` receive ordered `Error` envelopes containing only an allowlisted code; the browser derives safe user-facing copy from each code. A startup or occupied-session error may arrive before `SessionStatus` with empty session metadata, and it does not bind the resumable stream. Peers that negotiate `control.health_v1` exchange ordered empty `Ping` and `Pong` envelopes after resume-enabled session binding, while non-resumable ordered streams may use them after Hello; the Agent's Pong acknowledgement covers the client Ping. Peers without these capabilities retain safe JSON adapters. Protocol framing, negotiation, sequence, and metadata failures close with WebSocket code `1002`; negotiated controls must not fall back to JSON. Legacy peers continue to use raw binary output and JSON input.
 
 ## Privacy-Safe Lifecycle Logs
 
 The Agent writes JSON lifecycle events to stderr for local diagnostics. The logging schema is allowlisted to `event`, an opaque random `session_id`, `state`, `reason`, and `outcome`; standard timestamp, level, and message fields are added by Go's structured logger. Empty fields are omitted.
 
-Events cover Agent startup/shutdown and session start, attach, detach, ending, and completion. Logs deliberately exclude the session token, command and arguments, terminal or prompt content, paths, environment values, client addresses, and browser origins. Process failures are represented only by the safe `failure` outcome; the raw process error is not added to structured events.
+Events cover Agent startup/shutdown; session start, attach, detach, ending, and completion; and privacy-safe session cleanup failure. Logs deliberately exclude the session token, command and arguments, terminal or prompt content, paths, environment values, client addresses, and browser origins. Process failures are represented only by the safe `failure` outcome; the raw process error is not added to structured events.
 
 ## Mobile Input
 
@@ -166,7 +171,7 @@ Before using a release, run this real-device check on the target Windows machine
 2. Verify colored CLI output, Chinese input composition, `Send + Enter`, `Insert only`, `Esc`, `Ctrl+C`, Tab, arrows, and clipboard paste.
 3. Rotate the device and open/close the soft keyboard; the terminal must resize without corrupting the CLI layout.
 4. Test terminal search, copy selection, clear view, direct keyboard input, font-size changes, quick prompts, and recent history.
-5. Lock the device or switch networks briefly, confirm the retry countdown, then reconnect before the configured timeout; the same PTY should resume.
+5. Lock the device or switch networks briefly, confirm the retry countdown, then reconnect before the configured timeout; the same PTY identity and generation should resume without duplicated output. If the 1 MiB/two-minute replay bounds are exceeded, confirm the browser clears stale history and explains that terminal history was truncated.
 6. Click End and confirm that the local `codex` process exits. Repeat by stopping VibeBridge with Ctrl+C.
 
 ## Single Binary Build
@@ -184,7 +189,7 @@ The resulting binary contains the React frontend and does not require `web/dist`
 
 - One browser client can control a session at a time.
 - Access uses a per-run token in the QR URL, but transport is not encrypted by VibeBridge itself.
-- The runtime browser protocol remains the legacy JSON/raw-binary adapter during the Protocol V1 migration.
+- The browser does not yet schedule Protocol V1 application health probes.
 - Public relay, native mobile clients, file attachments, and packaged releases are roadmap work, not current features.
 
 ## License

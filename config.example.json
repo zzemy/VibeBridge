@@ -1,9 +1,17 @@
 {
-  "version": 1,
+  "version": 2,
   "listen_address": "0.0.0.0:8787",
   "web_directory": "web/dist",
   "reconnect_timeout": "90s",
   "idle_timeout": "30m",
+  "disable_legacy_protocol": false,
+  "workspaces": [
+    {
+      "id": "default",
+      "label": "Current repository",
+      "root": "."
+    }
+  ],
   "default_profile": "shell",
   "profiles": [
     {
@@ -11,21 +19,24 @@
       "label": "PowerShell",
       "executable": "pwsh",
       "args": ["-NoLogo", "-NoExit", "-NoProfile"],
-      "working_directory": ".",
+      "workspace_id": "default",
+      "tool_adapter": "generic",
       "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
     },
     {
       "id": "codex",
       "label": "Codex",
       "executable": "codex",
-      "working_directory": ".",
+      "workspace_id": "default",
+      "tool_adapter": "generic",
       "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
     },
     {
       "id": "claude",
       "label": "Claude Code",
       "executable": "claude",
-      "working_directory": ".",
+      "workspace_id": "default",
+      "tool_adapter": "generic",
       "environment_allowlist": ["PATH", "PATHEXT", "SYSTEMROOT", "TEMP", "TMP", "USERPROFILE"]
     }
   ]
