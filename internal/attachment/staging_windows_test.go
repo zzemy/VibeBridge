@@ -13,7 +13,7 @@ import (
 )
 
 func TestCreateSessionStagingRejectsWindowsJunctionMetadataDirectory(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	workspaceRoot := canonicalTestDirectory(t, t.TempDir())
 	outside := t.TempDir()
 	metadataDirectory := filepath.Join(workspaceRoot, ".vibebridge")
 	output, err := exec.Command("cmd.exe", "/d", "/c", "mklink", "/j", metadataDirectory, outside).CombinedOutput()
@@ -34,7 +34,7 @@ func TestCreateSessionStagingRejectsWindowsJunctionMetadataDirectory(t *testing.
 }
 
 func TestSessionStagingCleanupDoesNotFollowReplacementWindowsJunction(t *testing.T) {
-	workspaceRoot := t.TempDir()
+	workspaceRoot := canonicalTestDirectory(t, t.TempDir())
 	outside := t.TempDir()
 	marker := filepath.Join(outside, "keep.txt")
 	if err := os.WriteFile(marker, []byte("keep"), 0o600); err != nil {
