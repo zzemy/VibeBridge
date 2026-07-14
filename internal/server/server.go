@@ -19,6 +19,7 @@ import (
 	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 	"github.com/zzemy/VibeBridge/internal/agentlog"
 	"github.com/zzemy/VibeBridge/internal/attachment"
+	"github.com/zzemy/VibeBridge/internal/promptaction"
 	protocolv1 "github.com/zzemy/VibeBridge/internal/protocol"
 	"github.com/zzemy/VibeBridge/internal/tooladapter"
 	"github.com/zzemy/VibeBridge/internal/workspace"
@@ -587,6 +588,7 @@ type ptySession struct {
 	workspaceRoot      string
 	workingDirectory   string
 	toolAdapter        tooladapter.Adapter
+	promptActions      *promptaction.Registry
 	attachmentMu       sync.Mutex
 	attachmentManager  *attachment.Manager
 	attachmentsClosed  bool
@@ -621,6 +623,7 @@ func newPTYSession(request terminalLaunchRequest, idleTimeout time.Duration, ses
 		clock:          sessionClock,
 		telemetry:      telemetry,
 		staging:        staging,
+		promptActions:  promptaction.NewRegistry(),
 	}
 	session.lifecycle.started()
 	session.logEvent(agentlog.EventSessionStarted, agentlog.State(session.lifecycle.state), "", "")
@@ -984,6 +987,7 @@ func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 	s.outputMu.Unlock()
 
 	_ = s.closeResources()
+	s.promptActions.Close()
 	attachmentCloseErr := s.closeAttachmentManager()
 	var stagingCleanupErr error
 	if attachmentCloseErr == nil && s.staging != nil {

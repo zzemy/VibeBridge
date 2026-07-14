@@ -24,25 +24,31 @@ const (
 	maxDisplayNameBytes = 255
 	storageNameAttempts = 4
 	contentSniffBytes   = 512
+
+	maxPromptActionAttachments = 10
 )
 
 // Stable transfer errors classify failures without exposing remote metadata or local paths.
 var (
-	ErrInvalidTransfer       = errors.New("attachment transfer is invalid")
-	ErrInvalidMetadata       = errors.New("attachment metadata is invalid")
-	ErrFileLimitExceeded     = errors.New("attachment file limit exceeded")
-	ErrUnsupportedContent    = errors.New("attachment content declaration is unsupported")
-	ErrActiveTransferLimit   = errors.New("active attachment transfer limit exceeded")
-	ErrSessionQuotaExceeded  = errors.New("attachment session quota exceeded")
-	ErrTransferExists        = errors.New("attachment transfer already exists")
-	ErrTransferNotFound      = errors.New("attachment transfer was not found")
-	ErrChunkChecksumMismatch = errors.New("attachment chunk checksum mismatch")
-	ErrChunkOffsetMismatch   = errors.New("attachment chunk offset mismatch")
-	ErrChunkLimitExceeded    = errors.New("attachment chunk limit exceeded")
-	ErrTotalSizeMismatch     = errors.New("attachment total size mismatch")
-	ErrTotalChecksumMismatch = errors.New("attachment total checksum mismatch")
-	ErrContentTypeMismatch   = errors.New("attachment content does not match its declaration")
-	ErrManagerClosed         = errors.New("attachment transfer manager is closed")
+	ErrInvalidTransfer            = errors.New("attachment transfer is invalid")
+	ErrInvalidMetadata            = errors.New("attachment metadata is invalid")
+	ErrFileLimitExceeded          = errors.New("attachment file limit exceeded")
+	ErrUnsupportedContent         = errors.New("attachment content declaration is unsupported")
+	ErrActiveTransferLimit        = errors.New("active attachment transfer limit exceeded")
+	ErrSessionQuotaExceeded       = errors.New("attachment session quota exceeded")
+	ErrTransferExists             = errors.New("attachment transfer already exists")
+	ErrTransferNotFound           = errors.New("attachment transfer was not found")
+	ErrChunkChecksumMismatch      = errors.New("attachment chunk checksum mismatch")
+	ErrChunkOffsetMismatch        = errors.New("attachment chunk offset mismatch")
+	ErrChunkLimitExceeded         = errors.New("attachment chunk limit exceeded")
+	ErrTotalSizeMismatch          = errors.New("attachment total size mismatch")
+	ErrTotalChecksumMismatch      = errors.New("attachment total checksum mismatch")
+	ErrContentTypeMismatch        = errors.New("attachment content does not match its declaration")
+	ErrManagerClosed              = errors.New("attachment transfer manager is closed")
+	ErrInvalidAttachmentSelection = errors.New("attachment selection is invalid")
+	ErrAttachmentSelectionLimit   = errors.New("attachment selection limit exceeded")
+	ErrDuplicateAttachment        = errors.New("attachment selection contains a duplicate")
+	ErrAttachmentNotCompleted     = errors.New("attachment transfer is not completed")
 )
 
 // BeginRequest declares one attachment before any bytes are accepted.
@@ -306,6 +312,47 @@ func (m *Manager) Complete(transferID []byte) (CompletedAttachment, error) {
 	delete(m.active, key)
 	m.completed[key] = completed
 	return cloneCompletedAttachment(completed), nil
+}
+
+// CompletedAttachments resolves an ordered prompt-action selection from this
+// manager's completed records. Active and unknown IDs intentionally share one error.
+func (m *Manager) CompletedAttachments(transferIDs [][]byte) ([]CompletedAttachment, error) {
+	if m == nil {
+		return nil, ErrManagerClosed
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || m.closing {
+		return nil, ErrManagerClosed
+	}
+	if len(transferIDs) == 0 {
+		return nil, ErrInvalidAttachmentSelection
+	}
+	if len(transferIDs) > maxPromptActionAttachments {
+		return nil, ErrAttachmentSelectionLimit
+	}
+
+	seen := make(map[string]struct{}, len(transferIDs))
+	for _, transferID := range transferIDs {
+		if !validTransferID(transferID) {
+			return nil, ErrInvalidTransfer
+		}
+		key := string(transferID)
+		if _, exists := seen[key]; exists {
+			return nil, ErrDuplicateAttachment
+		}
+		seen[key] = struct{}{}
+	}
+
+	completed := make([]CompletedAttachment, 0, len(transferIDs))
+	for _, transferID := range transferIDs {
+		attachment, exists := m.completed[string(transferID)]
+		if !exists {
+			return nil, ErrAttachmentNotCompleted
+		}
+		completed = append(completed, cloneCompletedAttachment(attachment))
+	}
+	return completed, nil
 }
 
 // Cancel idempotently removes an active partial; completed files remain for session cleanup.
