@@ -51,28 +51,41 @@ describe("attachment client policy", () => {
 });
 
 describe("attachment transfer", () => {
-  test("hashes, chunks, reports progress, and completes in order", async () => {
+  test("waits for acknowledged operations before progress and completion", async () => {
     const calls: string[] = [];
+    let acknowledgeBegin: () => void = () => { throw new Error("begin acknowledgement was not initialized"); };
+    let acknowledgeChunk: () => void = () => { throw new Error("chunk acknowledgement was not initialized"); };
+    const beginAcknowledged = new Promise<void>((resolve) => { acknowledgeBegin = resolve; });
+    const chunkAcknowledged = new Promise<void>((resolve) => { acknowledgeChunk = resolve; });
     const sender: AttachmentTransferSender = {
-      begin(request) {
+      async begin(request) {
         calls.push(`begin:${request.displayName}:${request.totalSizeBytes}`);
         expect(request.transferId).toHaveLength(16);
         expect(request.totalSha256).toHaveLength(32);
+        await beginAcknowledged;
       },
-      chunk(request) {
+      async chunk(request) {
         calls.push(`chunk:${request.offsetBytes}:${request.data.byteLength}`);
         expect(request.chunkSha256).toHaveLength(32);
+        await chunkAcknowledged;
       },
-      complete(transferId) {
+      async complete(transferId) {
         calls.push(`complete:${transferId.byteLength}`);
       },
-      cancel() {
+      async cancel() {
         calls.push("cancel");
       },
     };
     const progress = vi.fn();
 
-    await transferAttachments([textFile()], sender, new AbortController().signal, progress);
+    const transfer = transferAttachments([textFile()], sender, new AbortController().signal, progress);
+
+    await vi.waitFor(() => expect(calls).toEqual(["begin:notes.md:5"]));
+    acknowledgeBegin();
+    await vi.waitFor(() => expect(calls).toEqual(["begin:notes.md:5", "chunk:0:5"]));
+    expect(progress).not.toHaveBeenCalled();
+    acknowledgeChunk();
+    await transfer;
 
     expect(calls).toEqual(["begin:notes.md:5", "chunk:0:5", "complete:16"]);
     expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -87,10 +100,10 @@ describe("attachment transfer", () => {
     const controller = new AbortController();
     const calls: string[] = [];
     const sender: AttachmentTransferSender = {
-      begin() { calls.push("begin"); },
-      chunk(request) { calls.push(`chunk:${request.offsetBytes}:${request.data.byteLength}`); },
-      complete() { calls.push("complete"); },
-      cancel() { calls.push("cancel"); },
+      async begin() { calls.push("begin"); },
+      async chunk(request) { calls.push(`chunk:${request.offsetBytes}:${request.data.byteLength}`); },
+      async complete() { calls.push("complete"); },
+      async cancel() { calls.push("cancel"); },
     };
 
     await expect(transferAttachments([file], sender, controller.signal, () => controller.abort())).rejects.toMatchObject({ name: "AbortError" });
@@ -101,10 +114,10 @@ describe("attachment transfer", () => {
     const file = new File([new Uint8Array(20 * 1024).fill(97)], "large.txt", { type: "text/plain" });
     const chunkSizes: number[] = [];
     const sender: AttachmentTransferSender = {
-      begin() {},
-      chunk(request) { chunkSizes.push(request.data.byteLength); },
-      complete() {},
-      cancel() {},
+      async begin() {},
+      async chunk(request) { chunkSizes.push(request.data.byteLength); },
+      async complete() {},
+      async cancel() {},
     };
 
     await transferAttachments([file], sender, new AbortController().signal, () => {}, 8 * 1024);
@@ -112,16 +125,19 @@ describe("attachment transfer", () => {
     expect(chunkSizes).toEqual([8 * 1024, 8 * 1024, 4 * 1024]);
   });
 
-  test("cancels a begun transfer when a chunk fails", async () => {
+  test("cancels a begun transfer when a chunk fails and preserves the original error", async () => {
     const calls: string[] = [];
     const sender: AttachmentTransferSender = {
-      begin() { calls.push("begin"); },
-      chunk() {
+      async begin() { calls.push("begin"); },
+      async chunk() {
         calls.push("chunk");
         throw new Error("send failed");
       },
-      complete() { calls.push("complete"); },
-      cancel() { calls.push("cancel"); },
+      async complete() { calls.push("complete"); },
+      async cancel() {
+        calls.push("cancel");
+        throw new Error("cancel failed");
+      },
     };
 
     await expect(transferAttachments([textFile()], sender, new AbortController().signal, () => {})).rejects.toThrow("send failed");
