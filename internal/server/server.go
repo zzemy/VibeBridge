@@ -507,6 +507,31 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 					if err := writer.commitProtocolV1ClientMessage(streamMessage, true); err != nil {
 						return
 					}
+				case protocolv1.ClientStreamMessageAttachmentPromptPrepare:
+					result, err := session.prepareAttachmentPrompt(streamMessage)
+					if err != nil {
+						_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED)
+						return
+					}
+					if err := writer.respondProtocolV1AttachmentPromptPrepare(streamMessage, result); err != nil {
+						return
+					}
+				case protocolv1.ClientStreamMessageAttachmentPromptCommit:
+					if err := session.commitAttachmentPrompt(streamMessage.ActionID); err != nil {
+						_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED)
+						return
+					}
+					if err := writer.commitProtocolV1ClientMessage(streamMessage, true); err != nil {
+						return
+					}
+				case protocolv1.ClientStreamMessageAttachmentPromptCancel:
+					if err := session.cancelAttachmentPrompt(streamMessage.ActionID); err != nil {
+						_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED)
+						return
+					}
+					if err := writer.commitProtocolV1ClientMessage(streamMessage, true); err != nil {
+						return
+					}
 				default:
 					writer.closeProtocol("Unsupported Protocol V1 message")
 					return
@@ -791,6 +816,63 @@ func (s *ptySession) applyAttachmentMessage(message protocolv1.ClientStreamMessa
 	return errors.Join(operationErr, manager.Cancel(message.TransferID))
 }
 
+func (s *ptySession) prepareAttachmentPrompt(message protocolv1.ClientStreamMessage) (promptaction.PrepareResult, error) {
+	manager, err := s.transferManager()
+	if err != nil {
+		return promptaction.PrepareResult{}, err
+	}
+	completed, err := manager.CompletedAttachments(message.TransferIDs)
+	if err != nil {
+		return promptaction.PrepareResult{}, err
+	}
+
+	relativePaths := make([]string, 0, len(completed))
+	for _, completedAttachment := range completed {
+		if !filepath.IsLocal(completedAttachment.RelativePath) {
+			return promptaction.PrepareResult{}, errors.New("completed attachment path is invalid")
+		}
+		absolutePath := filepath.Join(s.workspaceRoot, completedAttachment.RelativePath)
+		relativePath, err := filepath.Rel(s.workingDirectory, absolutePath)
+		if err != nil {
+			return promptaction.PrepareResult{}, fmt.Errorf("derive attachment prompt reference: %w", err)
+		}
+		relativePaths = append(relativePaths, relativePath)
+	}
+
+	prepared, err := s.toolAdapter.Prepare(tooladapter.AttachmentPromptRequest{
+		Prompt:        message.Prompt,
+		RelativePaths: relativePaths,
+		Submit:        message.AppendEnter,
+	})
+	if err != nil {
+		return promptaction.PrepareResult{}, err
+	}
+	return s.promptActions.Prepare(message.ActionID, promptaction.Action{
+		Preview:       prepared.Preview,
+		TerminalInput: prepared.TerminalInput,
+	})
+}
+
+func (s *ptySession) commitAttachmentPrompt(actionID []byte) error {
+	s.mu.Lock()
+	closed := s.lifecycle.state == sessionStateEnding || s.lifecycle.done()
+	s.mu.Unlock()
+	if closed {
+		return errors.New("attachment prompt actions are closed for this session")
+	}
+	return s.promptActions.Commit(actionID, s.writeInputBytes)
+}
+
+func (s *ptySession) cancelAttachmentPrompt(actionID []byte) error {
+	s.mu.Lock()
+	closed := s.lifecycle.state == sessionStateEnding || s.lifecycle.done()
+	s.mu.Unlock()
+	if closed {
+		return errors.New("attachment prompt actions are closed for this session")
+	}
+	return s.promptActions.Cancel(actionID)
+}
+
 func (s *ptySession) transferManager() (*attachment.Manager, error) {
 	// Hold s.mu before attachmentMu so lifecycle transitions cannot race with
 	// lazy manager creation. The reverse order is never taken elsewhere.
@@ -1068,6 +1150,8 @@ func stableErrorMessage(code vibebridgev1.ErrorCode) (string, error) {
 		return "unsupported message type", nil
 	case vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED:
 		return "attachment transfer failed", nil
+	case vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED:
+		return "attachment prompt action failed", nil
 	default:
 		return "", errors.New("stable error code is invalid")
 	}
@@ -1164,6 +1248,30 @@ func (w *websocketWriter) highestProtocolV1OutboundSequence() uint64 {
 		return 0
 	}
 	return w.protocolV1.HighestOutboundSequence()
+}
+
+func (w *websocketWriter) respondProtocolV1AttachmentPromptPrepare(message protocolv1.ClientStreamMessage, result promptaction.PrepareResult) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.protocolV1.CommitClientMessage(message); err != nil {
+		return err
+	}
+	var disposition vibebridgev1.AttachmentPromptDisposition
+	appendEnter := false
+	switch result.State {
+	case promptaction.StatePrepared:
+		disposition = vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_PREPARED
+		appendEnter = message.AppendEnter
+	case promptaction.StateCommitted:
+		disposition = vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_COMMITTED
+	default:
+		return errors.New("prompt action prepare result is invalid")
+	}
+	encoded, err := w.protocolV1.EncodeAttachmentPromptPreview(message.ActionID, disposition, result.Preview, appendEnter, w.currentTime())
+	if err != nil {
+		return err
+	}
+	return w.conn.WriteMessage(websocket.BinaryMessage, encoded)
 }
 
 func (w *websocketWriter) respondProtocolV1Ping(message protocolv1.ClientStreamMessage) error {

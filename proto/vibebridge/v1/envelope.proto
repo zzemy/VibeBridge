@@ -74,6 +74,7 @@ enum ErrorCode {
   ERROR_CODE_TERMINAL_RESIZE_FAILED = 4;
   ERROR_CODE_UNSUPPORTED_MESSAGE = 5;
   ERROR_CODE_ATTACHMENT_TRANSFER_FAILED = 6;
+  ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED = 7;
 }
 
 // Error reports an application failure using an allowlisted code. Protocol
@@ -152,6 +153,42 @@ message AttachmentCancel {
   bytes transfer_id = 1;
 }
 
+// AttachmentPromptPrepare asks the Agent to derive trusted local references
+// from completed transfer IDs. Remote clients never supply filesystem paths.
+message AttachmentPromptPrepare {
+  bytes action_id = 1;
+  repeated bytes transfer_ids = 2;
+  string prompt = 3;
+  bool append_enter = 4;
+}
+
+// AttachmentPromptDisposition reports durable session-local action state.
+enum AttachmentPromptDisposition {
+  ATTACHMENT_PROMPT_DISPOSITION_UNSPECIFIED = 0;
+  ATTACHMENT_PROMPT_DISPOSITION_PREPARED = 1;
+  ATTACHMENT_PROMPT_DISPOSITION_COMMITTED = 2;
+}
+
+// AttachmentPromptPreview returns exact Agent-generated terminal text for user
+// confirmation. A committed tombstone intentionally carries no preview bytes.
+message AttachmentPromptPreview {
+  bytes action_id = 1;
+  AttachmentPromptDisposition disposition = 2;
+  string preview = 3;
+  bool append_enter = 4;
+}
+
+// AttachmentPromptCommit writes the exact bytes retained by a prior prepare.
+message AttachmentPromptCommit {
+  bytes action_id = 1;
+}
+
+// AttachmentPromptCancel abandons a prepared action without removing staged
+// attachments. The action ID remains a non-reusable session-local tombstone.
+message AttachmentPromptCancel {
+  bytes action_id = 1;
+}
+
 // Envelope carries one typed V1 application message. Sequence and acknowledge
 // are direction-local counters; zero acknowledge means no message is confirmed.
 message Envelope {
@@ -181,5 +218,9 @@ message Envelope {
     AttachmentChunk attachment_chunk = 41;
     AttachmentComplete attachment_complete = 42;
     AttachmentCancel attachment_cancel = 43;
+    AttachmentPromptPrepare attachment_prompt_prepare = 44;
+    AttachmentPromptPreview attachment_prompt_preview = 45;
+    AttachmentPromptCommit attachment_prompt_commit = 46;
+    AttachmentPromptCancel attachment_prompt_cancel = 47;
   }
 }
