@@ -73,6 +73,7 @@ enum ErrorCode {
   ERROR_CODE_TERMINAL_INPUT_FAILED = 3;
   ERROR_CODE_TERMINAL_RESIZE_FAILED = 4;
   ERROR_CODE_UNSUPPORTED_MESSAGE = 5;
+  ERROR_CODE_ATTACHMENT_TRANSFER_FAILED = 6;
 }
 
 // Error reports an application failure using an allowlisted code. Protocol
