@@ -22,6 +22,8 @@ import (
 	"github.com/zzemy/VibeBridge/internal/agentconfig"
 	"github.com/zzemy/VibeBridge/internal/agentlog"
 	"github.com/zzemy/VibeBridge/internal/agentservice"
+	"github.com/zzemy/VibeBridge/internal/deviceidentity"
+	"github.com/zzemy/VibeBridge/internal/pairing"
 	"github.com/zzemy/VibeBridge/internal/server"
 )
 
@@ -57,6 +59,7 @@ func runAgent(args []string) error {
 	background := flags.Bool("background", false, "hide the Agent console window")
 	tray := flags.Bool("tray", false, "show Windows system tray controls")
 	serviceStatePath := flags.String("service-state", "", "runtime state path used by the background Agent")
+	identityStorePath := flags.String("identity-store", "", "protected persistent device identity path")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -98,6 +101,23 @@ func runAgent(args []string) error {
 	if err != nil {
 		return fmt.Errorf("create session token: %w", err)
 	}
+	resolvedIdentityPath := *identityStorePath
+	if resolvedIdentityPath == "" {
+		resolvedIdentityPath, err = deviceidentity.DefaultPath()
+		if err != nil {
+			return fmt.Errorf("resolve device identity path: %w", err)
+		}
+	}
+	identity, err := deviceidentity.LoadOrCreate(deviceidentity.Options{Path: resolvedIdentityPath})
+	if err != nil {
+		return fmt.Errorf("initialize device identity: %w", err)
+	}
+	defer identity.Close()
+	pairingManager, err := pairing.New(pairing.Config{Agent: identity})
+	if err != nil {
+		return fmt.Errorf("initialize pairing manager: %w", err)
+	}
+	defer pairingManager.Close()
 
 	app := server.New(server.Config{
 		SessionToken:          token,
@@ -120,7 +140,7 @@ func runAgent(args []string) error {
 		return fmt.Errorf("start HTTP listener on %s: %w", options.addr, err)
 	}
 	listenAddress := listener.Addr().String()
-	handler, err := newAgentHTTPHandler(app.Handler(), listenAddress, token)
+	handler, err := newAgentHTTPHandler(app.Handler(), listenAddress, token, pairingManager, identity)
 	if err != nil {
 		_ = listener.Close()
 		app.Close()
