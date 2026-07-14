@@ -123,6 +123,46 @@ func TestAgentStreamDecodesNegotiatedAttachmentChunkCompleteAndCancel(t *testing
 	}
 }
 
+func TestAgentStreamReconcilesNegotiatedAttachmentTransferStatus(t *testing.T) {
+	stream := newTestAgentAttachmentStream(t, MaxEnvelopeBytes)
+	transferID := []byte("transfer-id")
+	envelope := newClientStreamEnvelope(nil, 0, 2, 1)
+	envelope.Payload = &vibebridgev1.Envelope_AttachmentTransferStatusRequest{AttachmentTransferStatusRequest: &vibebridgev1.AttachmentTransferStatusRequest{
+		TransferId: transferID,
+	}}
+
+	message, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, envelope))
+	if err != nil {
+		t.Fatalf("decode AttachmentTransferStatusRequest: %v", err)
+	}
+	if message.Kind != ClientStreamMessageAttachmentTransferStatusRequest || !bytes.Equal(message.TransferID, transferID) {
+		t.Fatalf("decoded AttachmentTransferStatusRequest = %#v", message)
+	}
+	if err := stream.CommitClientMessage(message); err != nil {
+		t.Fatalf("commit AttachmentTransferStatusRequest: %v", err)
+	}
+
+	encoded, err := stream.EncodeAttachmentTransferStatus(
+		transferID,
+		vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_ACTIVE,
+		17,
+		time.Date(2026, time.July, 13, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("encode AttachmentTransferStatus: %v", err)
+	}
+	status := unmarshalStreamEnvelope(t, encoded)
+	if status.Acknowledge != 2 || !bytes.Equal(status.GetAttachmentTransferStatus().GetTransferId(), transferID) ||
+		status.GetAttachmentTransferStatus().GetDisposition() != vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_ACTIVE ||
+		status.GetAttachmentTransferStatus().GetNextOffsetBytes() != 17 {
+		t.Fatalf("encoded AttachmentTransferStatus = %#v", status.GetAttachmentTransferStatus())
+	}
+
+	if _, err := stream.EncodeAttachmentTransferStatus(transferID, vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_COMPLETED, 1, time.Now()); err == nil {
+		t.Fatal("completed AttachmentTransferStatus with an offset was encoded")
+	}
+}
+
 func TestAgentStreamDecodesNegotiatedAttachmentPromptActions(t *testing.T) {
 	stream := newTestAgentAttachmentPromptStream(t, MaxEnvelopeBytes)
 	actionID := []byte("action-id")
@@ -339,6 +379,12 @@ func TestAgentStreamRejectsMalformedAttachmentMessages(t *testing.T) {
 			name: "cancel without transfer ID",
 			setPayload: func(envelope *vibebridgev1.Envelope) {
 				envelope.Payload = &vibebridgev1.Envelope_AttachmentCancel{AttachmentCancel: &vibebridgev1.AttachmentCancel{}}
+			},
+		},
+		{
+			name: "status request without transfer ID",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentTransferStatusRequest{AttachmentTransferStatusRequest: &vibebridgev1.AttachmentTransferStatusRequest{}}
 			},
 		},
 	}
