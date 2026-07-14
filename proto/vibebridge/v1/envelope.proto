@@ -153,6 +153,29 @@ message AttachmentCancel {
   bytes transfer_id = 1;
 }
 
+// AttachmentTransferDisposition reports only session-local lifecycle state.
+enum AttachmentTransferDisposition {
+  ATTACHMENT_TRANSFER_DISPOSITION_UNSPECIFIED = 0;
+  ATTACHMENT_TRANSFER_DISPOSITION_UNKNOWN = 1;
+  ATTACHMENT_TRANSFER_DISPOSITION_ACTIVE = 2;
+  ATTACHMENT_TRANSFER_DISPOSITION_COMPLETED = 3;
+  ATTACHMENT_TRANSFER_DISPOSITION_CANCELLED = 4;
+}
+
+// AttachmentTransferStatusRequest reconciles an operation whose acknowledgement
+// may have been lost. The transfer identifier remains opaque and session-local.
+message AttachmentTransferStatusRequest {
+  bytes transfer_id = 1;
+}
+
+// AttachmentTransferStatus contains no display metadata or local path.
+// next_offset_bytes is meaningful only for an active transfer.
+message AttachmentTransferStatus {
+  bytes transfer_id = 1;
+  AttachmentTransferDisposition disposition = 2;
+  uint64 next_offset_bytes = 3;
+}
+
 // AttachmentPromptPrepare asks the Agent to derive trusted local references
 // from completed transfer IDs. Remote clients never supply filesystem paths.
 message AttachmentPromptPrepare {
@@ -222,5 +245,7 @@ message Envelope {
     AttachmentPromptPreview attachment_prompt_preview = 45;
     AttachmentPromptCommit attachment_prompt_commit = 46;
     AttachmentPromptCancel attachment_prompt_cancel = 47;
+    AttachmentTransferStatusRequest attachment_transfer_status_request = 48;
+    AttachmentTransferStatus attachment_transfer_status = 49;
   }
 }
