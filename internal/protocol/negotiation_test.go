@@ -37,6 +37,7 @@ func TestAcceptClientHelloNegotiatesAttachmentTransferWithSequencedIO(t *testing
 	envelope.GetHello().Capabilities = append(
 		envelope.GetHello().Capabilities,
 		CapabilityTerminalSequencedIO,
+		CapabilityControlError,
 		CapabilityAttachmentTransfer,
 	)
 
@@ -112,6 +113,16 @@ func TestAcceptClientHelloRejectsWrongRoleAndMalformedRange(t *testing.T) {
 			name: "attachment transfer without sequenced I/O",
 			mutate: func(envelope *vibebridgev1.Envelope) {
 				envelope.GetHello().Capabilities = append(envelope.GetHello().Capabilities, CapabilityAttachmentTransfer)
+			},
+		},
+		{
+			name: "attachment transfer without control error",
+			mutate: func(envelope *vibebridgev1.Envelope) {
+				envelope.GetHello().Capabilities = append(
+					envelope.GetHello().Capabilities,
+					CapabilityTerminalSequencedIO,
+					CapabilityAttachmentTransfer,
+				)
 			},
 		},
 	}

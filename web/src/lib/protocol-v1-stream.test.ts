@@ -163,6 +163,12 @@ describe("Protocol V1 sequenced terminal stream", () => {
     expect(stream.acceptAgentMessage(error)).toEqual({ type: "error", code: ErrorCode.SESSION_START_FAILED });
     expect(stream.usesControlError()).toBe(true);
 
+    const attachmentError = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, { controlError: true });
+    expect(attachmentError.acceptAgentMessage(agentEnvelope(2n, 1n, {
+      case: "error",
+      value: create(ErrorSchema, { code: ErrorCode.ATTACHMENT_TRANSFER_FAILED }),
+    }))).toEqual({ type: "error", code: ErrorCode.ATTACHMENT_TRANSFER_FAILED });
+
     const unnegotiated = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes);
     expect(() => unnegotiated.acceptAgentMessage(error)).toThrow("Error");
     for (const code of [ErrorCode.UNSPECIFIED, 99 as ErrorCode]) {
@@ -187,7 +193,7 @@ describe("Protocol V1 sequenced terminal stream", () => {
     expect(message).toEqual({ type: "error", code: ErrorCode.SESSION_ALREADY_ACTIVE });
     expect(stream.getResumeCursor()).toBeNull();
 
-    for (const code of [ErrorCode.TERMINAL_INPUT_FAILED, ErrorCode.TERMINAL_RESIZE_FAILED, ErrorCode.UNSUPPORTED_MESSAGE]) {
+    for (const code of [ErrorCode.TERMINAL_INPUT_FAILED, ErrorCode.TERMINAL_RESIZE_FAILED, ErrorCode.UNSUPPORTED_MESSAGE, ErrorCode.ATTACHMENT_TRANSFER_FAILED]) {
       const invalidCode = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, {
         controlError: true,
         sessionResume: true,

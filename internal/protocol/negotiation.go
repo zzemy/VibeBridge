@@ -97,6 +97,11 @@ func AcceptClientHello(encoded []byte) (NegotiatedHello, error) {
 			return NegotiatedHello{}, fmt.Errorf("%s requires %s", dependent, CapabilityTerminalSequencedIO)
 		}
 	}
+	if _, advertised := capabilities[CapabilityAttachmentTransfer]; advertised {
+		if _, hasControlError := capabilities[CapabilityControlError]; !hasControlError {
+			return NegotiatedHello{}, fmt.Errorf("%s requires %s", CapabilityAttachmentTransfer, CapabilityControlError)
+		}
+	}
 
 	return NegotiatedHello{
 		Major:                CurrentMajor,

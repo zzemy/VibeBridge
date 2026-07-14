@@ -133,6 +133,9 @@ export function acceptAgentHello(encoded: Uint8Array, expectedConnectionId: Uint
       throw new Error(`${dependent} requires ${terminalSequencedIoCapability}`);
     }
   }
+  if (capabilities.has(attachmentTransferCapability) && !capabilities.has(controlErrorCapability)) {
+    throw new Error(`${attachmentTransferCapability} requires ${controlErrorCapability}`);
+  }
 
   return {
     protocolMajor: protocolV1Major,
@@ -459,7 +462,8 @@ function isKnownErrorCode(code: ErrorCode) {
     || code === ErrorCode.SESSION_ALREADY_ACTIVE
     || code === ErrorCode.TERMINAL_INPUT_FAILED
     || code === ErrorCode.TERMINAL_RESIZE_FAILED
-    || code === ErrorCode.UNSUPPORTED_MESSAGE;
+    || code === ErrorCode.UNSUPPORTED_MESSAGE
+    || code === ErrorCode.ATTACHMENT_TRANSFER_FAILED;
 }
 
 function isKnownProcessExitOutcome(outcome: ProcessExitOutcome) {

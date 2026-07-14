@@ -47,17 +47,180 @@ func TestAgentStreamSequencesTerminalTrafficAndAcknowledgements(t *testing.T) {
 	}
 }
 
-func TestAgentStreamRejectsAttachmentTransferUntilStateMachineIsImplemented(t *testing.T) {
+func TestAgentStreamDecodesNegotiatedAttachmentBegin(t *testing.T) {
+	stream := newTestAgentAttachmentStream(t, MaxEnvelopeBytes)
+	transferID := []byte("transfer-id")
+	totalSHA256 := bytes.Repeat([]byte{0x2a}, 32)
+	envelope := newClientStreamEnvelope(nil, 0, 2, 1)
+	envelope.Payload = &vibebridgev1.Envelope_AttachmentBegin{AttachmentBegin: &vibebridgev1.AttachmentBegin{
+		TransferId:          transferID,
+		DisplayName:         "diagram.png",
+		DeclaredContentType: "image/png",
+		DeclaredExtension:   "png",
+		TotalSizeBytes:      123,
+		TotalSha256:         totalSHA256,
+	}}
+
+	message, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, envelope))
+	if err != nil {
+		t.Fatalf("decode AttachmentBegin: %v", err)
+	}
+	if message.Kind != ClientStreamMessageAttachmentBegin || message.Sequence != 2 ||
+		!bytes.Equal(message.TransferID, transferID) || message.DisplayName != "diagram.png" ||
+		message.DeclaredContentType != "image/png" || message.DeclaredExtension != "png" ||
+		message.TotalSizeBytes != 123 || !bytes.Equal(message.TotalSHA256, totalSHA256) {
+		t.Fatalf("decoded AttachmentBegin = %#v", message)
+	}
+}
+
+func TestAgentStreamDecodesNegotiatedAttachmentChunkCompleteAndCancel(t *testing.T) {
+	stream := newTestAgentAttachmentStream(t, MaxEnvelopeBytes)
+	transferID := []byte("transfer-id")
+	chunkData := []byte("attachment bytes")
+	chunkSHA256 := bytes.Repeat([]byte{0x3b}, 32)
+
+	chunkEnvelope := newClientStreamEnvelope(nil, 0, 2, 1)
+	chunkEnvelope.Payload = &vibebridgev1.Envelope_AttachmentChunk{AttachmentChunk: &vibebridgev1.AttachmentChunk{
+		TransferId:  transferID,
+		OffsetBytes: 17,
+		Data:        chunkData,
+		ChunkSha256: chunkSHA256,
+	}}
+	chunk, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, chunkEnvelope))
+	if err != nil {
+		t.Fatalf("decode AttachmentChunk: %v", err)
+	}
+	if chunk.Kind != ClientStreamMessageAttachmentChunk || chunk.OffsetBytes != 17 ||
+		!bytes.Equal(chunk.TransferID, transferID) || !bytes.Equal(chunk.Data, chunkData) ||
+		!bytes.Equal(chunk.ChunkSHA256, chunkSHA256) {
+		t.Fatalf("decoded AttachmentChunk = %#v", chunk)
+	}
+	if err := stream.CommitClientMessage(chunk); err != nil {
+		t.Fatalf("commit AttachmentChunk: %v", err)
+	}
+
+	completeEnvelope := newClientStreamEnvelope(nil, 0, 3, 1)
+	completeEnvelope.Payload = &vibebridgev1.Envelope_AttachmentComplete{AttachmentComplete: &vibebridgev1.AttachmentComplete{TransferId: transferID}}
+	complete, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, completeEnvelope))
+	if err != nil {
+		t.Fatalf("decode AttachmentComplete: %v", err)
+	}
+	if complete.Kind != ClientStreamMessageAttachmentComplete || !bytes.Equal(complete.TransferID, transferID) {
+		t.Fatalf("decoded AttachmentComplete = %#v", complete)
+	}
+	if err := stream.CommitClientMessage(complete); err != nil {
+		t.Fatalf("commit AttachmentComplete: %v", err)
+	}
+
+	cancelEnvelope := newClientStreamEnvelope(nil, 0, 4, 1)
+	cancelEnvelope.Payload = &vibebridgev1.Envelope_AttachmentCancel{AttachmentCancel: &vibebridgev1.AttachmentCancel{TransferId: transferID}}
+	cancel, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, cancelEnvelope))
+	if err != nil {
+		t.Fatalf("decode AttachmentCancel: %v", err)
+	}
+	if cancel.Kind != ClientStreamMessageAttachmentCancel || !bytes.Equal(cancel.TransferID, transferID) {
+		t.Fatalf("decoded AttachmentCancel = %#v", cancel)
+	}
+}
+
+func TestAgentStreamRejectsMalformedAttachmentMessages(t *testing.T) {
+	tests := []struct {
+		name       string
+		setPayload func(*vibebridgev1.Envelope)
+	}{
+		{
+			name: "begin without transfer ID",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentBegin{AttachmentBegin: &vibebridgev1.AttachmentBegin{
+					DisplayName: "notes.txt", DeclaredContentType: "text/plain", DeclaredExtension: "txt",
+					TotalSizeBytes: 1, TotalSha256: bytes.Repeat([]byte{1}, 32),
+				}}
+			},
+		},
+		{
+			name: "begin with oversized transfer ID",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentBegin{AttachmentBegin: &vibebridgev1.AttachmentBegin{
+					TransferId: bytes.Repeat([]byte{1}, 65), DisplayName: "notes.txt",
+					DeclaredContentType: "text/plain", DeclaredExtension: "txt",
+					TotalSizeBytes: 1, TotalSha256: bytes.Repeat([]byte{1}, 32),
+				}}
+			},
+		},
+		{
+			name: "begin with zero size",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentBegin{AttachmentBegin: &vibebridgev1.AttachmentBegin{
+					TransferId: []byte("transfer"), DisplayName: "notes.txt",
+					DeclaredContentType: "text/plain", DeclaredExtension: "txt",
+					TotalSha256: bytes.Repeat([]byte{1}, 32),
+				}}
+			},
+		},
+		{
+			name: "begin with malformed total hash",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentBegin{AttachmentBegin: &vibebridgev1.AttachmentBegin{
+					TransferId: []byte("transfer"), DisplayName: "notes.txt",
+					DeclaredContentType: "text/plain", DeclaredExtension: "txt",
+					TotalSizeBytes: 1, TotalSha256: []byte("short"),
+				}}
+			},
+		},
+		{
+			name: "chunk without data",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentChunk{AttachmentChunk: &vibebridgev1.AttachmentChunk{
+					TransferId: []byte("transfer"), ChunkSha256: bytes.Repeat([]byte{1}, 32),
+				}}
+			},
+		},
+		{
+			name: "chunk with malformed hash",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentChunk{AttachmentChunk: &vibebridgev1.AttachmentChunk{
+					TransferId: []byte("transfer"), Data: []byte("x"), ChunkSha256: []byte("short"),
+				}}
+			},
+		},
+		{
+			name: "complete without transfer ID",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentComplete{AttachmentComplete: &vibebridgev1.AttachmentComplete{}}
+			},
+		},
+		{
+			name: "cancel without transfer ID",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentCancel{AttachmentCancel: &vibebridgev1.AttachmentCancel{}}
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			stream := newTestAgentAttachmentStream(t, MaxEnvelopeBytes)
+			envelope := newClientStreamEnvelope(nil, 0, 2, 1)
+			testCase.setPayload(envelope)
+			if _, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, envelope)); err == nil {
+				t.Fatal("malformed attachment message was accepted")
+			}
+		})
+	}
+}
+
+func TestAgentStreamRejectsUnnegotiatedAttachmentTransfer(t *testing.T) {
 	stream := newTestAgentStream(t, MaxEnvelopeBytes)
 	envelope := newClientStreamEnvelope(nil, 0, 2, 1)
 	envelope.Payload = &vibebridgev1.Envelope_AttachmentBegin{AttachmentBegin: &vibebridgev1.AttachmentBegin{
 		TransferId:     []byte("transfer-id"),
 		DisplayName:    "diagram.png",
 		TotalSizeBytes: 1,
+		TotalSha256:    bytes.Repeat([]byte{0x2a}, 32),
 	}}
 
 	if _, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, envelope)); err == nil {
-		t.Fatal("attachment transfer was accepted before the transfer state machine was implemented")
+		t.Fatal("unnegotiated attachment transfer was accepted")
 	}
 }
 
@@ -170,6 +333,14 @@ func TestAgentStreamEncodesNegotiatedError(t *testing.T) {
 		t.Fatal("stream did not report negotiated control error capability")
 	}
 
+	attachmentError, err := stream.EncodeError(vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED, time.Now())
+	if err != nil {
+		t.Fatalf("encode attachment Error: %v", err)
+	}
+	if got := unmarshalStreamEnvelope(t, attachmentError).GetError().GetCode(); got != vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED {
+		t.Fatalf("attachment Error code = %v", got)
+	}
+
 	if _, err := newTestAgentStream(t, MaxEnvelopeBytes).EncodeError(vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED, time.Now()); err == nil {
 		t.Fatal("unnegotiated Error was encoded")
 	}
@@ -197,6 +368,7 @@ func TestAgentStreamEncodesErrorBeforeOrAfterResumeBinding(t *testing.T) {
 		vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED,
 		vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED,
 		vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE,
+		vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED,
 	} {
 		if _, err := newTestAgentResumeErrorStream(t, MaxEnvelopeBytes).EncodeError(code, time.Now()); err == nil {
 			t.Fatalf("pre-bind Error code %v was encoded", code)
@@ -215,13 +387,14 @@ func TestAgentStreamEncodesErrorBeforeOrAfterResumeBinding(t *testing.T) {
 	if err := bound.BindSession(sessionID, 7); err != nil {
 		t.Fatalf("bind session: %v", err)
 	}
-	encoded, err = bound.EncodeError(vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED, time.Now())
+	encoded, err = bound.EncodeError(vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED, time.Now())
 	if err != nil {
-		t.Fatalf("encode bound Error: %v", err)
+		t.Fatalf("encode bound attachment Error: %v", err)
 	}
 	envelope = unmarshalStreamEnvelope(t, encoded)
-	if !bytes.Equal(envelope.SessionId, sessionID) || envelope.SessionGeneration != 7 || envelope.Acknowledge != 2 {
-		t.Fatalf("bound Error metadata = session %x/%d ack %d", envelope.SessionId, envelope.SessionGeneration, envelope.Acknowledge)
+	if !bytes.Equal(envelope.SessionId, sessionID) || envelope.SessionGeneration != 7 || envelope.Acknowledge != 2 ||
+		envelope.GetError().GetCode() != vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED {
+		t.Fatalf("bound attachment Error metadata/code = session %x/%d ack %d code %v", envelope.SessionId, envelope.SessionGeneration, envelope.Acknowledge, envelope.GetError().GetCode())
 	}
 }
 
@@ -382,6 +555,24 @@ func newTestAgentStream(t *testing.T, peerLimit uint32) *AgentStream {
 	})
 	if err != nil {
 		t.Fatalf("create Agent stream: %v", err)
+	}
+	return stream
+}
+
+func newTestAgentAttachmentStream(t *testing.T, peerLimit uint32) *AgentStream {
+	t.Helper()
+	stream, err := NewAgentStream(NegotiatedHello{
+		Major:                CurrentMajor,
+		Minor:                CurrentMinor,
+		PeerMaxEnvelopeBytes: peerLimit,
+		ConnectionID:         []byte("0123456789abcdef"),
+		capabilities: map[string]struct{}{
+			CapabilityTerminalSequencedIO: {},
+			CapabilityAttachmentTransfer:  {},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create attachment Agent stream: %v", err)
 	}
 	return stream
 }

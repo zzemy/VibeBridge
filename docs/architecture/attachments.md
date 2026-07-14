@@ -76,6 +76,14 @@ The protocol already includes transfer identifier, byte offset, chunk hash, and 
 
 A `SessionStaging` permits exactly one live transfer manager so parallel managers cannot bypass session quota. The manager reserves declared bytes before creating transfer state, keeps successful files charged across manager reopen until session cleanup, and releases failed or cancelled reservations only after partial removal succeeds. `Complete` is idempotent after publication, while `Cancel` is idempotent and never removes an already-published file. Connection/session owners must close the manager before running staging cleanup. Stable errors do not include remote transfer IDs, display names, or local paths.
 
+## Protocol and Session Ownership
+
+The Protocol V1 Agent decoder accepts begin/chunk/complete/cancel envelopes only when the peer declared `attachment.transfer_v1`, which requires `terminal.sequenced_io_v1` and `control.error_v1`. It performs wire-shape checks and clones all binary fields before returning them to the session layer. Policy, quota, offset, content, and integrity decisions remain centralized in the transfer manager.
+
+A workspace-bound PTY session lazily creates at most one transfer manager and reuses it for all attachment messages. The server applies the manager side effect before committing the inbound sequence and sending its acknowledgement. A rejected operation therefore leaves that client sequence uncommitted and returns only the allowlisted `ATTACHMENT_TRANSFER_FAILED` error; transfer IDs, display names, paths, and underlying filesystem errors are not sent to the client. Session exit prevents manager recreation, closes the manager, and only then removes staging. If manager close or staging cleanup fails, the session retains the boundary and emits only the privacy-safe `session.cleanup_failed` diagnostic event.
+
+This is currently a server-side tracer bullet rather than a user-facing feature. The production Agent Hello and browser Client Hello still do not advertise `attachment.transfer_v1`; picker/progress/confirmation UX and tool-adapter path delivery must be complete before advertisement is enabled.
+
 ## Tool Adapters
 
 Generic fallback:

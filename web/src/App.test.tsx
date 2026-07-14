@@ -291,6 +291,42 @@ test("handles a negotiated stable Error before SessionStatus", async () => {
   expect(FakeWebSocket.instances).toHaveLength(1);
 });
 
+test("reports a negotiated attachment transfer failure", async () => {
+  window.history.replaceState({}, "", "/?token=test-token");
+  render(<App />);
+  await screen.findByTestId("terminal-view");
+  await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+  const socket = FakeWebSocket.instances[0];
+  if (!socket) throw new Error("expected WebSocket instance");
+
+  act(() => socket.open());
+  const clientHelloBytes = socket.sent[0];
+  if (!(clientHelloBytes instanceof ArrayBuffer)) throw new Error("expected binary client Hello");
+  const clientHello = fromBinary(EnvelopeSchema, new Uint8Array(clientHelloBytes));
+  const agentHello = createAgentHello(clientHello.connectionId, [
+    terminalBinaryOutputCapability,
+    terminalSequencedIoCapability,
+    controlErrorCapability,
+  ]);
+  act(() => socket.message(agentHello.slice().buffer));
+  await waitFor(() => expect(screen.getByText("Connected")).toBeTruthy());
+
+  const error = toBinary(EnvelopeSchema, create(EnvelopeSchema, {
+    protocolMajor: 1,
+    connectionId: clientHello.connectionId,
+    sequence: 2n,
+    acknowledge: 1n,
+    payload: {
+      case: "error",
+      value: create(ErrorSchema, { code: ErrorCode.ATTACHMENT_TRANSFER_FAILED }),
+    },
+  }));
+  act(() => socket.message(error.slice().buffer));
+
+  await waitFor(() => expect(terminalState.chunks.at(-1)).toBe("error: attachment transfer failed\r\n"));
+  expect(screen.getByText("Connected")).toBeTruthy();
+});
+
 test("retains JSON error fallback when control.error_v1 is not negotiated", async () => {
   window.history.replaceState({}, "", "/?token=test-token");
   render(<App />);

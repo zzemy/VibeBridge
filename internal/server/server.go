@@ -481,6 +481,17 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 					if err := writer.respondProtocolV1Ping(streamMessage); err != nil {
 						return
 					}
+				case protocolv1.ClientStreamMessageAttachmentBegin,
+					protocolv1.ClientStreamMessageAttachmentChunk,
+					protocolv1.ClientStreamMessageAttachmentComplete,
+					protocolv1.ClientStreamMessageAttachmentCancel:
+					if err := session.applyAttachmentMessage(streamMessage); err != nil {
+						_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED)
+						return
+					}
+					if err := writer.commitProtocolV1ClientMessage(streamMessage, true); err != nil {
+						return
+					}
 				default:
 					writer.closeProtocol("Unsupported Protocol V1 message")
 					return
@@ -559,6 +570,9 @@ type ptySession struct {
 	resourcesCloseErr  error
 	telemetry          sessionTelemetry
 	staging            *attachment.SessionStaging
+	attachmentMu       sync.Mutex
+	attachmentManager  *attachment.Manager
+	attachmentsClosed  bool
 	endReason          agentlog.Reason
 }
 
@@ -717,6 +731,82 @@ func (s *ptySession) isEnded() bool {
 	return s.lifecycle.done()
 }
 
+func (s *ptySession) applyAttachmentMessage(message protocolv1.ClientStreamMessage) error {
+	manager, err := s.transferManager()
+	if err != nil {
+		return err
+	}
+	switch message.Kind {
+	case protocolv1.ClientStreamMessageAttachmentBegin:
+		return manager.Begin(attachment.BeginRequest{
+			TransferID:          message.TransferID,
+			DisplayName:         message.DisplayName,
+			DeclaredContentType: message.DeclaredContentType,
+			DeclaredExtension:   message.DeclaredExtension,
+			TotalSizeBytes:      message.TotalSizeBytes,
+			TotalSHA256:         message.TotalSHA256,
+		})
+	case protocolv1.ClientStreamMessageAttachmentChunk:
+		return manager.Chunk(attachment.ChunkRequest{
+			TransferID:  message.TransferID,
+			OffsetBytes: message.OffsetBytes,
+			Data:        message.Data,
+			ChunkSHA256: message.ChunkSHA256,
+		})
+	case protocolv1.ClientStreamMessageAttachmentComplete:
+		_, err := manager.Complete(message.TransferID)
+		return err
+	case protocolv1.ClientStreamMessageAttachmentCancel:
+		return manager.Cancel(message.TransferID)
+	default:
+		return errors.New("message is not an attachment transfer")
+	}
+}
+
+func (s *ptySession) transferManager() (*attachment.Manager, error) {
+	// Hold s.mu before attachmentMu so lifecycle transitions cannot race with
+	// lazy manager creation. The reverse order is never taken elsewhere.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.attachmentMu.Lock()
+	defer s.attachmentMu.Unlock()
+	if s.lifecycle.state == sessionStateEnding || s.lifecycle.done() || s.attachmentsClosed {
+		return nil, errors.New("attachment transfers are closed for this session")
+	}
+	if s.attachmentManager != nil {
+		return s.attachmentManager, nil
+	}
+	if s.staging == nil {
+		return nil, errors.New("attachment transfers require a workspace session")
+	}
+	manager, err := attachment.NewManager(s.staging)
+	if err != nil {
+		return nil, fmt.Errorf("initialize attachment transfers: %w", err)
+	}
+	s.attachmentManager = manager
+	return manager, nil
+}
+
+func (s *ptySession) closeAttachmentCreationLocked() {
+	s.attachmentMu.Lock()
+	s.attachmentsClosed = true
+	s.attachmentMu.Unlock()
+}
+
+func (s *ptySession) closeAttachmentManager() error {
+	s.attachmentMu.Lock()
+	defer s.attachmentMu.Unlock()
+	s.attachmentsClosed = true
+	if s.attachmentManager == nil {
+		return nil
+	}
+	if err := s.attachmentManager.Close(); err != nil {
+		return err
+	}
+	s.attachmentManager = nil
+	return nil
+}
+
 func (s *ptySession) writeInput(input string) error {
 	return s.writeInputBytes([]byte(input))
 }
@@ -761,6 +851,7 @@ func (s *ptySession) terminateWithReason(reason agentlog.Reason) {
 		s.idleTimer = nil
 	}
 	s.endReason = reason
+	s.closeAttachmentCreationLocked()
 	s.logEvent(agentlog.EventSessionEnding, agentlog.State(s.lifecycle.state), reason, "")
 	s.mu.Unlock()
 
@@ -833,6 +924,7 @@ func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 		s.outputMu.Unlock()
 		return
 	}
+	s.closeAttachmentCreationLocked()
 	if s.detachTimer != nil {
 		s.detachTimer.Stop()
 		s.detachTimer = nil
@@ -867,8 +959,13 @@ func (s *ptySession) waitForExit(cmd interface{ Wait() error }) {
 	s.outputMu.Unlock()
 
 	_ = s.closeResources()
-	if s.staging != nil {
-		_ = s.staging.Cleanup()
+	attachmentCloseErr := s.closeAttachmentManager()
+	var stagingCleanupErr error
+	if attachmentCloseErr == nil && s.staging != nil {
+		stagingCleanupErr = s.staging.Cleanup()
+	}
+	if attachmentCloseErr != nil || stagingCleanupErr != nil {
+		s.logEvent(agentlog.EventSessionCleanupFailed, agentlog.State(s.lifecycle.state), reason, agentlog.OutcomeFailure)
 	}
 	close(s.done)
 	if s.onDone != nil {
@@ -940,6 +1037,8 @@ func stableErrorMessage(code vibebridgev1.ErrorCode) (string, error) {
 		return "could not resize terminal", nil
 	case vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE:
 		return "unsupported message type", nil
+	case vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED:
+		return "attachment transfer failed", nil
 	default:
 		return "", errors.New("stable error code is invalid")
 	}
