@@ -85,6 +85,14 @@ A background process publishes an atomic user-local runtime state containing its
 
 Task creation, replacement, querying, startup, and removal are isolated behind the Local Agent service adapter. Unsupported platforms return an explicit error. macOS and Linux implementations remain gated on their packaging and lifecycle validation requirements.
 
+## Durable Device Identity
+
+Every normal Agent startup loads or creates one durable device identity before serving HTTP. The Windows default is `%LOCALAPPDATA%\VibeBridge\identity.json`, with an absolute `--identity-store` override. The protected state includes private identity keys and the local authorization graph; it is separate from `runtime.json`, survives Agent restart and service uninstall, and is removed only through an explicit future reset/recovery operation.
+
+Windows protection uses current-user DPAPI, purpose-bound entropy, owner-local directories, bounded versioned envelopes, atomic replacement, and a cross-process creation lock. An existing unreadable or invalid file is never replaced with a new identity. Unix source builds currently use atomic mode-`0600` storage as a documented lower-assurance fallback until Secret Service/Keychain adapters are implemented.
+
+The tray management page is local-machine-only and token-authenticated. It creates fragment-only, expiring pairing bootstrap capabilities and displays persisted authorized/revoked clients. It does not make remote pairing operational by itself: the phone-facing encrypted pairing endpoint and approval handshake remain in the E2EE workstream.
+
 ## Local Storage
 
 Recommended data layout:
