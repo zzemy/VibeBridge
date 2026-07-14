@@ -188,6 +188,11 @@ export type AttachmentChunkRequest = {
   chunkSha256: Uint8Array;
 };
 
+export type SequencedClientEnvelope = {
+  sequence: bigint;
+  encoded: Uint8Array;
+};
+
 type ProtocolV1ClientStreamOptions = {
   sessionResume?: boolean;
   sessionProcessExit?: boolean;
@@ -295,6 +300,11 @@ export class ProtocolV1ClientStream {
     return this.attachmentTransfer;
   }
 
+  /** Returns the highest client sequence cumulatively acknowledged by the Agent. */
+  highestAcknowledgedClientSequence(): bigint {
+    return this.highestPeerAcknowledgement;
+  }
+
   /** Returns a conservative data payload limit under the peer's downward-negotiated envelope ceiling. */
   maxAttachmentChunkBytes(): number {
     this.assertAttachmentTransfer();
@@ -306,7 +316,7 @@ export class ProtocolV1ClientStream {
     return Math.min(protocolV1MaxAttachmentChunkBytes, availablePayloadBytes);
   }
 
-  createAttachmentBegin(request: AttachmentBeginRequest, sentAt = new Date()): Uint8Array {
+  createAttachmentBegin(request: AttachmentBeginRequest, sentAt = new Date()): SequencedClientEnvelope {
     this.assertAttachmentTransfer();
     assertAttachmentTransferId(request.transferId);
     if (
@@ -319,7 +329,7 @@ export class ProtocolV1ClientStream {
     ) {
       throw new Error("Attachment metadata has an invalid size, checksum, or declaration");
     }
-    return this.encode({
+    return this.encodeSequenced({
       case: "attachmentBegin",
       value: create(AttachmentBeginSchema, {
         transferId: request.transferId,
@@ -332,7 +342,7 @@ export class ProtocolV1ClientStream {
     }, sentAt);
   }
 
-  createAttachmentChunk(request: AttachmentChunkRequest, sentAt = new Date()): Uint8Array {
+  createAttachmentChunk(request: AttachmentChunkRequest, sentAt = new Date()): SequencedClientEnvelope {
     this.assertAttachmentTransfer();
     assertAttachmentTransferId(request.transferId);
     if (
@@ -344,7 +354,7 @@ export class ProtocolV1ClientStream {
     ) {
       throw new Error("Attachment chunk has an invalid offset, size, or checksum");
     }
-    return this.encode({
+    return this.encodeSequenced({
       case: "attachmentChunk",
       value: create(AttachmentChunkSchema, {
         transferId: request.transferId,
@@ -355,19 +365,19 @@ export class ProtocolV1ClientStream {
     }, sentAt);
   }
 
-  createAttachmentComplete(transferId: Uint8Array, sentAt = new Date()): Uint8Array {
+  createAttachmentComplete(transferId: Uint8Array, sentAt = new Date()): SequencedClientEnvelope {
     this.assertAttachmentTransfer();
     assertAttachmentTransferId(transferId);
-    return this.encode({
+    return this.encodeSequenced({
       case: "attachmentComplete",
       value: create(AttachmentCompleteSchema, { transferId }),
     }, sentAt);
   }
 
-  createAttachmentCancel(transferId: Uint8Array, sentAt = new Date()): Uint8Array {
+  createAttachmentCancel(transferId: Uint8Array, sentAt = new Date()): SequencedClientEnvelope {
     this.assertAttachmentTransfer();
     assertAttachmentTransferId(transferId);
-    return this.encode({
+    return this.encodeSequenced({
       case: "attachmentCancel",
       value: create(AttachmentCancelSchema, { transferId }),
     }, sentAt);
@@ -524,6 +534,11 @@ export class ProtocolV1ClientStream {
     if (!this.attachmentTransfer) {
       throw new Error("Attachment transfer was not negotiated");
     }
+  }
+
+  private encodeSequenced(payload: Envelope["payload"], sentAt: Date): SequencedClientEnvelope {
+    const sequence = this.nextOutbound;
+    return { sequence, encoded: this.encode(payload, sentAt) };
   }
 
   private encode(

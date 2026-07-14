@@ -736,9 +736,11 @@ func (s *ptySession) applyAttachmentMessage(message protocolv1.ClientStreamMessa
 	if err != nil {
 		return err
 	}
+
+	var operationErr error
 	switch message.Kind {
 	case protocolv1.ClientStreamMessageAttachmentBegin:
-		return manager.Begin(attachment.BeginRequest{
+		operationErr = manager.Begin(attachment.BeginRequest{
 			TransferID:          message.TransferID,
 			DisplayName:         message.DisplayName,
 			DeclaredContentType: message.DeclaredContentType,
@@ -747,20 +749,26 @@ func (s *ptySession) applyAttachmentMessage(message protocolv1.ClientStreamMessa
 			TotalSHA256:         message.TotalSHA256,
 		})
 	case protocolv1.ClientStreamMessageAttachmentChunk:
-		return manager.Chunk(attachment.ChunkRequest{
+		operationErr = manager.Chunk(attachment.ChunkRequest{
 			TransferID:  message.TransferID,
 			OffsetBytes: message.OffsetBytes,
 			Data:        message.Data,
 			ChunkSHA256: message.ChunkSHA256,
 		})
 	case protocolv1.ClientStreamMessageAttachmentComplete:
-		_, err := manager.Complete(message.TransferID)
-		return err
+		_, operationErr = manager.Complete(message.TransferID)
 	case protocolv1.ClientStreamMessageAttachmentCancel:
-		return manager.Cancel(message.TransferID)
+		operationErr = manager.Cancel(message.TransferID)
 	default:
 		return errors.New("message is not an attachment transfer")
 	}
+	if operationErr == nil {
+		return nil
+	}
+
+	// A rejected operation is not committed to the ordered stream. Abandon its
+	// active partial so the client can reconnect and retry the whole file.
+	return errors.Join(operationErr, manager.Cancel(message.TransferID))
 }
 
 func (s *ptySession) transferManager() (*attachment.Manager, error) {

@@ -272,7 +272,7 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
       ) : null}
       {state === "success" ? (
         <p className="mt-2 flex items-center gap-1 text-xs text-emerald-300" role="status">
-          <CheckCircle2 className="size-3.5" aria-hidden="true" /> Files sent for verification.
+          <CheckCircle2 className="size-3.5" aria-hidden="true" /> Files verified and staged.
         </p>
       ) : null}
       {error ? (

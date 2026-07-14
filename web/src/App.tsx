@@ -38,8 +38,8 @@ import {
 import {
   transferAttachments,
   type AttachmentTransferProgress,
-  type AttachmentTransferSender,
 } from "./lib/attachments";
+import { AcknowledgedAttachmentSender } from "./lib/attachment-protocol";
 import { terminalKeys } from "./lib/terminalKeys";
 
 type ConnectionState = "missing-token" | "connecting" | "reconnecting" | "connected" | "closed" | "error";
@@ -113,6 +113,7 @@ export function App() {
   const [now, setNow] = useState(Date.now());
   const socketRef = useRef<WebSocket | null>(null);
   const protocolStreamRef = useRef<ProtocolV1ClientStream | null>(null);
+  const attachmentSenderRef = useRef<AcknowledgedAttachmentSender | null>(null);
   const resumeCursorRef = useRef<SessionResumeCursor | undefined>(undefined);
   const terminalRef = useRef<TerminalViewHandle | null>(null);
   const stopReconnectRef = useRef(false);
@@ -254,6 +255,8 @@ export function App() {
       const socket = new WebSocket(wsUrl, [protocolV1WebSocketSubprotocol]);
       let protocolNegotiated = false;
       let fatalProtocolError = false;
+      let attachmentTransfer = false;
+      let attachmentSender: AcknowledgedAttachmentSender | null = null;
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
       protocolStreamRef.current = null;
@@ -268,6 +271,7 @@ export function App() {
         disconnectReportedRef.current = false;
         setRetryIn(0);
         setConnectionState("connected");
+        setAttachmentTransferAvailable(attachmentTransfer && attachmentSender !== null);
       };
 
       const failProtocol = (message: string) => {
@@ -309,8 +313,7 @@ export function App() {
               const terminalResizeEnd = negotiated.capabilities.has(terminalResizeEndCapability);
               const controlError = negotiated.capabilities.has(controlErrorCapability);
               const controlHealth = negotiated.capabilities.has(controlHealthCapability);
-              const attachmentTransfer = attachmentClientFlowEnabled && negotiated.capabilities.has(attachmentTransferCapability);
-              setAttachmentTransferAvailable(attachmentTransfer);
+              attachmentTransfer = attachmentClientFlowEnabled && negotiated.capabilities.has(attachmentTransferCapability);
               const stream = new ProtocolV1ClientStream(connectionId, negotiated.maxEnvelopeBytes, {
                 sessionProcessExit,
                 sessionResume,
@@ -320,6 +323,23 @@ export function App() {
                 attachmentTransfer,
               });
               protocolStreamRef.current = stream;
+              if (attachmentTransfer) {
+                attachmentSender = new AcknowledgedAttachmentSender(stream, {
+                  send(encoded) {
+                    if (socket.readyState !== WebSocket.OPEN) {
+                      throw new Error("Connection lost during attachment transfer");
+                    }
+                    socket.send(encoded.slice().buffer);
+                  },
+                  requestRecovery() {
+                    setAttachmentTransferAvailable(false);
+                    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+                      socket.close(1012, "Attachment transfer recovery");
+                    }
+                  },
+                });
+                attachmentSenderRef.current = attachmentSender;
+              }
               protocolNegotiated = true;
               if (sessionResume) {
                 socket.send(stream.createAttachSession(resumeCursorRef.current).slice().buffer);
@@ -345,6 +365,7 @@ export function App() {
           }
           try {
             const message = protocolStream.acceptAgentMessage(new Uint8Array(payload));
+            attachmentSender?.acceptAgentMessage(message);
             const resumeCursor = protocolStream.getResumeCursor();
             if (resumeCursor) {
               resumeCursorRef.current = resumeCursor;
@@ -401,10 +422,15 @@ export function App() {
       });
 
       socket.addEventListener("close", (event) => {
+        attachmentSender?.disconnect();
+        if (attachmentSenderRef.current === attachmentSender) {
+          attachmentSenderRef.current = null;
+        }
         if (socketRef.current === socket) {
           socketRef.current = null;
           protocolStreamRef.current = null;
-            }
+          setAttachmentTransferAvailable(false);
+        }
         if (fatalProtocolError || (!protocolNegotiated && socket.protocol === protocolV1WebSocketSubprotocol && event.code === 1002)) {
           stopReconnectRef.current = true;
           setConnectionState("error");
@@ -445,6 +471,8 @@ export function App() {
       disposed = true;
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
       if (countdownTimer !== undefined) window.clearInterval(countdownTimer);
+      attachmentSenderRef.current?.disconnect();
+      attachmentSenderRef.current = null;
       socketRef.current?.close();
       socketRef.current = null;
       protocolStreamRef.current = null;
@@ -459,22 +487,11 @@ export function App() {
   ) => {
     const socket = socketRef.current;
     const protocolStream = protocolStreamRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN || !protocolStream?.usesAttachmentTransfer()) {
+    const sender = attachmentSenderRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !protocolStream?.usesAttachmentTransfer() || !sender) {
       throw new Error("Attachment transfer is not available");
     }
 
-    const send = (payload: Uint8Array) => {
-      if (socket.readyState !== WebSocket.OPEN) {
-        throw new Error("Connection lost during attachment transfer");
-      }
-      socket.send(payload.slice().buffer);
-    };
-    const sender: AttachmentTransferSender = {
-      begin: (request) => send(protocolStream.createAttachmentBegin(request)),
-      chunk: (request) => send(protocolStream.createAttachmentChunk(request)),
-      complete: (transferId) => send(protocolStream.createAttachmentComplete(transferId)),
-      cancel: (transferId) => send(protocolStream.createAttachmentCancel(transferId)),
-    };
     await transferAttachments(files, sender, signal, onProgress, protocolStream.maxAttachmentChunkBytes());
   }, []);
 

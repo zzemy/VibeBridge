@@ -35,7 +35,7 @@ test("reviews selected files but blocks confirmation without negotiated support"
   expect(onTransfer).not.toHaveBeenCalled();
 });
 
-test("confirms a supported selection and reports that files were sent for verification", async () => {
+test("confirms a supported selection and reports that files were verified and staged", async () => {
   const user = userEvent.setup();
   const onTransfer = vi.fn(async (
     _files: readonly File[],
@@ -60,7 +60,7 @@ test("confirms a supported selection and reports that files were sent for verifi
   await user.click(screen.getByRole("button", { name: "Send files" }));
 
   expect(onTransfer).toHaveBeenCalledTimes(1);
-  expect(await screen.findByText("Files sent for verification.")).toBeTruthy();
+  expect(await screen.findByText("Files verified and staged.")).toBeTruthy();
 });
 
 test("shows local policy failures and clears a stale selection", async () => {
@@ -144,6 +144,6 @@ test("shows transfer failures and permits an explicit retry", async () => {
   expect((await screen.findByRole("alert")).textContent).toContain("connection queue failed");
 
   await user.click(screen.getByRole("button", { name: "Send files" }));
-  expect(await screen.findByText("Files sent for verification.")).toBeTruthy();
+  expect(await screen.findByText("Files verified and staged.")).toBeTruthy();
   expect(onTransfer).toHaveBeenCalledTimes(2);
 });

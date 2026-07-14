@@ -42,10 +42,10 @@ export type AttachmentTransferProgress = {
 };
 
 export type AttachmentTransferSender = {
-  begin(request: AttachmentBeginRequest): void;
-  chunk(request: AttachmentChunkRequest): void;
-  complete(transferId: Uint8Array): void;
-  cancel(transferId: Uint8Array): void;
+  begin(request: AttachmentBeginRequest, signal: AbortSignal): Promise<void>;
+  chunk(request: AttachmentChunkRequest, signal: AbortSignal): Promise<void>;
+  complete(transferId: Uint8Array, signal: AbortSignal): Promise<void>;
+  cancel(transferId: Uint8Array): Promise<void>;
 };
 
 export function describeAttachment(file: File): AttachmentMetadata {
@@ -119,14 +119,14 @@ export async function transferAttachments(
     try {
       const totalSha256 = await sha256(new Uint8Array(await file.arrayBuffer()));
       throwIfAborted(signal);
-      sender.begin({
+      await sender.begin({
         transferId,
         displayName: item.displayName,
         declaredContentType: item.declaredContentType,
         declaredExtension: item.declaredExtension,
         totalSizeBytes: BigInt(item.totalSizeBytes),
         totalSha256,
-      });
+      }, signal);
       began = true;
 
       for (let offset = 0; offset < file.size; offset += maxChunkBytes) {
@@ -134,12 +134,12 @@ export async function transferAttachments(
         const end = Math.min(file.size, offset + maxChunkBytes);
         const data = new Uint8Array(await file.slice(offset, end).arrayBuffer());
         throwIfAborted(signal);
-        sender.chunk({
+        await sender.chunk({
           transferId,
           offsetBytes: BigInt(offset),
           data,
           chunkSha256: await sha256(data),
-        });
+        }, signal);
         onProgress({
           fileIndex,
           fileCount: files.length,
@@ -152,12 +152,12 @@ export async function transferAttachments(
       }
 
       throwIfAborted(signal);
-      sender.complete(transferId);
+      await sender.complete(transferId, signal);
       completedBytes += file.size;
     } catch (error) {
       if (began) {
         try {
-          sender.cancel(transferId);
+          await sender.cancel(transferId);
         } catch {
           // Preserve the original transfer failure; session cleanup remains the fallback.
         }
