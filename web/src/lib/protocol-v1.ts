@@ -8,6 +8,10 @@ import {
   AttachmentCancelSchema,
   AttachmentChunkSchema,
   AttachmentCompleteSchema,
+  AttachmentPromptCancelSchema,
+  AttachmentPromptCommitSchema,
+  AttachmentPromptDisposition,
+  AttachmentPromptPrepareSchema,
   EndSessionSchema,
   EnvelopeSchema,
   ErrorCode,
@@ -35,6 +39,7 @@ export const sessionResumeCapability = "session.resume_v1";
 export const controlErrorCapability = "control.error_v1";
 export const controlHealthCapability = "control.health_v1";
 export const attachmentTransferCapability = "attachment.transfer_v1";
+export const attachmentPromptActionCapability = "attachment.prompt_action_v1";
 export const protocolV1MaxTerminalInputBytes = 32 * 1024;
 // Keep chunk payloads below the 64 KiB envelope ceiling after protobuf framing.
 export const protocolV1MaxAttachmentChunkBytes = 48 * 1024;
@@ -48,6 +53,9 @@ const maxCapabilities = 64;
 const maxCapabilityLength = 128;
 const maxUint64 = (1n << 64n) - 1n;
 const maxAttachmentTransferIdBytes = 64;
+const maxAttachmentPromptTransferIds = 10;
+const maxAttachmentPromptBytes = 32 * 1024;
+const maxAttachmentPromptPreviewBytes = 48 * 1024;
 const sha256Bytes = 32;
 
 export type NegotiatedAgentHello = {
@@ -61,8 +69,23 @@ export function newProtocolV1ConnectionId(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(connectionIdBytes));
 }
 
-export function createClientHello(connectionId: Uint8Array, sentAt = new Date()): Uint8Array {
+export type ClientHelloOptions = {
+  attachmentTransfer?: boolean;
+  attachmentPromptAction?: boolean;
+};
+
+export function createClientHello(connectionId: Uint8Array, sentAt = new Date(), options: ClientHelloOptions = {}): Uint8Array {
   assertConnectionId(connectionId);
+  if (options.attachmentPromptAction === true && options.attachmentTransfer !== true) {
+    throw new Error(`${attachmentPromptActionCapability} requires ${attachmentTransferCapability}`);
+  }
+  const capabilities = [terminalBinaryOutputCapability, terminalSequencedIoCapability, terminalResizeEndCapability, sessionProcessExitCapability, sessionResumeCapability, controlErrorCapability, controlHealthCapability];
+  if (options.attachmentTransfer === true) {
+    capabilities.push(attachmentTransferCapability);
+  }
+  if (options.attachmentPromptAction === true) {
+    capabilities.push(attachmentPromptActionCapability);
+  }
   const version = () => create(ProtocolVersionSchema, { major: protocolV1Major, minor: protocolV1Minor });
   const envelope = create(EnvelopeSchema, {
     protocolMajor: protocolV1Major,
@@ -78,7 +101,7 @@ export function createClientHello(connectionId: Uint8Array, sentAt = new Date())
           minimum: version(),
           maximum: version(),
         }),
-        capabilities: [terminalBinaryOutputCapability, terminalSequencedIoCapability, terminalResizeEndCapability, sessionProcessExitCapability, sessionResumeCapability, controlErrorCapability, controlHealthCapability],
+        capabilities,
         maxEnvelopeBytes: protocolV1MaxEnvelopeBytes,
       }),
     },
@@ -140,13 +163,19 @@ export function acceptAgentHello(encoded: Uint8Array, expectedConnectionId: Uint
     }
     capabilities.add(capability);
   }
-  for (const dependent of [terminalResizeEndCapability, sessionProcessExitCapability, controlErrorCapability, controlHealthCapability, attachmentTransferCapability]) {
+  for (const dependent of [terminalResizeEndCapability, sessionProcessExitCapability, controlErrorCapability, controlHealthCapability, attachmentTransferCapability, attachmentPromptActionCapability]) {
     if (capabilities.has(dependent) && !capabilities.has(terminalSequencedIoCapability)) {
       throw new Error(`${dependent} requires ${terminalSequencedIoCapability}`);
     }
   }
   if (capabilities.has(attachmentTransferCapability) && !capabilities.has(controlErrorCapability)) {
     throw new Error(`${attachmentTransferCapability} requires ${controlErrorCapability}`);
+  }
+  if (capabilities.has(attachmentPromptActionCapability) && !capabilities.has(attachmentTransferCapability)) {
+    throw new Error(`${attachmentPromptActionCapability} requires ${attachmentTransferCapability}`);
+  }
+  if (capabilities.has(attachmentPromptActionCapability) && !capabilities.has(controlErrorCapability)) {
+    throw new Error(`${attachmentPromptActionCapability} requires ${controlErrorCapability}`);
   }
 
   return {
@@ -156,7 +185,6 @@ export function acceptAgentHello(encoded: Uint8Array, expectedConnectionId: Uint
     capabilities,
   };
 }
-
 
 export type SessionResumeCursor = {
   sessionId: Uint8Array;
@@ -169,6 +197,7 @@ export type AgentStreamMessage =
   | { type: "terminal-output"; data: Uint8Array }
   | { type: "process-exit"; outcome: ProcessExitOutcome }
   | { type: "error"; code: ErrorCode }
+  | { type: "attachment-prompt-preview"; actionId: Uint8Array; disposition: AttachmentPromptDisposition; preview: string; appendEnter: boolean }
   | { type: "pong" }
   | { type: "acknowledgement" };
 
@@ -188,6 +217,13 @@ export type AttachmentChunkRequest = {
   chunkSha256: Uint8Array;
 };
 
+export type AttachmentPromptPrepareRequest = {
+  actionId: Uint8Array;
+  transferIds: Uint8Array[];
+  prompt: string;
+  appendEnter: boolean;
+};
+
 export type SequencedClientEnvelope = {
   sequence: bigint;
   encoded: Uint8Array;
@@ -200,6 +236,7 @@ type ProtocolV1ClientStreamOptions = {
   controlError?: boolean;
   controlHealth?: boolean;
   attachmentTransfer?: boolean;
+  attachmentPromptAction?: boolean;
 };
 
 /** Owns connection-local sequence and acknowledgement state after Hello. */
@@ -216,6 +253,7 @@ export class ProtocolV1ClientStream {
   private readonly controlError: boolean;
   private readonly controlHealth: boolean;
   private readonly attachmentTransfer: boolean;
+  private readonly attachmentPromptAction: boolean;
   private readonly outstandingPingSequences: bigint[] = [];
   private sessionBound = false;
   private sessionId = new Uint8Array();
@@ -234,6 +272,7 @@ export class ProtocolV1ClientStream {
     this.controlError = options.controlError === true;
     this.controlHealth = options.controlHealth === true;
     this.attachmentTransfer = options.attachmentTransfer === true;
+    this.attachmentPromptAction = options.attachmentPromptAction === true;
   }
 
   /** Reports whether control.health_v1 was negotiated for this physical connection. */
@@ -383,6 +422,59 @@ export class ProtocolV1ClientStream {
     }, sentAt);
   }
 
+  /** Reports whether attachment.prompt_action_v1 was negotiated for this physical connection. */
+  usesAttachmentPromptAction(): boolean {
+    return this.attachmentPromptAction;
+  }
+
+  createAttachmentPromptPrepare(request: AttachmentPromptPrepareRequest, sentAt = new Date()): SequencedClientEnvelope {
+    this.assertAttachmentPromptAction();
+    assertAttachmentPromptActionId(request.actionId);
+    if (request.transferIds.length === 0 || request.transferIds.length > maxAttachmentPromptTransferIds) {
+      throw new Error(`Attachment prompt prepare requires between 1 and ${maxAttachmentPromptTransferIds} transfer IDs`);
+    }
+    const seenTransferIds = new Set<string>();
+    for (const transferId of request.transferIds) {
+      assertAttachmentTransferId(transferId);
+      const key = bytesKey(transferId);
+      if (seenTransferIds.has(key)) {
+        throw new Error("Attachment prompt transfer IDs must be unique");
+      }
+      seenTransferIds.add(key);
+    }
+    const promptBytes = new TextEncoder().encode(request.prompt).byteLength;
+    if (promptBytes === 0 || promptBytes > maxAttachmentPromptBytes) {
+      throw new Error(`Attachment prompt size must be between 1 and ${maxAttachmentPromptBytes} bytes`);
+    }
+    return this.encodeSequenced({
+      case: "attachmentPromptPrepare",
+      value: create(AttachmentPromptPrepareSchema, {
+        actionId: request.actionId,
+        transferIds: request.transferIds,
+        prompt: request.prompt,
+        appendEnter: request.appendEnter,
+      }),
+    }, sentAt);
+  }
+
+  createAttachmentPromptCommit(actionId: Uint8Array, sentAt = new Date()): SequencedClientEnvelope {
+    this.assertAttachmentPromptAction();
+    assertAttachmentPromptActionId(actionId);
+    return this.encodeSequenced({
+      case: "attachmentPromptCommit",
+      value: create(AttachmentPromptCommitSchema, { actionId }),
+    }, sentAt);
+  }
+
+  createAttachmentPromptCancel(actionId: Uint8Array, sentAt = new Date()): SequencedClientEnvelope {
+    this.assertAttachmentPromptAction();
+    assertAttachmentPromptActionId(actionId);
+    return this.encodeSequenced({
+      case: "attachmentPromptCancel",
+      value: create(AttachmentPromptCancelSchema, { actionId }),
+    }, sentAt);
+  }
+
   createTerminalInput(data: string, sentAt = new Date()): Uint8Array {
     const encodedInput = new TextEncoder().encode(data);
     if (encodedInput.byteLength === 0 || encodedInput.byteLength > protocolV1MaxTerminalInputBytes) {
@@ -488,6 +580,33 @@ export class ProtocolV1ClientStream {
         }
         message = { type: "terminal-output", data: envelope.payload.value.data.slice() };
         break;
+      case "attachmentPromptPreview": {
+        const value = envelope.payload.value;
+        if (!this.attachmentPromptAction) {
+          throw new Error("AttachmentPromptPreview is not valid for this stream state");
+        }
+        assertAttachmentPromptActionId(value.actionId);
+        const previewBytes = new TextEncoder().encode(value.preview).byteLength;
+        if (value.disposition === AttachmentPromptDisposition.PREPARED) {
+          if (previewBytes === 0 || previewBytes > maxAttachmentPromptPreviewBytes) {
+            throw new Error(`Prepared attachment prompt preview must be between 1 and ${maxAttachmentPromptPreviewBytes} bytes`);
+          }
+        } else if (value.disposition === AttachmentPromptDisposition.COMMITTED) {
+          if (previewBytes !== 0 || value.appendEnter) {
+            throw new Error("An already committed attachment prompt must have an empty preview and no appended Enter");
+          }
+        } else {
+          throw new Error("AttachmentPromptPreview disposition is invalid");
+        }
+        message = {
+          type: "attachment-prompt-preview",
+          actionId: value.actionId.slice(),
+          disposition: value.disposition,
+          preview: value.preview,
+          appendEnter: value.appendEnter,
+        };
+        break;
+      }
       case "processExit":
         if (!this.sessionProcessExit || !isKnownProcessExitOutcome(envelope.payload.value.outcome)) {
           throw new Error("ProcessExit is not valid for this stream state");
@@ -536,6 +655,12 @@ export class ProtocolV1ClientStream {
     }
   }
 
+  private assertAttachmentPromptAction() {
+    if (!this.attachmentPromptAction) {
+      throw new Error("Attachment prompt action was not negotiated");
+    }
+  }
+
   private encodeSequenced(payload: Envelope["payload"], sentAt: Date): SequencedClientEnvelope {
     const sequence = this.nextOutbound;
     return { sequence, encoded: this.encode(payload, sentAt) };
@@ -572,6 +697,16 @@ export class ProtocolV1ClientStream {
   }
 }
 
+function assertAttachmentPromptActionId(actionId: Uint8Array) {
+  if (actionId.byteLength === 0 || actionId.byteLength > maxAttachmentTransferIdBytes) {
+    throw new Error(`Attachment prompt action ID must be between 1 and ${maxAttachmentTransferIdBytes} bytes`);
+  }
+}
+
+function bytesKey(value: Uint8Array): string {
+  return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function assertAttachmentTransferId(transferId: Uint8Array) {
   if (transferId.byteLength === 0 || transferId.byteLength > maxAttachmentTransferIdBytes) {
     throw new Error(`Attachment transfer ID must be between 1 and ${maxAttachmentTransferIdBytes} bytes`);
@@ -604,7 +739,8 @@ function isKnownErrorCode(code: ErrorCode) {
     || code === ErrorCode.TERMINAL_INPUT_FAILED
     || code === ErrorCode.TERMINAL_RESIZE_FAILED
     || code === ErrorCode.UNSUPPORTED_MESSAGE
-    || code === ErrorCode.ATTACHMENT_TRANSFER_FAILED;
+    || code === ErrorCode.ATTACHMENT_TRANSFER_FAILED
+    || code === ErrorCode.ATTACHMENT_PROMPT_ACTION_FAILED;
 }
 
 function isKnownProcessExitOutcome(outcome: ProcessExitOutcome) {

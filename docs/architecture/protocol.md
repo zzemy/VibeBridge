@@ -117,6 +117,7 @@ Current migration behavior:
 - If both peers also advertise `session.process_exit_v1`, the Agent reports terminal completion as an ordered `ProcessExit` with a `SUCCESS` or `FAILURE` outcome. Advertising it without `terminal.sequenced_io_v1` is invalid. The outcome follows the final session lifecycle state, so an explicit end remains successful even if process termination returns an expected host error; raw host errors are never included. Without the capability, process exit retains its transitional JSON adapter.
 - If both peers also advertise `control.error_v1`, the Agent reports application failures as ordered `Error` envelopes containing only a known `ErrorCode`. Advertising it without `terminal.sequenced_io_v1` is invalid. A resumable connection may receive a fatal startup or occupied-session error before `SessionStatus`; that envelope has empty session metadata and does not bind the stream. Once negotiated, a JSON error is a protocol violation. Without the capability, the Agent uses a JSON adapter with the same fixed safe display text.
 - If both peers advertise `attachment.transfer_v1`, they must also advertise `terminal.sequenced_io_v1` and `control.error_v1`. Attachment begin/chunk/complete/cancel messages are accepted only on that negotiated ordered stream. The browser keeps one attachment operation in flight and waits until the Agent cumulative acknowledgement covers its sequence before advancing; chunk acknowledgements drive progress, and an acknowledged complete means verification/publication committed. A rejected operation is not committed, returns `ATTACHMENT_TRANSFER_FAILED` with the last committed sequence acknowledged, and abandons its active partial. The client can correlate the pending failure when `acknowledge + 1` equals its operation sequence, then closes the physical stream and retries the whole file after reconnect. A disconnect before acknowledgement remains outcome-ambiguous and is not treated as successful or resumable.
+- If both peers advertise `attachment.prompt_action_v1`, they must also advertise `terminal.sequenced_io_v1`, `attachment.transfer_v1`, and `control.error_v1`. Prepare carries one 1–64 byte action ID, 1–10 unique completed transfer IDs, a 1–32 KiB UTF-8 prompt, and the requested Enter behavior; the client never sends a path. The Agent resolves relative paths, retains exact adapter-generated terminal bytes, and returns a matching `PREPARED` preview of at most 48 KiB plus the effective `append_enter` value. Explicit commit writes those retained bytes exactly once; cancel retains staged files. Reconnect retries reuse the same session-local action ID. A repeated committed prepare returns an empty `COMMITTED` tombstone with `append_enter=false`, while conflicts and failures return only `ATTACHMENT_PROMPT_ACTION_FAILED`.
 - If both peers also advertise `control.health_v1`, the client may send an ordered empty `Ping` after resume-enabled session binding (or immediately after Hello on a non-resumable ordered stream) and the Agent responds with an ordered empty `Pong`. The Agent commits the Ping before encoding Pong, so Pong acknowledgement covers the Ping sequence. Advertising the capability without `terminal.sequenced_io_v1` is invalid. Once negotiated, JSON ping/pong is a protocol violation in its corresponding direction; without the capability, the transitional JSON adapter remains available. This application health exchange is independent of WebSocket Ping/Pong control frames, which remain the transport keepalive.
 - Negotiation, framing, sequence, acknowledgement, unsupported protobuf payload, and session-metadata failures close the WebSocket with protocol code `1002`; they are not represented as application `Error` payloads.
 
@@ -140,6 +141,7 @@ Examples:
 - `control.error_v1`
 - `control.health_v1`
 - `attachment.transfer_v1`
+- `attachment.prompt_action_v1`
 - `attachment.image_preview_v1`
 - `tool.codex_adapter_v1`
 - `notification.waiting_input_v1`
@@ -169,6 +171,7 @@ The current negotiated `control.error_v1` payload is intentionally enum-only. `E
 - `TERMINAL_RESIZE_FAILED`
 - `UNSUPPORTED_MESSAGE`
 - `ATTACHMENT_TRANSFER_FAILED`
+- `ATTACHMENT_PROMPT_ACTION_FAILED`
 
 `UNSPECIFIED` and unknown enum values are rejected. The legacy JSON adapter maps each valid code to fixed safe wire text, and the browser derives safe user-facing copy from the code. `SESSION_ALREADY_ACTIVE` retains the existing actionable browser copy that another browser controls the session. Raw third-party errors, stack traces, commands, terminal contents, private paths, SDK responses, and host process details never cross this boundary.
 
