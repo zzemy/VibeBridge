@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.12.1",
+    "@noble/hashes": "2.2.0",
     "@radix-ui/react-alert-dialog": "^1.1.19",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",

@@ -1,9 +1,12 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+
 import { protocolV1MaxAttachmentChunkBytes, type AttachmentBeginRequest, type AttachmentChunkRequest } from "./protocol-v1";
 
 export const attachmentMaxFileBytes = 25 * 1024 * 1024;
 export const attachmentMaxSelectionBytes = 100 * 1024 * 1024;
 export const attachmentMaxFilesPerAction = 10;
 
+const attachmentHashReadBytes = 1024 * 1024;
 const attachmentTextExtensions = new Set(["txt", "log", "md", "markdown", "json", "yaml", "yml", "toml", "csv"]);
 
 const attachmentContentTypes = new Map<string, ReadonlySet<string>>([
@@ -117,8 +120,7 @@ export async function transferAttachments(
     let began = false;
 
     try {
-      const totalSha256 = await sha256(new Uint8Array(await file.arrayBuffer()));
-      throwIfAborted(signal);
+      const totalSha256 = await hashAttachment(file, signal);
       await sender.begin({
         transferId,
         displayName: item.displayName,
@@ -138,7 +140,7 @@ export async function transferAttachments(
           transferId,
           offsetBytes: BigInt(offset),
           data,
-          chunkSha256: await sha256(data),
+          chunkSha256: sha256(data),
         }, signal);
         onProgress({
           fileIndex,
@@ -222,10 +224,20 @@ function containsControlCharacter(value: string): boolean {
   });
 }
 
-async function sha256(data: Uint8Array): Promise<Uint8Array> {
-  const copy = new Uint8Array(data.byteLength);
-  copy.set(data);
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", copy.buffer));
+async function hashAttachment(file: File, signal: AbortSignal): Promise<Uint8Array> {
+  const hasher = sha256.create();
+  try {
+    for (let offset = 0; offset < file.size; offset += attachmentHashReadBytes) {
+      throwIfAborted(signal);
+      const end = Math.min(file.size, offset + attachmentHashReadBytes);
+      const data = new Uint8Array(await file.slice(offset, end).arrayBuffer());
+      throwIfAborted(signal);
+      hasher.update(data);
+    }
+    return hasher.digest();
+  } finally {
+    hasher.destroy();
+  }
 }
 
 function throwIfAborted(signal: AbortSignal) {
