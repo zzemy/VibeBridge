@@ -92,7 +92,7 @@ func AcceptClientHello(encoded []byte) (NegotiatedHello, error) {
 		capabilities[capability] = struct{}{}
 	}
 	_, hasSequencedIO := capabilities[CapabilityTerminalSequencedIO]
-	for _, dependent := range []string{CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilityControlError, CapabilityControlHealth, CapabilityAttachmentTransfer} {
+	for _, dependent := range []string{CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilityControlError, CapabilityControlHealth, CapabilityAttachmentTransfer, CapabilityAttachmentPromptAction} {
 		if _, advertised := capabilities[dependent]; advertised && !hasSequencedIO {
 			return NegotiatedHello{}, fmt.Errorf("%s requires %s", dependent, CapabilityTerminalSequencedIO)
 		}
@@ -100,6 +100,14 @@ func AcceptClientHello(encoded []byte) (NegotiatedHello, error) {
 	if _, advertised := capabilities[CapabilityAttachmentTransfer]; advertised {
 		if _, hasControlError := capabilities[CapabilityControlError]; !hasControlError {
 			return NegotiatedHello{}, fmt.Errorf("%s requires %s", CapabilityAttachmentTransfer, CapabilityControlError)
+		}
+	}
+	if _, advertised := capabilities[CapabilityAttachmentPromptAction]; advertised {
+		if _, hasTransfer := capabilities[CapabilityAttachmentTransfer]; !hasTransfer {
+			return NegotiatedHello{}, fmt.Errorf("%s requires %s", CapabilityAttachmentPromptAction, CapabilityAttachmentTransfer)
+		}
+		if _, hasControlError := capabilities[CapabilityControlError]; !hasControlError {
+			return NegotiatedHello{}, fmt.Errorf("%s requires %s", CapabilityAttachmentPromptAction, CapabilityControlError)
 		}
 	}
 

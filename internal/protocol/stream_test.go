@@ -123,6 +123,152 @@ func TestAgentStreamDecodesNegotiatedAttachmentChunkCompleteAndCancel(t *testing
 	}
 }
 
+func TestAgentStreamDecodesNegotiatedAttachmentPromptActions(t *testing.T) {
+	stream := newTestAgentAttachmentPromptStream(t, MaxEnvelopeBytes)
+	actionID := []byte("action-id")
+	transferIDs := [][]byte{[]byte("first-transfer"), []byte("second-transfer")}
+	prepareEnvelope := newClientStreamEnvelope(nil, 0, 2, 1)
+	prepareEnvelope.Payload = &vibebridgev1.Envelope_AttachmentPromptPrepare{AttachmentPromptPrepare: &vibebridgev1.AttachmentPromptPrepare{
+		ActionId: actionID, TransferIds: transferIDs, Prompt: "Inspect these files", AppendEnter: true,
+	}}
+	prepare, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, prepareEnvelope))
+	if err != nil {
+		t.Fatalf("decode AttachmentPromptPrepare: %v", err)
+	}
+	if prepare.Kind != ClientStreamMessageAttachmentPromptPrepare || !bytes.Equal(prepare.ActionID, actionID) ||
+		len(prepare.TransferIDs) != 2 || !bytes.Equal(prepare.TransferIDs[0], transferIDs[0]) ||
+		!bytes.Equal(prepare.TransferIDs[1], transferIDs[1]) || prepare.Prompt != "Inspect these files" || !prepare.AppendEnter {
+		t.Fatalf("decoded AttachmentPromptPrepare = %#v", prepare)
+	}
+	prepareEnvelope.GetAttachmentPromptPrepare().ActionId[0] = 'x'
+	prepareEnvelope.GetAttachmentPromptPrepare().TransferIds[0][0] = 'x'
+	if bytes.Equal(prepare.ActionID, prepareEnvelope.GetAttachmentPromptPrepare().ActionId) ||
+		bytes.Equal(prepare.TransferIDs[0], prepareEnvelope.GetAttachmentPromptPrepare().TransferIds[0]) {
+		t.Fatal("decoded prompt action retained mutable protobuf binary fields")
+	}
+	if err := stream.CommitClientMessage(prepare); err != nil {
+		t.Fatalf("commit AttachmentPromptPrepare: %v", err)
+	}
+
+	commitEnvelope := newClientStreamEnvelope(nil, 0, 3, 1)
+	commitEnvelope.Payload = &vibebridgev1.Envelope_AttachmentPromptCommit{AttachmentPromptCommit: &vibebridgev1.AttachmentPromptCommit{ActionId: actionID}}
+	commit, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, commitEnvelope))
+	if err != nil {
+		t.Fatalf("decode AttachmentPromptCommit: %v", err)
+	}
+	if commit.Kind != ClientStreamMessageAttachmentPromptCommit || !bytes.Equal(commit.ActionID, actionID) {
+		t.Fatalf("decoded AttachmentPromptCommit = %#v", commit)
+	}
+	if err := stream.CommitClientMessage(commit); err != nil {
+		t.Fatalf("commit AttachmentPromptCommit: %v", err)
+	}
+
+	cancelEnvelope := newClientStreamEnvelope(nil, 0, 4, 1)
+	cancelEnvelope.Payload = &vibebridgev1.Envelope_AttachmentPromptCancel{AttachmentPromptCancel: &vibebridgev1.AttachmentPromptCancel{ActionId: actionID}}
+	cancel, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, cancelEnvelope))
+	if err != nil {
+		t.Fatalf("decode AttachmentPromptCancel: %v", err)
+	}
+	if cancel.Kind != ClientStreamMessageAttachmentPromptCancel || !bytes.Equal(cancel.ActionID, actionID) {
+		t.Fatalf("decoded AttachmentPromptCancel = %#v", cancel)
+	}
+}
+
+func TestAgentStreamRejectsMalformedOrUnnegotiatedAttachmentPromptActions(t *testing.T) {
+	tests := []struct {
+		name       string
+		setPayload func(*vibebridgev1.Envelope)
+	}{
+		{name: "missing action ID", setPayload: func(envelope *vibebridgev1.Envelope) {
+			envelope.Payload = &vibebridgev1.Envelope_AttachmentPromptPrepare{AttachmentPromptPrepare: &vibebridgev1.AttachmentPromptPrepare{TransferIds: [][]byte{[]byte("transfer")}, Prompt: "inspect"}}
+		}},
+		{name: "too many transfers", setPayload: func(envelope *vibebridgev1.Envelope) {
+			envelope.Payload = &vibebridgev1.Envelope_AttachmentPromptPrepare{AttachmentPromptPrepare: &vibebridgev1.AttachmentPromptPrepare{ActionId: []byte("action"), TransferIds: make([][]byte, maxAttachmentPromptTransfers+1), Prompt: "inspect"}}
+		}},
+		{name: "missing transfer", setPayload: func(envelope *vibebridgev1.Envelope) {
+			envelope.Payload = &vibebridgev1.Envelope_AttachmentPromptPrepare{AttachmentPromptPrepare: &vibebridgev1.AttachmentPromptPrepare{ActionId: []byte("action"), Prompt: "inspect"}}
+		}},
+		{name: "invalid transfer ID", setPayload: func(envelope *vibebridgev1.Envelope) {
+			envelope.Payload = &vibebridgev1.Envelope_AttachmentPromptPrepare{AttachmentPromptPrepare: &vibebridgev1.AttachmentPromptPrepare{ActionId: []byte("action"), TransferIds: [][]byte{nil}, Prompt: "inspect"}}
+		}},
+		{name: "empty prompt", setPayload: func(envelope *vibebridgev1.Envelope) {
+			envelope.Payload = &vibebridgev1.Envelope_AttachmentPromptPrepare{AttachmentPromptPrepare: &vibebridgev1.AttachmentPromptPrepare{ActionId: []byte("action"), TransferIds: [][]byte{[]byte("transfer")}}}
+		}},
+		{name: "oversized prompt", setPayload: func(envelope *vibebridgev1.Envelope) {
+			envelope.Payload = &vibebridgev1.Envelope_AttachmentPromptPrepare{AttachmentPromptPrepare: &vibebridgev1.AttachmentPromptPrepare{ActionId: []byte("action"), TransferIds: [][]byte{[]byte("transfer")}, Prompt: string(bytes.Repeat([]byte{'x'}, MaxAttachmentPromptBytes+1))}}
+		}},
+		{name: "commit without action ID", setPayload: func(envelope *vibebridgev1.Envelope) {
+			envelope.Payload = &vibebridgev1.Envelope_AttachmentPromptCommit{AttachmentPromptCommit: &vibebridgev1.AttachmentPromptCommit{}}
+		}},
+		{name: "cancel with oversized action ID", setPayload: func(envelope *vibebridgev1.Envelope) {
+			envelope.Payload = &vibebridgev1.Envelope_AttachmentPromptCancel{AttachmentPromptCancel: &vibebridgev1.AttachmentPromptCancel{ActionId: bytes.Repeat([]byte{'x'}, maxAttachmentPromptActionIDBytes+1)}}
+		}},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			stream := newTestAgentAttachmentPromptStream(t, MaxEnvelopeBytes)
+			envelope := newClientStreamEnvelope(nil, 0, 2, 1)
+			testCase.setPayload(envelope)
+			if _, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, envelope)); err == nil {
+				t.Fatal("malformed attachment prompt action was accepted")
+			}
+		})
+	}
+
+	unnegotiated := newTestAgentAttachmentStream(t, MaxEnvelopeBytes)
+	envelope := newClientStreamEnvelope(nil, 0, 2, 1)
+	envelope.Payload = &vibebridgev1.Envelope_AttachmentPromptCommit{AttachmentPromptCommit: &vibebridgev1.AttachmentPromptCommit{ActionId: []byte("action")}}
+	if _, err := unnegotiated.DecodeClientMessage(marshalClientStreamEnvelope(t, envelope)); err == nil {
+		t.Fatal("unnegotiated attachment prompt action was accepted")
+	}
+}
+
+func TestAgentStreamEncodesAttachmentPromptPreview(t *testing.T) {
+	stream := newTestAgentAttachmentPromptStream(t, MaxEnvelopeBytes)
+	sentAt := time.Date(2026, time.July, 14, 10, 0, 0, 0, time.UTC)
+	actionID := []byte("action-id")
+	encoded, err := stream.EncodeAttachmentPromptPreview(actionID, vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_PREPARED, "Inspect\n- `file.txt`", true, sentAt)
+	if err != nil {
+		t.Fatalf("encode prepared AttachmentPromptPreview: %v", err)
+	}
+	envelope := unmarshalStreamEnvelope(t, encoded)
+	preview := envelope.GetAttachmentPromptPreview()
+	if envelope.Sequence != 2 || envelope.Acknowledge != 1 || !bytes.Equal(preview.GetActionId(), actionID) ||
+		preview.GetDisposition() != vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_PREPARED || preview.GetPreview() != "Inspect\n- `file.txt`" || !preview.GetAppendEnter() {
+		t.Fatalf("prepared AttachmentPromptPreview = %#v in envelope %#v", preview, envelope)
+	}
+
+	encoded, err = stream.EncodeAttachmentPromptPreview(actionID, vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_COMMITTED, "", false, sentAt)
+	if err != nil {
+		t.Fatalf("encode committed AttachmentPromptPreview: %v", err)
+	}
+	preview = unmarshalStreamEnvelope(t, encoded).GetAttachmentPromptPreview()
+	if preview.GetDisposition() != vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_COMMITTED || preview.GetPreview() != "" || preview.GetAppendEnter() {
+		t.Fatalf("committed AttachmentPromptPreview = %#v", preview)
+	}
+
+	if _, err := newTestAgentAttachmentStream(t, MaxEnvelopeBytes).EncodeAttachmentPromptPreview(actionID, vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_PREPARED, "preview", true, sentAt); err == nil {
+		t.Fatal("unnegotiated AttachmentPromptPreview was encoded")
+	}
+	for _, testCase := range []struct {
+		disposition vibebridgev1.AttachmentPromptDisposition
+		preview     string
+		appendEnter bool
+	}{
+		{vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_UNSPECIFIED, "preview", false},
+		{vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_PREPARED, "", false},
+		{vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_COMMITTED, "preview", false},
+		{vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_COMMITTED, "", true},
+	} {
+		if _, err := newTestAgentAttachmentPromptStream(t, MaxEnvelopeBytes).EncodeAttachmentPromptPreview(actionID, testCase.disposition, testCase.preview, testCase.appendEnter, sentAt); err == nil {
+			t.Fatalf("invalid AttachmentPromptPreview disposition/preview/control %v/%q/%t was encoded", testCase.disposition, testCase.preview, testCase.appendEnter)
+		}
+	}
+	if _, err := newTestAgentAttachmentPromptStream(t, 1).EncodeAttachmentPromptPreview(actionID, vibebridgev1.AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_PREPARED, "preview", true, sentAt); err == nil {
+		t.Fatal("AttachmentPromptPreview exceeding negotiated envelope limit was encoded")
+	}
+}
+
 func TestAgentStreamRejectsMalformedAttachmentMessages(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -341,6 +487,14 @@ func TestAgentStreamEncodesNegotiatedError(t *testing.T) {
 		t.Fatalf("attachment Error code = %v", got)
 	}
 
+	promptActionError, err := stream.EncodeError(vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED, time.Now())
+	if err != nil {
+		t.Fatalf("encode attachment prompt action Error: %v", err)
+	}
+	if got := unmarshalStreamEnvelope(t, promptActionError).GetError().GetCode(); got != vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED {
+		t.Fatalf("attachment prompt action Error code = %v", got)
+	}
+
 	if _, err := newTestAgentStream(t, MaxEnvelopeBytes).EncodeError(vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED, time.Now()); err == nil {
 		t.Fatal("unnegotiated Error was encoded")
 	}
@@ -369,6 +523,7 @@ func TestAgentStreamEncodesErrorBeforeOrAfterResumeBinding(t *testing.T) {
 		vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED,
 		vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE,
 		vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED,
+		vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED,
 	} {
 		if _, err := newTestAgentResumeErrorStream(t, MaxEnvelopeBytes).EncodeError(code, time.Now()); err == nil {
 			t.Fatalf("pre-bind Error code %v was encoded", code)
@@ -573,6 +728,26 @@ func newTestAgentAttachmentStream(t *testing.T, peerLimit uint32) *AgentStream {
 	})
 	if err != nil {
 		t.Fatalf("create attachment Agent stream: %v", err)
+	}
+	return stream
+}
+
+func newTestAgentAttachmentPromptStream(t *testing.T, peerLimit uint32) *AgentStream {
+	t.Helper()
+	stream, err := NewAgentStream(NegotiatedHello{
+		Major:                CurrentMajor,
+		Minor:                CurrentMinor,
+		PeerMaxEnvelopeBytes: peerLimit,
+		ConnectionID:         []byte("0123456789abcdef"),
+		capabilities: map[string]struct{}{
+			CapabilityTerminalSequencedIO:    {},
+			CapabilityControlError:           {},
+			CapabilityAttachmentTransfer:     {},
+			CapabilityAttachmentPromptAction: {},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create attachment prompt Agent stream: %v", err)
 	}
 	return stream
 }

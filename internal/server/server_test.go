@@ -486,6 +486,8 @@ func TestStableErrorMessage(t *testing.T) {
 		{vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED, "could not write terminal input"},
 		{vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED, "could not resize terminal"},
 		{vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE, "unsupported message type"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED, "attachment transfer failed"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED, "attachment prompt action failed"},
 	}
 	for _, testCase := range tests {
 		got, err := stableErrorMessage(testCase.code)

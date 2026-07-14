@@ -13,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file vibebridge/v1/envelope.proto.
  */
 export const file_vibebridge_v1_envelope: GenFile = /*@__PURE__*/
-  fileDesc("Chx2aWJlYnJpZGdlL3YxL2VudmVsb3BlLnByb3RvEg12aWJlYnJpZGdlLnYxIi8KD1Byb3RvY29sVmVyc2lvbhINCgVtYWpvchgBIAEoDRINCgVtaW5vchgCIAEoDSJ4ChRQcm90b2NvbFZlcnNpb25SYW5nZRIvCgdtaW5pbXVtGAEgASgLMh4udmliZWJyaWRnZS52MS5Qcm90b2NvbFZlcnNpb24SLwoHbWF4aW11bRgCIAEoCzIeLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uIqYBCgVIZWxsbxIqCglwZWVyX3JvbGUYASABKA4yFy52aWJlYnJpZGdlLnYxLlBlZXJSb2xlEj8KEnN1cHBvcnRlZF92ZXJzaW9ucxgCIAEoCzIjLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uUmFuZ2USFAoMY2FwYWJpbGl0aWVzGAMgAygJEhoKEm1heF9lbnZlbG9wZV9ieXRlcxgEIAEoDSIdCg1UZXJtaW5hbElucHV0EgwKBGRhdGEYASABKAwiHgoOVGVybWluYWxPdXRwdXQSDAoEZGF0YRgBIAEoDCIvCg5UZXJtaW5hbFJlc2l6ZRIPCgdjb2x1bW5zGAEgASgNEgwKBHJvd3MYAiABKA0iDAoKRW5kU2Vzc2lvbiIGCgRQaW5nIgYKBFBvbmciLwoFRXJyb3ISJgoEY29kZRgBIAEoDjIYLnZpYmVicmlkZ2UudjEuRXJyb3JDb2RlIkEKC1Byb2Nlc3NFeGl0EjIKB291dGNvbWUYASABKA4yIS52aWJlYnJpZGdlLnYxLlByb2Nlc3NFeGl0T3V0Y29tZSIzCg1BdHRhY2hTZXNzaW9uEiIKGmxhc3RfYWNrbm93bGVkZ2VkX3NlcXVlbmNlGAEgASgEIk0KDVNlc3Npb25TdGF0dXMSPAoScmVzdW1lX2Rpc3Bvc2l0aW9uGAEgASgOMiAudmliZWJyaWRnZS52MS5SZXN1bWVEaXNwb3NpdGlvbiIRCg9BY2tub3dsZWRnZW1lbnQipwEKD0F0dGFjaG1lbnRCZWdpbhITCgt0cmFuc2Zlcl9pZBgBIAEoDBIUCgxkaXNwbGF5X25hbWUYAiABKAkSHQoVZGVjbGFyZWRfY29udGVudF90eXBlGAMgASgJEhoKEmRlY2xhcmVkX2V4dGVuc2lvbhgEIAEoCRIYChB0b3RhbF9zaXplX2J5dGVzGAUgASgEEhQKDHRvdGFsX3NoYTI1NhgGIAEoDCJgCg9BdHRhY2htZW50Q2h1bmsSEwoLdHJhbnNmZXJfaWQYASABKAwSFAoMb2Zmc2V0X2J5dGVzGAIgASgEEgwKBGRhdGEYAyABKAwSFAoMY2h1bmtfc2hhMjU2GAQgASgMIikKEkF0dGFjaG1lbnRDb21wbGV0ZRITCgt0cmFuc2Zlcl9pZBgBIAEoDCInChBBdHRhY2htZW50Q2FuY2VsEhMKC3RyYW5zZmVyX2lkGAEgASgMIq0ICghFbnZlbG9wZRIWCg5wcm90b2NvbF9tYWpvchgBIAEoDRIWCg5wcm90b2NvbF9taW5vchgCIAEoDRIVCg1jb25uZWN0aW9uX2lkGAMgASgMEhIKCnNlc3Npb25faWQYBCABKAwSGgoSc2Vzc2lvbl9nZW5lcmF0aW9uGAUgASgEEhAKCHNlcXVlbmNlGAYgASgEEhMKC2Fja25vd2xlZGdlGAcgASgEEisKB3NlbnRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiUKBWhlbGxvGBQgASgLMhQudmliZWJyaWRnZS52MS5IZWxsb0gAEjYKDmF0dGFjaF9zZXNzaW9uGBYgASgLMhwudmliZWJyaWRnZS52MS5BdHRhY2hTZXNzaW9uSAASNgoOdGVybWluYWxfaW5wdXQYFyABKAsyHC52aWJlYnJpZGdlLnYxLlRlcm1pbmFsSW5wdXRIABI4Cg90ZXJtaW5hbF9vdXRwdXQYGCABKAsyHS52aWJlYnJpZGdlLnYxLlRlcm1pbmFsT3V0cHV0SAASOAoPdGVybWluYWxfcmVzaXplGBkgASgLMh0udmliZWJyaWRnZS52MS5UZXJtaW5hbFJlc2l6ZUgAEjYKDnNlc3Npb25fc3RhdHVzGBogASgLMhwudmliZWJyaWRnZS52MS5TZXNzaW9uU3RhdHVzSAASMAoLZW5kX3Nlc3Npb24YGyABKAsyGS52aWJlYnJpZGdlLnYxLkVuZFNlc3Npb25IABIjCgRwaW5nGBwgASgLMhMudmliZWJyaWRnZS52MS5QaW5nSAASIwoEcG9uZxgdIAEoCzITLnZpYmVicmlkZ2UudjEuUG9uZ0gAEiUKBWVycm9yGCAgASgLMhQudmliZWJyaWRnZS52MS5FcnJvckgAEjkKD2Fja25vd2xlZGdlbWVudBghIAEoCzIeLnZpYmVicmlkZ2UudjEuQWNrbm93bGVkZ2VtZW50SAASMgoMcHJvY2Vzc19leGl0GCIgASgLMhoudmliZWJyaWRnZS52MS5Qcm9jZXNzRXhpdEgAEjoKEGF0dGFjaG1lbnRfYmVnaW4YKCABKAsyHi52aWJlYnJpZGdlLnYxLkF0dGFjaG1lbnRCZWdpbkgAEjoKEGF0dGFjaG1lbnRfY2h1bmsYKSABKAsyHi52aWJlYnJpZGdlLnYxLkF0dGFjaG1lbnRDaHVua0gAEkAKE2F0dGFjaG1lbnRfY29tcGxldGUYKiABKAsyIS52aWJlYnJpZGdlLnYxLkF0dGFjaG1lbnRDb21wbGV0ZUgAEjwKEWF0dGFjaG1lbnRfY2FuY2VsGCsgASgLMh8udmliZWJyaWRnZS52MS5BdHRhY2htZW50Q2FuY2VsSABCCQoHcGF5bG9hZCplCghQZWVyUm9sZRIZChVQRUVSX1JPTEVfVU5TUEVDSUZJRUQQABITCg9QRUVSX1JPTEVfQUdFTlQQARIUChBQRUVSX1JPTEVfQ0xJRU5UEAISEwoPUEVFUl9ST0xFX1JFTEFZEAMqjwIKCUVycm9yQ29kZRIaChZFUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASIwofRVJST1JfQ09ERV9TRVNTSU9OX1NUQVJUX0ZBSUxFRBABEiUKIUVSUk9SX0NPREVfU0VTU0lPTl9BTFJFQURZX0FDVElWRRACEiQKIEVSUk9SX0NPREVfVEVSTUlOQUxfSU5QVVRfRkFJTEVEEAMSJQohRVJST1JfQ09ERV9URVJNSU5BTF9SRVNJWkVfRkFJTEVEEAQSIgoeRVJST1JfQ09ERV9VTlNVUFBPUlRFRF9NRVNTQUdFEAUSKQolRVJST1JfQ09ERV9BVFRBQ0hNRU5UX1RSQU5TRkVSX0ZBSUxFRBAGKn4KElByb2Nlc3NFeGl0T3V0Y29tZRIkCiBQUk9DRVNTX0VYSVRfT1VUQ09NRV9VTlNQRUNJRklFRBAAEiAKHFBST0NFU1NfRVhJVF9PVVRDT01FX1NVQ0NFU1MQARIgChxQUk9DRVNTX0VYSVRfT1VUQ09NRV9GQUlMVVJFEAIqnQEKEVJlc3VtZURpc3Bvc2l0aW9uEiIKHlJFU1VNRV9ESVNQT1NJVElPTl9VTlNQRUNJRklFRBAAEhwKGFJFU1VNRV9ESVNQT1NJVElPTl9GUkVTSBABEh4KGlJFU1VNRV9ESVNQT1NJVElPTl9SRVNVTUVEEAISJgoiUkVTVU1FX0RJU1BPU0lUSU9OX1JFU1lOQ19SRVFVSVJFRBADQj9aPWdpdGh1Yi5jb20venplbXkvVmliZUJyaWRnZS9nZW4vZ28vdmliZWJyaWRnZS92MTt2aWJlYnJpZGdldjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("Chx2aWJlYnJpZGdlL3YxL2VudmVsb3BlLnByb3RvEg12aWJlYnJpZGdlLnYxIi8KD1Byb3RvY29sVmVyc2lvbhINCgVtYWpvchgBIAEoDRINCgVtaW5vchgCIAEoDSJ4ChRQcm90b2NvbFZlcnNpb25SYW5nZRIvCgdtaW5pbXVtGAEgASgLMh4udmliZWJyaWRnZS52MS5Qcm90b2NvbFZlcnNpb24SLwoHbWF4aW11bRgCIAEoCzIeLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uIqYBCgVIZWxsbxIqCglwZWVyX3JvbGUYASABKA4yFy52aWJlYnJpZGdlLnYxLlBlZXJSb2xlEj8KEnN1cHBvcnRlZF92ZXJzaW9ucxgCIAEoCzIjLnZpYmVicmlkZ2UudjEuUHJvdG9jb2xWZXJzaW9uUmFuZ2USFAoMY2FwYWJpbGl0aWVzGAMgAygJEhoKEm1heF9lbnZlbG9wZV9ieXRlcxgEIAEoDSIdCg1UZXJtaW5hbElucHV0EgwKBGRhdGEYASABKAwiHgoOVGVybWluYWxPdXRwdXQSDAoEZGF0YRgBIAEoDCIvCg5UZXJtaW5hbFJlc2l6ZRIPCgdjb2x1bW5zGAEgASgNEgwKBHJvd3MYAiABKA0iDAoKRW5kU2Vzc2lvbiIGCgRQaW5nIgYKBFBvbmciLwoFRXJyb3ISJgoEY29kZRgBIAEoDjIYLnZpYmVicmlkZ2UudjEuRXJyb3JDb2RlIkEKC1Byb2Nlc3NFeGl0EjIKB291dGNvbWUYASABKA4yIS52aWJlYnJpZGdlLnYxLlByb2Nlc3NFeGl0T3V0Y29tZSIzCg1BdHRhY2hTZXNzaW9uEiIKGmxhc3RfYWNrbm93bGVkZ2VkX3NlcXVlbmNlGAEgASgEIk0KDVNlc3Npb25TdGF0dXMSPAoScmVzdW1lX2Rpc3Bvc2l0aW9uGAEgASgOMiAudmliZWJyaWRnZS52MS5SZXN1bWVEaXNwb3NpdGlvbiIRCg9BY2tub3dsZWRnZW1lbnQipwEKD0F0dGFjaG1lbnRCZWdpbhITCgt0cmFuc2Zlcl9pZBgBIAEoDBIUCgxkaXNwbGF5X25hbWUYAiABKAkSHQoVZGVjbGFyZWRfY29udGVudF90eXBlGAMgASgJEhoKEmRlY2xhcmVkX2V4dGVuc2lvbhgEIAEoCRIYChB0b3RhbF9zaXplX2J5dGVzGAUgASgEEhQKDHRvdGFsX3NoYTI1NhgGIAEoDCJgCg9BdHRhY2htZW50Q2h1bmsSEwoLdHJhbnNmZXJfaWQYASABKAwSFAoMb2Zmc2V0X2J5dGVzGAIgASgEEgwKBGRhdGEYAyABKAwSFAoMY2h1bmtfc2hhMjU2GAQgASgMIikKEkF0dGFjaG1lbnRDb21wbGV0ZRITCgt0cmFuc2Zlcl9pZBgBIAEoDCInChBBdHRhY2htZW50Q2FuY2VsEhMKC3RyYW5zZmVyX2lkGAEgASgMImgKF0F0dGFjaG1lbnRQcm9tcHRQcmVwYXJlEhEKCWFjdGlvbl9pZBgBIAEoDBIUCgx0cmFuc2Zlcl9pZHMYAiADKAwSDgoGcHJvbXB0GAMgASgJEhQKDGFwcGVuZF9lbnRlchgEIAEoCCKUAQoXQXR0YWNobWVudFByb21wdFByZXZpZXcSEQoJYWN0aW9uX2lkGAEgASgMEj8KC2Rpc3Bvc2l0aW9uGAIgASgOMioudmliZWJyaWRnZS52MS5BdHRhY2htZW50UHJvbXB0RGlzcG9zaXRpb24SDwoHcHJldmlldxgDIAEoCRIUCgxhcHBlbmRfZW50ZXIYBCABKAgiKwoWQXR0YWNobWVudFByb21wdENvbW1pdBIRCglhY3Rpb25faWQYASABKAwiKwoWQXR0YWNobWVudFByb21wdENhbmNlbBIRCglhY3Rpb25faWQYASABKAwi3QoKCEVudmVsb3BlEhYKDnByb3RvY29sX21ham9yGAEgASgNEhYKDnByb3RvY29sX21pbm9yGAIgASgNEhUKDWNvbm5lY3Rpb25faWQYAyABKAwSEgoKc2Vzc2lvbl9pZBgEIAEoDBIaChJzZXNzaW9uX2dlbmVyYXRpb24YBSABKAQSEAoIc2VxdWVuY2UYBiABKAQSEwoLYWNrbm93bGVkZ2UYByABKAQSKwoHc2VudF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJQoFaGVsbG8YFCABKAsyFC52aWJlYnJpZGdlLnYxLkhlbGxvSAASNgoOYXR0YWNoX3Nlc3Npb24YFiABKAsyHC52aWJlYnJpZGdlLnYxLkF0dGFjaFNlc3Npb25IABI2Cg50ZXJtaW5hbF9pbnB1dBgXIAEoCzIcLnZpYmVicmlkZ2UudjEuVGVybWluYWxJbnB1dEgAEjgKD3Rlcm1pbmFsX291dHB1dBgYIAEoCzIdLnZpYmVicmlkZ2UudjEuVGVybWluYWxPdXRwdXRIABI4Cg90ZXJtaW5hbF9yZXNpemUYGSABKAsyHS52aWJlYnJpZGdlLnYxLlRlcm1pbmFsUmVzaXplSAASNgoOc2Vzc2lvbl9zdGF0dXMYGiABKAsyHC52aWJlYnJpZGdlLnYxLlNlc3Npb25TdGF0dXNIABIwCgtlbmRfc2Vzc2lvbhgbIAEoCzIZLnZpYmVicmlkZ2UudjEuRW5kU2Vzc2lvbkgAEiMKBHBpbmcYHCABKAsyEy52aWJlYnJpZGdlLnYxLlBpbmdIABIjCgRwb25nGB0gASgLMhMudmliZWJyaWRnZS52MS5Qb25nSAASJQoFZXJyb3IYICABKAsyFC52aWJlYnJpZGdlLnYxLkVycm9ySAASOQoPYWNrbm93bGVkZ2VtZW50GCEgASgLMh4udmliZWJyaWRnZS52MS5BY2tub3dsZWRnZW1lbnRIABIyCgxwcm9jZXNzX2V4aXQYIiABKAsyGi52aWJlYnJpZGdlLnYxLlByb2Nlc3NFeGl0SAASOgoQYXR0YWNobWVudF9iZWdpbhgoIAEoCzIeLnZpYmVicmlkZ2UudjEuQXR0YWNobWVudEJlZ2luSAASOgoQYXR0YWNobWVudF9jaHVuaxgpIAEoCzIeLnZpYmVicmlkZ2UudjEuQXR0YWNobWVudENodW5rSAASQAoTYXR0YWNobWVudF9jb21wbGV0ZRgqIAEoCzIhLnZpYmVicmlkZ2UudjEuQXR0YWNobWVudENvbXBsZXRlSAASPAoRYXR0YWNobWVudF9jYW5jZWwYKyABKAsyHy52aWJlYnJpZGdlLnYxLkF0dGFjaG1lbnRDYW5jZWxIABJLChlhdHRhY2htZW50X3Byb21wdF9wcmVwYXJlGCwgASgLMiYudmliZWJyaWRnZS52MS5BdHRhY2htZW50UHJvbXB0UHJlcGFyZUgAEksKGWF0dGFjaG1lbnRfcHJvbXB0X3ByZXZpZXcYLSABKAsyJi52aWJlYnJpZGdlLnYxLkF0dGFjaG1lbnRQcm9tcHRQcmV2aWV3SAASSQoYYXR0YWNobWVudF9wcm9tcHRfY29tbWl0GC4gASgLMiUudmliZWJyaWRnZS52MS5BdHRhY2htZW50UHJvbXB0Q29tbWl0SAASSQoYYXR0YWNobWVudF9wcm9tcHRfY2FuY2VsGC8gASgLMiUudmliZWJyaWRnZS52MS5BdHRhY2htZW50UHJvbXB0Q2FuY2VsSABCCQoHcGF5bG9hZCplCghQZWVyUm9sZRIZChVQRUVSX1JPTEVfVU5TUEVDSUZJRUQQABITCg9QRUVSX1JPTEVfQUdFTlQQARIUChBQRUVSX1JPTEVfQ0xJRU5UEAISEwoPUEVFUl9ST0xFX1JFTEFZEAMqvwIKCUVycm9yQ29kZRIaChZFUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASIwofRVJST1JfQ09ERV9TRVNTSU9OX1NUQVJUX0ZBSUxFRBABEiUKIUVSUk9SX0NPREVfU0VTU0lPTl9BTFJFQURZX0FDVElWRRACEiQKIEVSUk9SX0NPREVfVEVSTUlOQUxfSU5QVVRfRkFJTEVEEAMSJQohRVJST1JfQ09ERV9URVJNSU5BTF9SRVNJWkVfRkFJTEVEEAQSIgoeRVJST1JfQ09ERV9VTlNVUFBPUlRFRF9NRVNTQUdFEAUSKQolRVJST1JfQ09ERV9BVFRBQ0hNRU5UX1RSQU5TRkVSX0ZBSUxFRBAGEi4KKkVSUk9SX0NPREVfQVRUQUNITUVOVF9QUk9NUFRfQUNUSU9OX0ZBSUxFRBAHKn4KElByb2Nlc3NFeGl0T3V0Y29tZRIkCiBQUk9DRVNTX0VYSVRfT1VUQ09NRV9VTlNQRUNJRklFRBAAEiAKHFBST0NFU1NfRVhJVF9PVVRDT01FX1NVQ0NFU1MQARIgChxQUk9DRVNTX0VYSVRfT1VUQ09NRV9GQUlMVVJFEAIqnQEKEVJlc3VtZURpc3Bvc2l0aW9uEiIKHlJFU1VNRV9ESVNQT1NJVElPTl9VTlNQRUNJRklFRBAAEhwKGFJFU1VNRV9ESVNQT1NJVElPTl9GUkVTSBABEh4KGlJFU1VNRV9ESVNQT1NJVElPTl9SRVNVTUVEEAISJgoiUkVTVU1FX0RJU1BPU0lUSU9OX1JFU1lOQ19SRVFVSVJFRBADKqUBChtBdHRhY2htZW50UHJvbXB0RGlzcG9zaXRpb24SLQopQVRUQUNITUVOVF9QUk9NUFRfRElTUE9TSVRJT05fVU5TUEVDSUZJRUQQABIqCiZBVFRBQ0hNRU5UX1BST01QVF9ESVNQT1NJVElPTl9QUkVQQVJFRBABEisKJ0FUVEFDSE1FTlRfUFJPTVBUX0RJU1BPU0lUSU9OX0NPTU1JVFRFRBACQj9aPWdpdGh1Yi5jb20venplbXkvVmliZUJyaWRnZS9nZW4vZ28vdmliZWJyaWRnZS92MTt2aWJlYnJpZGdldjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * ProtocolVersion identifies one application-protocol revision.
@@ -425,6 +425,115 @@ export const AttachmentCancelSchema: GenMessage<AttachmentCancel> = /*@__PURE__*
   messageDesc(file_vibebridge_v1_envelope, 17);
 
 /**
+ * AttachmentPromptPrepare asks the Agent to derive trusted local references
+ * from completed transfer IDs. Remote clients never supply filesystem paths.
+ *
+ * @generated from message vibebridge.v1.AttachmentPromptPrepare
+ */
+export type AttachmentPromptPrepare = Message<"vibebridge.v1.AttachmentPromptPrepare"> & {
+  /**
+   * @generated from field: bytes action_id = 1;
+   */
+  actionId: Uint8Array;
+
+  /**
+   * @generated from field: repeated bytes transfer_ids = 2;
+   */
+  transferIds: Uint8Array[];
+
+  /**
+   * @generated from field: string prompt = 3;
+   */
+  prompt: string;
+
+  /**
+   * @generated from field: bool append_enter = 4;
+   */
+  appendEnter: boolean;
+};
+
+/**
+ * Describes the message vibebridge.v1.AttachmentPromptPrepare.
+ * Use `create(AttachmentPromptPrepareSchema)` to create a new message.
+ */
+export const AttachmentPromptPrepareSchema: GenMessage<AttachmentPromptPrepare> = /*@__PURE__*/
+  messageDesc(file_vibebridge_v1_envelope, 18);
+
+/**
+ * AttachmentPromptPreview returns exact Agent-generated terminal text for user
+ * confirmation. A committed tombstone intentionally carries no preview bytes.
+ *
+ * @generated from message vibebridge.v1.AttachmentPromptPreview
+ */
+export type AttachmentPromptPreview = Message<"vibebridge.v1.AttachmentPromptPreview"> & {
+  /**
+   * @generated from field: bytes action_id = 1;
+   */
+  actionId: Uint8Array;
+
+  /**
+   * @generated from field: vibebridge.v1.AttachmentPromptDisposition disposition = 2;
+   */
+  disposition: AttachmentPromptDisposition;
+
+  /**
+   * @generated from field: string preview = 3;
+   */
+  preview: string;
+
+  /**
+   * @generated from field: bool append_enter = 4;
+   */
+  appendEnter: boolean;
+};
+
+/**
+ * Describes the message vibebridge.v1.AttachmentPromptPreview.
+ * Use `create(AttachmentPromptPreviewSchema)` to create a new message.
+ */
+export const AttachmentPromptPreviewSchema: GenMessage<AttachmentPromptPreview> = /*@__PURE__*/
+  messageDesc(file_vibebridge_v1_envelope, 19);
+
+/**
+ * AttachmentPromptCommit writes the exact bytes retained by a prior prepare.
+ *
+ * @generated from message vibebridge.v1.AttachmentPromptCommit
+ */
+export type AttachmentPromptCommit = Message<"vibebridge.v1.AttachmentPromptCommit"> & {
+  /**
+   * @generated from field: bytes action_id = 1;
+   */
+  actionId: Uint8Array;
+};
+
+/**
+ * Describes the message vibebridge.v1.AttachmentPromptCommit.
+ * Use `create(AttachmentPromptCommitSchema)` to create a new message.
+ */
+export const AttachmentPromptCommitSchema: GenMessage<AttachmentPromptCommit> = /*@__PURE__*/
+  messageDesc(file_vibebridge_v1_envelope, 20);
+
+/**
+ * AttachmentPromptCancel abandons a prepared action without removing staged
+ * attachments. The action ID remains a non-reusable session-local tombstone.
+ *
+ * @generated from message vibebridge.v1.AttachmentPromptCancel
+ */
+export type AttachmentPromptCancel = Message<"vibebridge.v1.AttachmentPromptCancel"> & {
+  /**
+   * @generated from field: bytes action_id = 1;
+   */
+  actionId: Uint8Array;
+};
+
+/**
+ * Describes the message vibebridge.v1.AttachmentPromptCancel.
+ * Use `create(AttachmentPromptCancelSchema)` to create a new message.
+ */
+export const AttachmentPromptCancelSchema: GenMessage<AttachmentPromptCancel> = /*@__PURE__*/
+  messageDesc(file_vibebridge_v1_envelope, 21);
+
+/**
  * Envelope carries one typed V1 application message. Sequence and acknowledge
  * are direction-local counters; zero acknowledge means no message is confirmed.
  *
@@ -570,6 +679,30 @@ export type Envelope = Message<"vibebridge.v1.Envelope"> & {
      */
     value: AttachmentCancel;
     case: "attachmentCancel";
+  } | {
+    /**
+     * @generated from field: vibebridge.v1.AttachmentPromptPrepare attachment_prompt_prepare = 44;
+     */
+    value: AttachmentPromptPrepare;
+    case: "attachmentPromptPrepare";
+  } | {
+    /**
+     * @generated from field: vibebridge.v1.AttachmentPromptPreview attachment_prompt_preview = 45;
+     */
+    value: AttachmentPromptPreview;
+    case: "attachmentPromptPreview";
+  } | {
+    /**
+     * @generated from field: vibebridge.v1.AttachmentPromptCommit attachment_prompt_commit = 46;
+     */
+    value: AttachmentPromptCommit;
+    case: "attachmentPromptCommit";
+  } | {
+    /**
+     * @generated from field: vibebridge.v1.AttachmentPromptCancel attachment_prompt_cancel = 47;
+     */
+    value: AttachmentPromptCancel;
+    case: "attachmentPromptCancel";
   } | { case: undefined; value?: undefined };
 };
 
@@ -578,7 +711,7 @@ export type Envelope = Message<"vibebridge.v1.Envelope"> & {
  * Use `create(EnvelopeSchema)` to create a new message.
  */
 export const EnvelopeSchema: GenMessage<Envelope> = /*@__PURE__*/
-  messageDesc(file_vibebridge_v1_envelope, 18);
+  messageDesc(file_vibebridge_v1_envelope, 22);
 
 /**
  * PeerRole identifies the protocol responsibility of a peer. It does not grant
@@ -655,6 +788,11 @@ export enum ErrorCode {
    * @generated from enum value: ERROR_CODE_ATTACHMENT_TRANSFER_FAILED = 6;
    */
   ATTACHMENT_TRANSFER_FAILED = 6,
+
+  /**
+   * @generated from enum value: ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED = 7;
+   */
+  ATTACHMENT_PROMPT_ACTION_FAILED = 7,
 }
 
 /**
@@ -724,4 +862,32 @@ export enum ResumeDisposition {
  */
 export const ResumeDispositionSchema: GenEnum<ResumeDisposition> = /*@__PURE__*/
   enumDesc(file_vibebridge_v1_envelope, 3);
+
+/**
+ * AttachmentPromptDisposition reports durable session-local action state.
+ *
+ * @generated from enum vibebridge.v1.AttachmentPromptDisposition
+ */
+export enum AttachmentPromptDisposition {
+  /**
+   * @generated from enum value: ATTACHMENT_PROMPT_DISPOSITION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: ATTACHMENT_PROMPT_DISPOSITION_PREPARED = 1;
+   */
+  PREPARED = 1,
+
+  /**
+   * @generated from enum value: ATTACHMENT_PROMPT_DISPOSITION_COMMITTED = 2;
+   */
+  COMMITTED = 2,
+}
+
+/**
+ * Describes the enum vibebridge.v1.AttachmentPromptDisposition.
+ */
+export const AttachmentPromptDispositionSchema: GenEnum<AttachmentPromptDisposition> = /*@__PURE__*/
+  enumDesc(file_vibebridge_v1_envelope, 4);
 
