@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package vibebridge.v1;
+
+import "vibebridge/v1/envelope.proto";
+import "vibebridge/v1/identity.proto";
+
+option go_package = "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1;vibebridgev1";
+
+// HandshakeIntent binds a Noise transcript to one narrowly-scoped operation.
+enum HandshakeIntent {
+  HANDSHAKE_INTENT_UNSPECIFIED = 0;
+  HANDSHAKE_INTENT_PAIR_DEVICE = 1;
+  HANDSHAKE_INTENT_CONTROL_SESSION = 2;
+}
+
+// HandshakeContext is deterministic transcript data agreed outside Noise.
+// relay_ticket_hash is SHA-256 over the exact ticket bytes, including an empty
+// byte string when pairing directly. It prevents a valid exchange from being
+// moved to another relay route or intent.
+message HandshakeContext {
+  uint32 schema_version = 1;
+  ProtocolVersion protocol_version = 2;
+  bytes initiator_device_id = 3;
+  bytes responder_device_id = 4;
+  bytes relay_ticket_hash = 5;
+  HandshakeIntent intent = 6;
+  bytes invitation_id = 7;
+}
+
+// PairingInitiatorPayload is encrypted by XXpsk0 message one.
+message PairingInitiatorPayload {
+  SignedDeviceDescriptor client = 1;
+}
+
+// PairingResponderPayload is encrypted by XXpsk0 message two.
+message PairingResponderPayload {
+  SignedDeviceDescriptor agent = 1;
+}
+
+// PairingFinishPayload confirms the initiator identity in message three.
+message PairingFinishPayload {
+  bytes initiator_device_id = 1;
+}
+
+// PairingHandshakeStart is the bounded phone-to-Agent transport frame.
+message PairingHandshakeStart {
+  HandshakeContext context = 1;
+  bytes noise_message = 2;
+}
+
+// PairingHandshakeResponse is the bounded Agent-to-phone transport frame.
+message PairingHandshakeResponse {
+  bytes noise_message = 1;
+}
+
+// PairingHandshakeFinish is the final phone-to-Agent transport frame.
+message PairingHandshakeFinish {
+  bytes noise_message = 1;
+}

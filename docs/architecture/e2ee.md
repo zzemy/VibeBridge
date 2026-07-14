@@ -17,19 +17,21 @@ Reference: [Noise Protocol Framework](https://noiseprotocol.org/noise.html).
 
 ## Implementation Status (2026-07-15)
 
-Device descriptors and five-minute bootstrap invitations are implemented as canonical Protobuf messages with deterministic Go/TypeScript vectors. The Agent has persistent Ed25519/X25519 identity material and replay-safe in-memory invitation consumption. No E2EE handshake, traffic encryption, phone-facing `/pairing/v1` transport, or paired-session authentication is implemented yet. The invitation verification code currently authenticates the QR payload only; the final short authentication string must be derived independently from the complete two-party Noise transcript and shown during Agent approval.
+Device descriptors and five-minute bootstrap invitations are canonical Protobuf messages with deterministic Go/TypeScript vectors. The Agent has persistent Ed25519/X25519 identity material and replay-safe invitation consumption. The initial pairing cryptographic core is now implemented in Go and browser TypeScript using `Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b`, including exact transcript binding, directional transport keys, transcript-derived SAS, and shared positive and negative vectors.
 
-Remote exposure remains prohibited until the exact Noise pattern/PSK placement, browser-compatible implementation, transcript binding, directional counters, negative vectors, and cryptographic review gates below are complete.
+This cryptographic core is not yet an end-user pairing path. The phone-facing `/pairing/v1` framing, local Agent approval, atomic authorization/invitation consumption, browser key persistence, and authenticated paired-session handshake remain unfinished. The invitation verification code authenticates the QR payload only; the independent Noise SAS must be shown during local Agent approval. Remote exposure remains prohibited until those boundaries and the review gates below are complete.
 
 ## Primitive Baseline
 
-Target baseline, subject to implementation-library review:
+Implemented pairing baseline:
 
 - Ed25519 for signed device descriptors and revocation events.
-- X25519 for Diffie-Hellman key agreement.
-- HKDF-SHA-256 for key derivation.
-- ChaCha20-Poly1305 for transport AEAD, with AES-GCM allowed only through negotiated suites with hardware-backed benefit.
-- SHA-256 or BLAKE2s according to the selected Noise suite and library support.
+- X25519 for static and ephemeral Diffie-Hellman contributions.
+- The Noise framework's HKDF construction with BLAKE2b for pairing chaining and transcript hashing.
+- ChaCha20-Poly1305 for pairing handshake and post-handshake transport AEAD.
+- SHA-256 for relay-ticket transcript binding and the domain-separated human SAS derivation.
+
+Go uses `github.com/flynn/noise`; the browser uses `noise-handshake` with `@noble/curves` as its X25519 adapter. BLAKE2b is the fixed suite hash because it is the interoperable hash exposed by the selected browser library, not a user-configurable preference.
 
 Algorithm identifiers are versioned and negotiated from a small allowlist. There is no generic user-configurable cipher string.
 
@@ -37,9 +39,23 @@ Algorithm identifiers are versioned and negotiated from a small allowlist. There
 
 ### Initial Pairing
 
-The phone knows the Agent public identity from the QR code and possesses a high-entropy bootstrap secret. Pairing uses a Noise pattern where the initiator authenticates the responder identity and mixes the bootstrap secret as a pre-shared input. The phone device descriptor is sent inside the protected transcript.
+The phone knows the signed Agent descriptor from the QR code and possesses a 32-byte bootstrap secret. Initial pairing uses exactly `Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b`; the bootstrap secret is mixed at `psk0`. Both peers also contribute static X25519 keys and fresh ephemeral X25519 keys.
 
-The exact pattern and PSK placement must be selected only after verifying library support, transcript properties, and published vectors. The design must prevent QR replay and unknown-key-share attacks.
+The authenticated message sequence is:
+
+1. Message one encrypts the phone's signed descriptor under the PSK-bound transcript.
+2. Message two carries the Agent static key and encrypted signed Agent descriptor.
+3. Message three carries the phone static key and encrypted initiator-device-ID confirmation.
+
+The Noise prologue is the domain string `VibeBridge pairing prologue v1\0` followed by deterministic `HandshakeContext` bytes. That context binds schema and protocol versions, both device IDs, SHA-256 of the exact relay ticket (including empty direct-mode tickets), pairing intent, and invitation ID. The phone checks that the responder Noise static equals the signed QR descriptor key; the Agent performs the corresponding check for the phone descriptor. These checks prevent route substitution and unknown-key-share acceptance.
+
+The displayed SAS is derived only after all three messages complete:
+
+```text
+SHA256("VibeBridge pairing SAS v1\0" || 64-byte Noise handshake hash)
+```
+
+The first 64 bits are interpreted big-endian, reduced modulo `1_000_000`, zero-padded, and displayed as `123-456`. The current golden vector produces `710-268`.
 
 ### Established Device Session
 
@@ -51,8 +67,9 @@ Paired devices use an authenticated Noise IK-style handshake based on known X255
 - Logical PTY sessions derive subkeys from the connection secret and session identifier.
 - Attachment transfers derive independent subkeys so cancellation or compromise does not reuse terminal nonces.
 - Nonces are generated from direction-specific monotonic counters, never random reuse-prone values.
+- The browser wrapper permits at most `2^32` messages per direction because the selected JavaScript cipher implementation only encodes a 32-bit nonce; the connection must re-handshake before that limit.
 - Rekey after a time or byte threshold and after transport migration.
-- Key material is zeroed where runtime and library APIs make that meaningful.
+- Key material is zeroed where runtime and library APIs make that meaningful. Go and JavaScript runtimes and their dependencies cannot guarantee deterministic heap zeroization.
 
 ## Message Protection
 
