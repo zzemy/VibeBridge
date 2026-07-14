@@ -14,6 +14,7 @@ func TestLoadValidConfigAndResolveProfile(t *testing.T) {
 		"listen_address": "127.0.0.1:8787",
 		"reconnect_timeout": "2m",
 		"idle_timeout": "0s",
+		"disable_legacy_protocol": true,
 		"default_profile": "codex",
 		"profiles": [{
 			"id": "codex",
@@ -45,11 +46,14 @@ func TestLoadValidConfigAndResolveProfile(t *testing.T) {
 	if timeout, ok := config.ParsedReconnectTimeout(); !ok || timeout != 2*time.Minute {
 		t.Fatalf("reconnect timeout = %v/%t, want 2m/true", timeout, ok)
 	}
+	if !config.DisableLegacyProtocol {
+		t.Fatal("disable_legacy_protocol was not loaded")
+	}
 }
 
 func TestLoadRejectsInvalidConfigBoundaries(t *testing.T) {
 	cases := map[string]string{
-		"unknown version":       `{"version":2,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
+		"unknown version":       `{"version":3,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
 		"unknown field":         `{"version":1,"unknown":true,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
 		"duplicate id":          `{"version":1,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"},{"id":"shell","label":"Other","executable":"cmd"}]}`,
 		"missing default":       `{"version":1,"default_profile":"codex","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
@@ -70,6 +74,25 @@ func TestLoadRejectsInvalidConfigBoundaries(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsWorkspaceFieldsInVersion1(t *testing.T) {
+	cases := map[string]string{
+		"workspace registry": `{"version":1,"workspaces":[],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
+		"profile binding":    `{"version":1,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":""}]}`,
+	}
+
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, content))
+			if err == nil {
+				t.Fatal("version 1 workspace field loaded successfully")
+			}
+			if !strings.Contains(err.Error(), "require config version 2") {
+				t.Fatalf("load error = %q, want version 2 migration guidance", err)
+			}
+		})
+	}
+}
+
 func TestLoadLimitsConfigSize(t *testing.T) {
 	content := strings.Repeat(" ", 1024*1024) + `{}`
 	if _, err := Load(writeConfig(t, content)); err == nil {
@@ -84,4 +107,150 @@ func writeConfig(t *testing.T, content string) string {
 		t.Fatalf("write config: %v", err)
 	}
 	return path
+}
+
+func TestLoadWorkspaceProfileUsesCanonicalWorkspaceBoundary(t *testing.T) {
+	configDirectory := t.TempDir()
+	workspaceRoot := filepath.Join(configDirectory, "工作区")
+	workingDirectory := filepath.Join(workspaceRoot, "src")
+	if err := os.MkdirAll(workingDirectory, 0o700); err != nil {
+		t.Fatalf("create workspace directories: %v", err)
+	}
+	path := filepath.Join(configDirectory, "config.json")
+	content := `{
+		"version": 2,
+		"workspaces": [{"id":"repo","label":"  Main Repo  ","root":"工作区"}],
+		"default_profile": "codex",
+		"profiles": [{
+			"id": "codex",
+			"label": "Codex",
+			"executable": "codex",
+			"workspace_id": "repo",
+			"working_directory": "src"
+		}]
+	}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	config, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	workspace, ok := config.Workspace("repo")
+	if !ok {
+		t.Fatal("workspace was not found")
+	}
+	wantRoot, err := filepath.EvalSymlinks(workspaceRoot)
+	if err != nil {
+		t.Fatalf("canonicalize expected workspace root: %v", err)
+	}
+	if workspace.Root != filepath.Clean(wantRoot) || workspace.Label != "Main Repo" {
+		t.Fatalf("workspace = %#v, want canonical root %q and trimmed label", workspace, filepath.Clean(wantRoot))
+	}
+	profile, ok := config.Profile("codex")
+	if !ok {
+		t.Fatal("profile was not found")
+	}
+	wantWorkingDirectory, err := filepath.EvalSymlinks(workingDirectory)
+	if err != nil {
+		t.Fatalf("canonicalize expected working directory: %v", err)
+	}
+	if profile.WorkspaceID != "repo" || profile.WorkingDirectory != filepath.Clean(wantWorkingDirectory) {
+		t.Fatalf("profile workspace/working directory = %q/%q, want repo/%q", profile.WorkspaceID, profile.WorkingDirectory, filepath.Clean(wantWorkingDirectory))
+	}
+}
+
+func TestLoadWorkspaceProfileDefaultsWorkingDirectoryToRoot(t *testing.T) {
+	configDirectory := t.TempDir()
+	workspaceRoot := filepath.Join(configDirectory, "repo")
+	if err := os.Mkdir(workspaceRoot, 0o700); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	path := filepath.Join(configDirectory, "config.json")
+	content := `{"version":2,"workspaces":[{"id":"repo","label":"Repo","root":"repo"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo"}]}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	config, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	workspace, ok := config.Workspace("repo")
+	if !ok {
+		t.Fatal("workspace was not found")
+	}
+	profile, ok := config.Profile("shell")
+	if !ok {
+		t.Fatal("profile was not found")
+	}
+	if profile.WorkingDirectory != workspace.Root {
+		t.Fatalf("profile working directory = %q, want workspace root %q", profile.WorkingDirectory, workspace.Root)
+	}
+}
+
+func TestLoadRejectsInvalidWorkspaceBindings(t *testing.T) {
+	configDirectory := t.TempDir()
+	workspaceRoot := filepath.Join(configDirectory, "repo")
+	if err := os.Mkdir(workspaceRoot, 0o700); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	cases := map[string]string{
+		"duplicate workspace id":      `{"version":2,"workspaces":[{"id":"repo","label":"Repo","root":"repo"},{"id":"repo","label":"Other","root":"."}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
+		"duplicate canonical root":    `{"version":2,"workspaces":[{"id":"repo","label":"Repo","root":"repo"},{"id":"other","label":"Other","root":"repo/."}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`,
+		"unknown workspace":           `{"version":2,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"missing"}]}`,
+		"working directory traversal": `{"version":2,"workspaces":[{"id":"repo","label":"Repo","root":"repo"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo","working_directory":".."}]}`,
+		"missing workspace root":      `{"version":2,"workspaces":[{"id":"repo","label":"Repo","root":"missing"}],"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh","workspace_id":"repo"}]}`,
+	}
+
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(configDirectory, strings.ReplaceAll(name, " ", "-")+".json")
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatal("invalid workspace configuration loaded successfully")
+			}
+		})
+	}
+}
+
+func TestLaunchProfileDefaultsAndValidatesToolAdapter(t *testing.T) {
+	tests := []struct {
+		name        string
+		adapterJSON string
+		want        string
+		wantError   bool
+	}{
+		{name: "omitted", want: "generic"},
+		{name: "blank", adapterJSON: `,"tool_adapter":"  "`, want: "generic"},
+		{name: "generic", adapterJSON: `,"tool_adapter":"generic"`, want: "generic"},
+		{name: "unknown", adapterJSON: `,"tool_adapter":"codex"`, wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := writeConfig(t, `{"version":1,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"`+test.adapterJSON+`}]}`)
+			config, err := Load(path)
+			if test.wantError {
+				if err == nil {
+					t.Fatal("unsupported tool adapter loaded successfully")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			profile, ok := config.Profile("shell")
+			if !ok {
+				t.Fatal("profile was not found")
+			}
+			if profile.ToolAdapter != test.want {
+				t.Fatalf("tool adapter = %q, want %q", profile.ToolAdapter, test.want)
+			}
+		})
+	}
 }

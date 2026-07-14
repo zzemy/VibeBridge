@@ -69,3 +69,36 @@ test("adds a quick prompt without replacing the current draft", async () => {
 
   expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Start here.\nRun the relevant tests and fix any failures.");
 });
+
+test("waits for async preparation before clearing the draft and prevents duplicate submission", async () => {
+  const user = userEvent.setup();
+  let resolveSubmit: () => void = () => { throw new Error("submit resolver was not initialized"); };
+  const onSubmit = vi.fn(() => new Promise<void>((resolve) => { resolveSubmit = resolve; }));
+  render(<PromptComposer disabled={false} historyStorageKey="history-key" storageKey="draft-key" onSubmit={onSubmit} />);
+
+  await user.type(screen.getByRole("textbox"), "review staged files");
+  await user.click(screen.getByRole("button", { name: "Send prompt" }));
+
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("review staged files");
+  expect((screen.getByRole("button", { name: "Send prompt" }) as HTMLButtonElement).disabled).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Send prompt" }));
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+
+  resolveSubmit();
+  await vi.waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(""));
+  expect(JSON.parse(sessionStorage.getItem("history-key") ?? "[]")).toEqual(["review staged files"]);
+});
+
+test("keeps the draft and shows a recoverable async preparation failure", async () => {
+  const user = userEvent.setup();
+  const onSubmit = vi.fn(async () => { throw new Error("Attachment prompt action failed"); });
+  render(<PromptComposer disabled={false} historyStorageKey="history-key" storageKey="draft-key" onSubmit={onSubmit} />);
+
+  await user.type(screen.getByRole("textbox"), "review staged files");
+  await user.click(screen.getByRole("button", { name: "Send prompt" }));
+
+  expect(await screen.findByText("Attachment prompt action failed")).toBeTruthy();
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("review staged files");
+  expect(sessionStorage.getItem("draft-key")).toBe("review staged files");
+  expect(sessionStorage.getItem("history-key")).toBeNull();
+});

@@ -17,7 +17,7 @@ type Props = {
   disabled: boolean;
   historyStorageKey: string;
   storageKey: string;
-  onSubmit: (value: string, appendEnter: boolean) => void;
+  onSubmit: (value: string, appendEnter: boolean) => void | Promise<void>;
 };
 
 function readDraft(storageKey: string) {
@@ -43,6 +43,7 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
   const [notice, setNotice] = useState("");
   const [history, setHistory] = useState(() => readHistory(historyStorageKey));
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const isComposingRef = useRef(false);
 
   useEffect(() => {
@@ -77,24 +78,33 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
     setValue(nextValue);
   }
 
-  function submit() {
-    if (!value.trim() || disabled || isComposingRef.current) {
+  async function submit() {
+    if (!value.trim() || disabled || submitting || isComposingRef.current) {
       return;
     }
 
-    onSubmit(value, mode === "send");
-    const nextHistory = [value, ...history.filter((item) => item !== value)].slice(0, 8);
-    setHistory(nextHistory);
-    let historyStored = true;
+    const submittedValue = value;
+    setSubmitting(true);
+    setNotice("");
     try {
-      sessionStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
-    } catch {
-      historyStored = false;
-      setNotice("Prompt history is unavailable in this browser.");
-    }
-    setValue("");
-    if (historyStored) {
-      setNotice("");
+      await onSubmit(submittedValue, mode === "send");
+      const nextHistory = [submittedValue, ...history.filter((item) => item !== submittedValue)].slice(0, 8);
+      setHistory(nextHistory);
+      let historyStored = true;
+      try {
+        sessionStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
+      } catch {
+        historyStored = false;
+        setNotice("Prompt history is unavailable in this browser.");
+      }
+      setValue("");
+      if (historyStored) {
+        setNotice("");
+      }
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Prompt preparation failed");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -130,6 +140,7 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
   }
 
   const isEmpty = value.trim() === "";
+  const interactionDisabled = disabled || submitting;
 
   return (
     <div className="rounded-md border border-zinc-800 bg-zinc-900/90 p-2">
@@ -141,6 +152,7 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
             variant={mode === "send" ? "default" : "ghost"}
             className="h-7 px-2 text-xs"
             aria-pressed={mode === "send"}
+            disabled={interactionDisabled}
             onClick={() => setMode("send")}
           >
             Send + Enter
@@ -151,6 +163,7 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
             variant={mode === "insert" ? "default" : "ghost"}
             className="h-7 px-2 text-xs"
             aria-pressed={mode === "insert"}
+            disabled={interactionDisabled}
             onClick={() => setMode("insert")}
           >
             Insert only
@@ -168,6 +181,7 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
           variant="ghost"
           className="h-7 shrink-0 px-2 text-xs text-zinc-400"
           aria-expanded={quickActionsOpen}
+          disabled={interactionDisabled}
           onClick={() => setQuickActionsOpen((open) => !open)}
         >
           {quickActionsOpen ? <ChevronUp className="size-3.5" aria-hidden="true" /> : <Sparkles className="size-3.5" aria-hidden="true" />}
@@ -184,12 +198,12 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
       {quickActionsOpen ? (
         <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1" aria-label="Quick prompts and recent history">
           {quickPrompts.map((prompt) => (
-            <Button key={prompt} type="button" size="sm" variant="secondary" className="h-8 shrink-0 px-2 text-xs" onClick={() => appendPrompt(prompt)}>
+            <Button key={prompt} type="button" size="sm" variant="secondary" className="h-8 shrink-0 px-2 text-xs" disabled={interactionDisabled} onClick={() => appendPrompt(prompt)}>
               {prompt.split(" ").slice(0, 3).join(" ")}
             </Button>
           ))}
           {history.map((prompt) => (
-            <Button key={`history-${prompt}`} type="button" size="sm" variant="ghost" className="h-8 max-w-48 shrink-0 truncate px-2 text-xs text-zinc-400" title={prompt} onClick={() => appendPrompt(prompt)}>
+            <Button key={`history-${prompt}`} type="button" size="sm" variant="ghost" className="h-8 max-w-48 shrink-0 truncate px-2 text-xs text-zinc-400" title={prompt} disabled={interactionDisabled} onClick={() => appendPrompt(prompt)}>
               <History className="size-3.5" aria-hidden="true" />
               <span className="truncate">{prompt}</span>
             </Button>
@@ -200,7 +214,7 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
       <div className="flex items-end gap-2">
         <Textarea
           value={value}
-          disabled={disabled}
+          disabled={interactionDisabled}
           rows={2}
           maxLength={maxPromptLength}
           placeholder="Tell the local AI CLI what to do..."
@@ -220,11 +234,11 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
           }}
         />
         <div className="flex shrink-0 flex-col gap-2">
-          <Button type="button" variant="secondary" size="icon" disabled={disabled} className="size-10" onClick={pasteFromClipboard}>
+          <Button type="button" variant="secondary" size="icon" disabled={interactionDisabled} className="size-10" onClick={pasteFromClipboard}>
             <ClipboardPaste className="size-4" aria-hidden="true" />
             <span className="sr-only">Paste from clipboard</span>
           </Button>
-          <Button type="button" disabled={disabled || isEmpty} size="icon" className="size-10" onClick={submit}>
+          <Button type="button" disabled={interactionDisabled || isEmpty} size="icon" className="size-10" onClick={submit}>
             {mode === "send" ? <SendHorizontal className="size-4" aria-hidden="true" /> : <CornerDownLeft className="size-4" aria-hidden="true" />}
             <span className="sr-only">{mode === "send" ? "Send prompt" : "Insert prompt"}</span>
           </Button>

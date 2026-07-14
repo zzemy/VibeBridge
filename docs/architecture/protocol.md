@@ -78,14 +78,14 @@ message Envelope {
     AttachSession attach_session = 22;
     TerminalInput terminal_input = 23;
     TerminalOutput terminal_output = 24;
-    ResizeTerminal resize_terminal = 25;
+    TerminalResize terminal_resize = 25;
     SessionStatus session_status = 26;
     EndSession end_session = 27;
-    AttachmentBegin attachment_begin = 28;
-    AttachmentChunk attachment_chunk = 29;
-    AttachmentComplete attachment_complete = 30;
-    AttachmentCancel attachment_cancel = 31;
+    Ping ping = 28;
+    Pong pong = 29;
     Error error = 32;
+    Acknowledgement acknowledgement = 33;
+    ProcessExit process_exit = 34;
   }
 }
 ```
@@ -102,6 +102,25 @@ Exact fields are finalized in `proto/vibebridge/v1` and reviewed through ADRs an
 - Removed fields are reserved by number and name.
 - CI compares the schema against the latest stable release and rejects accidental breaking changes.
 
+Current migration behavior:
+
+- The browser offers the `vibebridge.v1` WebSocket subprotocol. If the Agent selects it, the client sends a binary protobuf `Hello` as the first message and the Agent returns its binary `Hello` before any PTY is created.
+- Both peers validate protocol version `1.0`, the 16-byte connection identifier, peer role, sequence metadata, advertised envelope limit, and capability names. The Agent additionally requires `terminal.binary_output` before starting or attaching a session.
+- A negotiation failure closes the WebSocket with protocol error code `1002` and does not mutate session state. If the peer does not select `vibebridge.v1`, the existing legacy JSON/raw-binary path remains available during migration.
+- Legacy compatibility is enabled by default. Operators may set `disable_legacy_protocol` or pass `--disable-legacy-protocol` to require `vibebridge.v1` plus `terminal.binary_output`, `terminal.sequenced_io_v1`, `terminal.resize_end_v1`, `session.process_exit_v1`, `session.resume_v1`, `control.error_v1`, and `control.health_v1`. A client without the subprotocol is rejected with HTTP `426`; a V1 client missing any required capability is closed with `1002` before Agent Hello and PTY/session creation. This is an ingress policy over the existing negotiation and adapter boundary; session lifecycle and PTY internals are unchanged.
+- If both peers advertise `terminal.sequenced_io_v1`, terminal input and output use binary protobuf envelopes. Hello is sequence `1` in each direction; subsequent connection-local messages increase monotonically, reject gaps and duplicates, and carry the highest contiguous peer acknowledgement. An explicit `Acknowledgement` payload advances acknowledgement when no data message is available for piggybacking.
+- Agent output is split on actual protobuf envelope size to honor the lower negotiated peer limit without dropping PTY bytes. Terminal input is limited to 32 KiB and every decoder retains the 64 KiB local envelope ceiling.
+- If both peers also advertise `session.resume_v1`, the first client stream message is `AttachSession` at sequence `2`, followed by the Agent's `SessionStatus` at sequence `2`. Fresh attachment uses empty session metadata and cursor zero; resume sends the assigned 16-byte session ID, positive generation, and the highest Agent sequence processed on the previous physical connection. Terminal traffic starts at sequence `3` after attachment.
+- Sequence and acknowledgement state is physical-connection-local: each WebSocket restarts with Hello sequence `1`. Detached raw PTY output is re-encoded into new sequence `3+` envelopes rather than preserving old wire sequence numbers.
+- The Agent returns `RESUMED` only for an exact identity, generation, detach-checkpoint, cursor, and complete-replay match. Byte or time eviction makes replay incomplete. A new PTY returns `FRESH`; every other attachment returns `RESYNC_REQUIRED`, causing the browser to reset stale terminal state, explain the truncation, and render any retained replay tail. Each new PTY gets a random protocol session ID and a monotonically increasing in-process generation.
+- If both peers also advertise `terminal.resize_end_v1`, client resize and explicit end controls use ordered `TerminalResize` and `EndSession` envelopes. Advertising it without `terminal.sequenced_io_v1` is an invalid capability combination. Columns and rows are integers from 1 through 65,535. Once negotiated, JSON resize/end controls are protocol errors; without the capability, their transitional JSON adapter remains available for older peers.
+- If both peers also advertise `session.process_exit_v1`, the Agent reports terminal completion as an ordered `ProcessExit` with a `SUCCESS` or `FAILURE` outcome. Advertising it without `terminal.sequenced_io_v1` is invalid. The outcome follows the final session lifecycle state, so an explicit end remains successful even if process termination returns an expected host error; raw host errors are never included. Without the capability, process exit retains its transitional JSON adapter.
+- If both peers also advertise `control.error_v1`, the Agent reports application failures as ordered `Error` envelopes containing only a known `ErrorCode`. Advertising it without `terminal.sequenced_io_v1` is invalid. A resumable connection may receive a fatal startup or occupied-session error before `SessionStatus`; that envelope has empty session metadata and does not bind the stream. Once negotiated, a JSON error is a protocol violation. Without the capability, the Agent uses a JSON adapter with the same fixed safe display text.
+- If both peers advertise `attachment.transfer_v1`, they must also advertise `terminal.sequenced_io_v1` and `control.error_v1`. Attachment begin/chunk/complete/cancel messages are accepted only on that negotiated ordered stream. The browser keeps one attachment operation in flight and waits until the Agent cumulative acknowledgement covers its sequence before advancing; chunk acknowledgements drive progress, and an acknowledged complete means verification/publication committed. A rejected operation is not committed, returns `ATTACHMENT_TRANSFER_FAILED` with the last committed sequence acknowledged, and abandons its active partial. The client can correlate the pending failure when `acknowledge + 1` equals its operation sequence, then closes the physical stream and retries the whole file after reconnect. A disconnect before acknowledgement remains outcome-ambiguous and is not treated as successful or resumable.
+- If both peers advertise `attachment.prompt_action_v1`, they must also advertise `terminal.sequenced_io_v1`, `attachment.transfer_v1`, and `control.error_v1`. Prepare carries one 1–64 byte action ID, 1–10 unique completed transfer IDs, a 1–32 KiB UTF-8 prompt, and the requested Enter behavior; the client never sends a path. The Agent resolves relative paths, retains exact adapter-generated terminal bytes, and returns a matching `PREPARED` preview of at most 48 KiB plus the effective `append_enter` value. Explicit commit writes those retained bytes exactly once; cancel retains staged files. Reconnect retries reuse the same session-local action ID. A repeated committed prepare returns an empty `COMMITTED` tombstone with `append_enter=false`, while conflicts and failures return only `ATTACHMENT_PROMPT_ACTION_FAILED`.
+- If both peers also advertise `control.health_v1`, the client may send an ordered empty `Ping` after resume-enabled session binding (or immediately after Hello on a non-resumable ordered stream) and the Agent responds with an ordered empty `Pong`. The Agent commits the Ping before encoding Pong, so Pong acknowledgement covers the Ping sequence. Advertising the capability without `terminal.sequenced_io_v1` is invalid. Once negotiated, JSON ping/pong is a protocol violation in its corresponding direction; without the capability, the transitional JSON adapter remains available. This application health exchange is independent of WebSocket Ping/Pong control frames, which remain the transport keepalive.
+- Negotiation, framing, sequence, acknowledgement, unsupported protobuf payload, and session-metadata failures close the WebSocket with protocol code `1002`; they are not represented as application `Error` payloads.
+
 Support policy:
 
 - Stable clients support the current major version and at least the previous two minor releases.
@@ -115,8 +134,14 @@ Capabilities describe optional behavior, not product authorization.
 Examples:
 
 - `terminal.binary_output`
+- `terminal.sequenced_io_v1`
+- `terminal.resize_end_v1`
+- `session.process_exit_v1`
 - `session.resume_v1`
-- `attachment.chunked_v1`
+- `control.error_v1`
+- `control.health_v1`
+- `attachment.transfer_v1`
+- `attachment.prompt_action_v1`
 - `attachment.image_preview_v1`
 - `tool.codex_adapter_v1`
 - `notification.waiting_input_v1`
@@ -125,33 +150,32 @@ Required capabilities are declared before starting a flow. A client must not inf
 
 ## Ordering and Resume
 
-- Each direction has a monotonically increasing 64-bit sequence.
-- Acknowledgements report the highest contiguous sequence processed.
-- Agent keeps a bounded byte-based replay buffer for terminal output.
-- Resume includes session identifier, generation, and last acknowledged sequence.
-- If replay is unavailable, the Agent returns `RESYNC_REQUIRED`; the client clears terminal state and requests a current snapshot or explains that history was truncated.
-- A new PTY increments session generation so stale clients cannot attach to a replacement session using old sequence state.
+- Each direction has a monotonically increasing 64-bit sequence scoped to one physical connection.
+- Acknowledgements report the highest contiguous sequence processed on that connection.
+- The Agent keeps at most the newest 1 MiB and two minutes of detached terminal output; any byte or time eviction marks replay incomplete.
+- Resume includes the prior session identifier, generation, and highest Agent sequence the client processed. The cursor must exactly match the detach checkpoint; the Agent never claims recovery for output whose processing cannot be established.
+- `SessionStatus` is ordered before detached replay and live PTY output. If identity, generation, checkpoint, cursor, or replay completeness does not match, the Agent returns `RESYNC_REQUIRED`; the client clears terminal state and explains that history was truncated before rendering the retained tail.
+- A new PTY receives a new random session ID and increments the in-process session generation so stale clients cannot attach to a replacement session using old state.
+
+## Application Health
+
+`control.health_v1` migrates the existing client-to-Agent application health check into the ordered stream without adding timing, nonce, retry, or latency semantics. `Ping` and `Pong` are intentionally empty. Resume-enabled streams cannot send health traffic before `SessionStatus` binds the connection; non-resumable ordered streams are connection-local and may use it immediately after Hello. The current browser does not schedule application health probes, so this capability defines the interoperable wire path without duplicating the existing WebSocket control-frame keepalive timer.
 
 ## Error Model
 
-Errors contain:
+The current negotiated `control.error_v1` payload is intentionally enum-only. `Error` contains one allowlisted `ErrorCode`; it does not carry free-form text, retry metadata, correlation identifiers, or implementation details. The current codes are:
 
-- Stable machine code.
-- Retry classification: retryable, user action, permanent, incompatible.
-- Safe display message.
-- Optional retry delay.
-- Opaque correlation identifier.
+- `SESSION_START_FAILED`
+- `SESSION_ALREADY_ACTIVE`
+- `TERMINAL_INPUT_FAILED`
+- `TERMINAL_RESIZE_FAILED`
+- `UNSUPPORTED_MESSAGE`
+- `ATTACHMENT_TRANSFER_FAILED`
+- `ATTACHMENT_PROMPT_ACTION_FAILED`
 
-Errors never include raw third-party errors, stack traces, commands, terminal contents, or private paths over remote transports.
+`UNSPECIFIED` and unknown enum values are rejected. The legacy JSON adapter maps each valid code to fixed safe wire text, and the browser derives safe user-facing copy from the code. `SESSION_ALREADY_ACTIVE` retains the existing actionable browser copy that another browser controls the session. Raw third-party errors, stack traces, commands, terminal contents, private paths, SDK responses, and host process details never cross this boundary.
 
-Core error families:
-
-- Authentication and revocation.
-- Protocol and capability mismatch.
-- Session not found, occupied, ended, or expired.
-- PTY start, input, resize, and cleanup failure.
-- Attachment validation, quota, integrity, and storage failure.
-- Relay unavailable, overloaded, or ticket expired.
+Application failures use `Error`; protocol and capability violations use a WebSocket protocol close. Only `SESSION_START_FAILED` or `SESSION_ALREADY_ACTIVE` may precede binding on a resume-enabled stream; that ordered envelope carries an empty session ID and generation zero. Errors emitted after binding carry the bound session metadata. Future retry classification or correlation fields require an explicit compatible schema and capability update rather than free-form data in the current payload.
 
 ## Limits
 
@@ -160,6 +184,7 @@ Every decoder receives configured maximums:
 - Outer frame size.
 - Inner envelope size.
 - Terminal input and output payload size.
+- Terminal dimensions (currently 1 through 65,535 columns and rows).
 - Attachment chunk size.
 - In-flight messages and bytes.
 - Unacknowledged replay bytes.

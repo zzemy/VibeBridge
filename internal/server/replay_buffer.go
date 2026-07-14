@@ -8,11 +8,12 @@ type bufferedOutput struct {
 }
 
 type replayBuffer struct {
-	maxBytes int
-	maxAge   time.Duration
-	now      func() time.Time
-	entries  []bufferedOutput
-	bytes    int
+	maxBytes  int
+	maxAge    time.Duration
+	now       func() time.Time
+	entries   []bufferedOutput
+	bytes     int
+	truncated bool
 }
 
 func newReplayBuffer(maxBytes int, maxAge time.Duration, now func() time.Time) replayBuffer {
@@ -23,7 +24,11 @@ func newReplayBuffer(maxBytes int, maxAge time.Duration, now func() time.Time) r
 }
 
 func (b *replayBuffer) append(data []byte) {
-	if len(data) == 0 || b.maxBytes <= 0 || b.maxAge <= 0 {
+	if len(data) == 0 {
+		return
+	}
+	if b.maxBytes <= 0 || b.maxAge <= 0 {
+		b.truncated = true
 		return
 	}
 
@@ -31,12 +36,14 @@ func (b *replayBuffer) append(data []byte) {
 	b.pruneExpired(now)
 	if len(data) > b.maxBytes {
 		data = data[len(data)-b.maxBytes:]
+		b.truncated = true
 	}
 	copied := append([]byte(nil), data...)
 	b.entries = append(b.entries, bufferedOutput{data: copied, receivedAt: now})
 	b.bytes += len(copied)
 
 	for b.bytes > b.maxBytes && len(b.entries) > 0 {
+		b.truncated = true
 		overflow := b.bytes - b.maxBytes
 		oldest := &b.entries[0]
 		if overflow < len(oldest.data) {
@@ -58,17 +65,25 @@ func (b *replayBuffer) snapshot() [][]byte {
 }
 
 func (b *replayBuffer) drain() [][]byte {
+	output, _ := b.drainWithStatus()
+	return output
+}
+
+func (b *replayBuffer) drainWithStatus() ([][]byte, bool) {
 	b.pruneExpired(b.now())
 	output := b.snapshot()
+	complete := !b.truncated
 	b.entries = nil
 	b.bytes = 0
-	return output
+	b.truncated = false
+	return output, complete
 }
 
 func (b *replayBuffer) pruneExpired(now time.Time) {
 	cutoff := now.Add(-b.maxAge)
 	firstCurrent := 0
 	for firstCurrent < len(b.entries) && b.entries[firstCurrent].receivedAt.Before(cutoff) {
+		b.truncated = true
 		b.bytes -= len(b.entries[firstCurrent].data)
 		firstCurrent++
 	}

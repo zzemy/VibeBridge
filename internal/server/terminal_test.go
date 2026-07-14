@@ -3,17 +3,20 @@ package server
 import (
 	"errors"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 type fakeTerminalLauncher struct {
+	calls   atomic.Int32
 	request terminalLaunchRequest
 	launch  terminalLaunch
 	err     error
 }
 
 func (l *fakeTerminalLauncher) Start(request terminalLaunchRequest) (terminalLaunch, error) {
+	l.calls.Add(1)
 	l.request = request
 	l.request.Command = append([]string(nil), request.Command...)
 	l.request.Environment = append([]string(nil), request.Environment...)
@@ -40,7 +43,7 @@ func TestNewPTYSessionUsesTerminalLauncherContract(t *testing.T) {
 	}}
 	command := []string{"codex", "--help"}
 
-	session, err := newPTYSession(terminalLaunchRequest{Command: command, WorkingDirectory: `C:\workspace`, Environment: []string{"PATH=test"}}, 0, systemClock{}, launcher, nil, sessionTelemetry{})
+	session, err := newPTYSession(terminalLaunchRequest{Command: command, WorkingDirectory: `C:\workspace`, Environment: []string{"PATH=test"}}, 0, systemClock{}, launcher, nil, nil, sessionTelemetry{})
 	if err != nil {
 		t.Fatalf("start session: %v", err)
 	}
@@ -69,7 +72,7 @@ func TestNewPTYSessionReturnsLauncherFailure(t *testing.T) {
 	wantErr := errors.New("launch failed")
 	launcher := &fakeTerminalLauncher{err: wantErr}
 
-	session, err := newPTYSession(terminalLaunchRequest{Command: []string{"codex"}}, 0, systemClock{}, launcher, nil, sessionTelemetry{})
+	session, err := newPTYSession(terminalLaunchRequest{Command: []string{"codex"}}, 0, systemClock{}, launcher, nil, nil, sessionTelemetry{})
 	if session != nil {
 		t.Fatal("session created after launcher failure")
 	}
