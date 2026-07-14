@@ -3,15 +3,20 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 	"github.com/zzemy/VibeBridge/internal/agentlog"
+	protocolv1 "github.com/zzemy/VibeBridge/internal/protocol"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestHandlerHealthAndRejectsInvalidToken(t *testing.T) {
@@ -130,6 +135,206 @@ func TestWebSocketRejectsCrossOrigin(t *testing.T) {
 		}
 		t.Fatalf("cross-origin status = %d, want %d", status, http.StatusForbidden)
 	}
+}
+
+func TestPreviousStableClientCompatibility(t *testing.T) {
+	// dfc6a108550258fba8c7652351193fa89f01014d is the previous stable
+	// browser baseline: no WebSocket subprotocol, raw binary output, and JSON controls.
+	wait := make(chan struct{})
+	var cancelOnce sync.Once
+	terminal := &recordingPTY{writes: make(chan []byte, 1), resizes: make(chan terminalDimensions, 1)}
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    terminal,
+		processTree: &countingProcessTree{},
+		cancel:      func() { cancelOnce.Do(func() { close(wait) }) },
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	defer app.Close()
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws?token=expected-token"
+	connection, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial previous client WebSocket: %v", err)
+	}
+	defer connection.Close()
+
+	messageType, initialOutput, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read previous client initial output: %v", err)
+	}
+	if messageType != websocket.BinaryMessage || !strings.Contains(string(initialOutput), "started PTY shell") {
+		t.Fatalf("previous client initial output type/data = %d/%q", messageType, initialOutput)
+	}
+
+	if err := connection.WriteJSON(ClientMessage{Type: "input", Data: "previous\r"}); err != nil {
+		t.Fatalf("send previous client input: %v", err)
+	}
+	select {
+	case written := <-terminal.writes:
+		if string(written) != "previous\r" {
+			t.Fatalf("previous client PTY input = %q, want previous\\r", written)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("previous client input was not written to the PTY")
+	}
+
+	if err := connection.WriteJSON(ClientMessage{Type: "resize", Cols: 90, Rows: 30}); err != nil {
+		t.Fatalf("send previous client resize: %v", err)
+	}
+	select {
+	case dimensions := <-terminal.resizes:
+		if dimensions.columns != 90 || dimensions.rows != 30 {
+			t.Fatalf("previous client PTY resize = %#v, want 90x30", dimensions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("previous client resize was not applied")
+	}
+
+	if err := connection.WriteJSON(ClientMessage{Type: "ping"}); err != nil {
+		t.Fatalf("send previous client ping: %v", err)
+	}
+	var pong ServerMessage
+	if err := connection.ReadJSON(&pong); err != nil {
+		t.Fatalf("read previous client pong: %v", err)
+	}
+	if pong.Type != "pong" {
+		t.Fatalf("previous client health response = %#v, want pong", pong)
+	}
+
+	if err := connection.WriteJSON(ClientMessage{Type: "exit"}); err != nil {
+		t.Fatalf("send previous client exit: %v", err)
+	}
+	messageType, endingOutput, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read previous client ending output: %v", err)
+	}
+	if messageType != websocket.BinaryMessage || !strings.Contains(string(endingOutput), "ending session") {
+		t.Fatalf("previous client ending output type/data = %d/%q", messageType, endingOutput)
+	}
+	var exit ServerMessage
+	if err := connection.ReadJSON(&exit); err != nil {
+		t.Fatalf("read previous client process exit: %v", err)
+	}
+	if exit.Type != "exit" || exit.Data != "process exited" {
+		t.Fatalf("previous client process exit = %#v", exit)
+	}
+}
+
+func TestDisabledLegacyProtocolRejectsPreviousClientBeforeStartingSession(t *testing.T) {
+	launcher := &fakeTerminalLauncher{}
+	app := New(Config{
+		SessionToken:          "expected-token",
+		Command:               []string{"fake"},
+		DisableLegacyProtocol: true,
+	})
+	app.launcher = launcher
+	defer app.Close()
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws?token=expected-token"
+	connection, response, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if connection != nil {
+		connection.Close()
+	}
+	if err == nil {
+		t.Fatal("previous client connected while legacy protocol was disabled")
+	}
+	if response == nil || response.StatusCode != http.StatusUpgradeRequired {
+		status := 0
+		if response != nil {
+			status = response.StatusCode
+		}
+		t.Fatalf("legacy-disabled response status = %d, want %d", status, http.StatusUpgradeRequired)
+	}
+	if launcher.calls.Load() != 0 {
+		t.Fatalf("terminal launch calls = %d, want 0", launcher.calls.Load())
+	}
+}
+
+func TestDisabledLegacyProtocolRejectsPartialProtocolV1BeforeStartingSession(t *testing.T) {
+	launcher := &fakeTerminalLauncher{err: errors.New("partial client must not start a terminal")}
+	app := New(Config{
+		SessionToken:          "expected-token",
+		Command:               []string{"fake"},
+		DisableLegacyProtocol: true,
+	})
+	app.launcher = launcher
+	defer app.Close()
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{protocolv1.CapabilityTerminalBinaryOutput}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send partial client Hello: %v", err)
+	}
+	if _, _, err := connection.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseProtocolError) {
+		t.Fatalf("partial client close error = %v, want WebSocket 1002", err)
+	}
+	if launcher.calls.Load() != 0 {
+		t.Fatalf("terminal launch calls = %d, want 0", launcher.calls.Load())
+	}
+}
+
+func TestDisabledLegacyProtocolAcceptsCurrentClient(t *testing.T) {
+	wait := make(chan struct{})
+	var cancelOnce sync.Once
+	terminal := &recordingPTY{writes: make(chan []byte, 1)}
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    terminal,
+		processTree: &countingProcessTree{},
+		cancel:      func() { cancelOnce.Do(func() { close(wait) }) },
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{
+		SessionToken:          "expected-token",
+		Command:               []string{"fake"},
+		DisableLegacyProtocol: true,
+	})
+	app.launcher = launcher
+	defer app.Close()
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilityTerminalResizeEnd,
+		protocolv1.CapabilitySessionProcessExit,
+		protocolv1.CapabilitySessionResume,
+		protocolv1.CapabilityControlError,
+		protocolv1.CapabilityControlHealth,
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send current client Hello: %v", err)
+	}
+	hello := readProtocolEnvelope(t, connection)
+	if hello.Sequence != 1 || hello.GetHello().GetPeerRole() != vibebridgev1.PeerRole_PEER_ROLE_AGENT {
+		t.Fatalf("Agent Hello sequence/peer role = %d/%v, want 1/Agent", hello.Sequence, hello.GetHello().GetPeerRole())
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientAttach(t, nil, 0, 0)); err != nil {
+		t.Fatalf("send fresh AttachSession: %v", err)
+	}
+	fresh := readProtocolEnvelope(t, connection)
+	if fresh.Sequence != 2 || fresh.Acknowledge != 2 || fresh.GetSessionStatus().GetResumeDisposition() != vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_FRESH {
+		t.Fatalf("fresh status sequence/ack/disposition = %d/%d/%v, want 2/2/fresh", fresh.Sequence, fresh.Acknowledge, fresh.GetSessionStatus().GetResumeDisposition())
+	}
+	initialOutput := readProtocolEnvelope(t, connection)
+	if initialOutput.Sequence != 3 || initialOutput.Acknowledge != 2 || initialOutput.GetTerminalOutput() == nil || !strings.Contains(string(initialOutput.GetTerminalOutput().GetData()), "started PTY shell") {
+		t.Fatalf("current client initial output sequence/ack/data = %d/%d/%q", initialOutput.Sequence, initialOutput.Acknowledge, initialOutput.GetTerminalOutput().GetData())
+	}
+	if launcher.calls.Load() != 1 {
+		t.Fatalf("terminal launch calls = %d, want 1", launcher.calls.Load())
+	}
+
 }
 
 func TestWebSocketWriterWritesBinaryOutput(t *testing.T) {
@@ -270,3 +475,963 @@ func (p *countingPTY) Close() error                   { p.closeCalls++; return n
 func (p *countingPTY) Read([]byte) (int, error)       { return 0, io.EOF }
 func (p *countingPTY) Resize(int, int) error          { return nil }
 func (p *countingPTY) Write(data []byte) (int, error) { return len(data), nil }
+
+func TestStableErrorMessage(t *testing.T) {
+	tests := []struct {
+		code vibebridgev1.ErrorCode
+		want string
+	}{
+		{vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED, "could not start terminal session"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_SESSION_ALREADY_ACTIVE, "session already active"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED, "could not write terminal input"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED, "could not resize terminal"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE, "unsupported message type"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED, "attachment transfer failed"},
+		{vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED, "attachment prompt action failed"},
+	}
+	for _, testCase := range tests {
+		got, err := stableErrorMessage(testCase.code)
+		if err != nil || got != testCase.want {
+			t.Errorf("stableErrorMessage(%v) = %q, %v; want %q, nil", testCase.code, got, err, testCase.want)
+		}
+	}
+	if _, err := stableErrorMessage(vibebridgev1.ErrorCode_ERROR_CODE_UNSPECIFIED); err == nil {
+		t.Fatal("stableErrorMessage accepted unspecified code")
+	}
+}
+
+func TestProtocolV1ReportsStableSessionStartError(t *testing.T) {
+	privateError := "private host launch failure"
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = &fakeTerminalLauncher{err: errors.New(privateError)}
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilitySessionResume,
+		protocolv1.CapabilityControlError,
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection)
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientAttach(t, nil, 0, 0)); err != nil {
+		t.Fatalf("send AttachSession: %v", err)
+	}
+
+	messageType, encoded, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read stable Error: %v", err)
+	}
+	if messageType != websocket.BinaryMessage {
+		t.Fatalf("Error message type = %d, want binary", messageType)
+	}
+	envelope := new(vibebridgev1.Envelope)
+	if err := proto.Unmarshal(encoded, envelope); err != nil {
+		t.Fatalf("decode stable Error: %v", err)
+	}
+	if envelope.Sequence != 2 || envelope.Acknowledge != 1 || envelope.GetError().GetCode() != vibebridgev1.ErrorCode_ERROR_CODE_SESSION_START_FAILED {
+		t.Fatalf("Error sequence/ack/code = %d/%d/%v", envelope.Sequence, envelope.Acknowledge, envelope.GetError().GetCode())
+	}
+	if len(envelope.SessionId) != 0 || envelope.SessionGeneration != 0 {
+		t.Fatalf("pre-bind Error session metadata = %x/%d, want empty/0", envelope.SessionId, envelope.SessionGeneration)
+	}
+	if bytes.Contains(encoded, []byte(privateError)) {
+		t.Fatalf("stable Error exposed host failure: %q", encoded)
+	}
+}
+
+func TestProtocolV1SessionStartErrorUsesSafeJSONFallback(t *testing.T) {
+	privateError := "private host launch failure"
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = &fakeTerminalLauncher{err: errors.New(privateError)}
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection)
+
+	var message ServerMessage
+	if err := connection.ReadJSON(&message); err != nil {
+		t.Fatalf("read JSON Error fallback: %v", err)
+	}
+	if message.Type != "error" || message.Data != "could not start terminal session" {
+		t.Fatalf("JSON Error fallback = %#v", message)
+	}
+	if strings.Contains(message.Data, privateError) {
+		t.Fatalf("JSON Error fallback exposed host failure: %q", message.Data)
+	}
+}
+
+func TestProtocolV1NegotiatesBeforeStartingSession(t *testing.T) {
+	wait := make(chan struct{})
+	terminal := &recordingPTY{writes: make(chan []byte, 1), resizes: make(chan terminalDimensions, 1)}
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    terminal,
+		processTree: &countingProcessTree{},
+		cancel:      func() {},
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	if launcher.calls.Load() != 0 {
+		t.Fatalf("terminal launch calls before Hello = %d, want 0", launcher.calls.Load())
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, []string{protocolv1.CapabilityTerminalBinaryOutput})); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+
+	messageType, encoded, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read Agent Hello: %v", err)
+	}
+	if messageType != websocket.BinaryMessage {
+		t.Fatalf("Agent Hello message type = %d, want binary", messageType)
+	}
+	envelope := new(vibebridgev1.Envelope)
+	if err := proto.Unmarshal(encoded, envelope); err != nil {
+		t.Fatalf("decode Agent Hello: %v", err)
+	}
+	if envelope.GetHello().GetPeerRole() != vibebridgev1.PeerRole_PEER_ROLE_AGENT {
+		t.Fatalf("Agent Hello peer role = %v, want Agent", envelope.GetHello().GetPeerRole())
+	}
+
+	messageType, legacyOutput, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read legacy output after negotiated Hello: %v", err)
+	}
+	if messageType != websocket.BinaryMessage || !strings.Contains(string(legacyOutput), "started PTY shell") {
+		t.Fatalf("legacy output type/data = %d/%q", messageType, legacyOutput)
+	}
+	if err := connection.WriteJSON(ClientMessage{Type: "input", Data: "legacy\r"}); err != nil {
+		t.Fatalf("send legacy input after negotiated Hello: %v", err)
+	}
+	select {
+	case written := <-terminal.writes:
+		if string(written) != "legacy\r" {
+			t.Fatalf("legacy PTY input = %q, want legacy\\r", written)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("legacy terminal input was not written to the PTY")
+	}
+	if err := connection.WriteJSON(ClientMessage{Type: "resize", Cols: protocolv1.MaxTerminalDimension + 1, Rows: 30}); err != nil {
+		t.Fatalf("send over-limit legacy resize after negotiated Hello: %v", err)
+	}
+	if err := connection.WriteJSON(ClientMessage{Type: "resize", Cols: 90, Rows: 30}); err != nil {
+		t.Fatalf("send legacy resize after negotiated Hello: %v", err)
+	}
+	select {
+	case dimensions := <-terminal.resizes:
+		if dimensions.columns != 90 || dimensions.rows != 30 {
+			t.Fatalf("legacy PTY resize = %#v, want 90x30", dimensions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("legacy terminal resize was not applied")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for launcher.calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if launcher.calls.Load() != 1 {
+		t.Fatalf("terminal launch calls after Hello = %d, want 1", launcher.calls.Load())
+	}
+	connection.Close()
+	app.Close()
+	close(wait)
+}
+
+func TestProtocolV1SequencesTerminalInputOutputAndAcknowledgement(t *testing.T) {
+	wait := make(chan struct{})
+	terminal := &recordingPTY{writes: make(chan []byte, 1)}
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    terminal,
+		processTree: &countingProcessTree{},
+		cancel:      func() {},
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	capabilities := []string{protocolv1.CapabilityTerminalBinaryOutput, protocolv1.CapabilityTerminalSequencedIO}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection) // Agent Hello.
+
+	output := readProtocolEnvelope(t, connection)
+	if output.Sequence != 2 || output.Acknowledge != 1 {
+		t.Fatalf("terminal output sequence/ack = %d/%d, want 2/1", output.Sequence, output.Acknowledge)
+	}
+	if output.GetTerminalOutput() == nil {
+		t.Fatalf("first stream payload = %T, want terminal output", output.Payload)
+	}
+
+	input := &vibebridgev1.Envelope{
+		ProtocolMajor: 1,
+		ConnectionId:  []byte("0123456789abcdef"),
+		Sequence:      2,
+		Acknowledge:   2,
+		Payload: &vibebridgev1.Envelope_TerminalInput{TerminalInput: &vibebridgev1.TerminalInput{
+			Data: []byte("continue\r"),
+		}},
+	}
+	encoded, err := proto.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal terminal input: %v", err)
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, encoded); err != nil {
+		t.Fatalf("send terminal input: %v", err)
+	}
+
+	select {
+	case written := <-terminal.writes:
+		if string(written) != "continue\r" {
+			t.Fatalf("PTY input = %q, want continue\\r", written)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("terminal input was not written to the PTY")
+	}
+
+	acknowledgement := readProtocolEnvelope(t, connection)
+	if acknowledgement.Sequence != 3 || acknowledgement.Acknowledge != 2 || acknowledgement.GetAcknowledgement() == nil {
+		t.Fatalf("ack sequence/ack/payload = %d/%d/%T, want 3/2/Acknowledgement", acknowledgement.Sequence, acknowledgement.Acknowledge, acknowledgement.Payload)
+	}
+
+	connection.Close()
+	close(wait)
+	app.Close()
+}
+
+func TestProtocolV1UsesSequencedApplicationHealthCheck(t *testing.T) {
+	wait := make(chan struct{})
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    &recordingPTY{writes: make(chan []byte, 1)},
+		processTree: &countingProcessTree{},
+		cancel:      func() {},
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilityControlHealth,
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection) // Agent Hello.
+	initialOutput := readProtocolEnvelope(t, connection)
+
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientPing(t, nil, 0, 2, initialOutput.Sequence)); err != nil {
+		t.Fatalf("send Ping: %v", err)
+	}
+	pong := readProtocolEnvelope(t, connection)
+	if pong.Sequence != initialOutput.Sequence+1 || pong.Acknowledge != 2 || pong.GetPong() == nil {
+		t.Fatalf("Pong sequence/ack/payload = %d/%d/%T", pong.Sequence, pong.Acknowledge, pong.Payload)
+	}
+
+	if err := connection.WriteJSON(ClientMessage{Type: "ping"}); err != nil {
+		t.Fatalf("send negotiated JSON ping: %v", err)
+	}
+	_, _, err := connection.ReadMessage()
+	var closeError *websocket.CloseError
+	if !errors.As(err, &closeError) || closeError.Code != websocket.CloseProtocolError {
+		t.Fatalf("negotiated JSON ping close error = %v, want protocol close", err)
+	}
+
+	close(wait)
+	app.Close()
+}
+
+func TestProtocolV1RetainsJSONHealthAdapterWithoutCapability(t *testing.T) {
+	wait := make(chan struct{})
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    &recordingPTY{writes: make(chan []byte, 1)},
+		processTree: &countingProcessTree{},
+		cancel:      func() {},
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{protocolv1.CapabilityTerminalBinaryOutput, protocolv1.CapabilityTerminalSequencedIO}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection) // Agent Hello.
+	_ = readProtocolEnvelope(t, connection) // Initial terminal output.
+
+	if err := connection.WriteJSON(ClientMessage{Type: "ping"}); err != nil {
+		t.Fatalf("send transitional JSON ping: %v", err)
+	}
+	var pong ServerMessage
+	if err := connection.ReadJSON(&pong); err != nil {
+		t.Fatalf("read transitional JSON pong: %v", err)
+	}
+	if pong.Type != "pong" {
+		t.Fatalf("transitional health response = %#v, want pong", pong)
+	}
+
+	close(wait)
+	app.Close()
+}
+
+func TestProtocolV1UsesSequencedResizeAndEndControls(t *testing.T) {
+	wait := make(chan struct{})
+	var cancelOnce sync.Once
+	terminal := &recordingPTY{writes: make(chan []byte, 1), resizes: make(chan terminalDimensions, 1)}
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    terminal,
+		processTree: &countingProcessTree{},
+		cancel:      func() { cancelOnce.Do(func() { close(wait) }) },
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilityTerminalResizeEnd,
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection) // Agent Hello.
+	initialOutput := readProtocolEnvelope(t, connection)
+	if initialOutput.Sequence != 2 || initialOutput.GetTerminalOutput() == nil {
+		t.Fatalf("initial output sequence/payload = %d/%T", initialOutput.Sequence, initialOutput.Payload)
+	}
+
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientResize(t, nil, 0, 2, 2, 120, 40)); err != nil {
+		t.Fatalf("send TerminalResize: %v", err)
+	}
+	select {
+	case dimensions := <-terminal.resizes:
+		if dimensions.columns != 120 || dimensions.rows != 40 {
+			t.Fatalf("PTY resize = %#v, want 120x40", dimensions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Protocol V1 terminal resize was not applied")
+	}
+	resizeAck := readProtocolEnvelope(t, connection)
+	if resizeAck.Sequence != 3 || resizeAck.Acknowledge != 2 || resizeAck.GetAcknowledgement() == nil {
+		t.Fatalf("resize ack sequence/ack/payload = %d/%d/%T", resizeAck.Sequence, resizeAck.Acknowledge, resizeAck.Payload)
+	}
+
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientEnd(t, nil, 0, 3, 3)); err != nil {
+		t.Fatalf("send EndSession: %v", err)
+	}
+	endingOutput := readProtocolEnvelope(t, connection)
+	if endingOutput.Sequence != 4 || endingOutput.Acknowledge != 3 || !strings.Contains(string(endingOutput.GetTerminalOutput().GetData()), "ending session") {
+		t.Fatalf("ending output sequence/ack/data = %d/%d/%q", endingOutput.Sequence, endingOutput.Acknowledge, endingOutput.GetTerminalOutput().GetData())
+	}
+
+	var exit ServerMessage
+	if err := connection.ReadJSON(&exit); err != nil {
+		t.Fatalf("read transitional process exit: %v", err)
+	}
+	if exit.Type != "exit" {
+		t.Fatalf("process exit message = %#v", exit)
+	}
+}
+
+func TestProcessExitWaitsForInFlightOutput(t *testing.T) {
+	waitReturned := make(chan struct{})
+	session := &ptySession{
+		terminal:    &countingPTY{},
+		processTree: &countingProcessTree{},
+		done:        make(chan struct{}),
+		clock:       systemClock{},
+		lifecycle:   sessionLifecycle{state: sessionStateConnected},
+	}
+
+	session.outputMu.Lock()
+	go session.waitForExit(notifyingWaiter{returned: waitReturned})
+	<-waitReturned
+
+	select {
+	case <-session.done:
+		t.Fatal("process exit overtook in-flight terminal output")
+	case <-time.After(100 * time.Millisecond):
+	}
+	session.mu.Lock()
+	state := session.lifecycle.state
+	session.mu.Unlock()
+	if state != sessionStateConnected {
+		t.Fatalf("state while output is in flight = %q, want connected", state)
+	}
+
+	session.outputMu.Unlock()
+	select {
+	case <-session.done:
+	case <-time.After(time.Second):
+		t.Fatal("process exit did not complete after terminal output")
+	}
+}
+
+type notifyingWaiter struct {
+	returned chan<- struct{}
+}
+
+func (w notifyingWaiter) Wait() error {
+	close(w.returned)
+	return nil
+}
+
+func TestProtocolV1UsesSequencedProcessExit(t *testing.T) {
+	tests := []struct {
+		name        string
+		explicitEnd bool
+		waitError   error
+		wantOutcome vibebridgev1.ProcessExitOutcome
+	}{
+		{name: "success", wantOutcome: vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_SUCCESS},
+		{name: "failure", waitError: errors.New("private host process failure"), wantOutcome: vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_FAILURE},
+		{name: "explicit end with host kill error", explicitEnd: true, waitError: errors.New("private host process failure"), wantOutcome: vibebridgev1.ProcessExitOutcome_PROCESS_EXIT_OUTCOME_SUCCESS},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			wait := make(chan struct{})
+			var cancelOnce sync.Once
+			cancel := func() {}
+			if testCase.explicitEnd {
+				cancel = func() { cancelOnce.Do(func() { close(wait) }) }
+			}
+			terminal := &recordingPTY{writes: make(chan []byte, 1)}
+			launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+				terminal:    terminal,
+				processTree: &countingProcessTree{},
+				cancel:      cancel,
+				waiter:      blockingWaiter{done: wait, err: testCase.waitError},
+			}}
+			app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+			app.launcher = launcher
+			testServer := httptest.NewServer(app.Handler())
+			defer testServer.Close()
+
+			connection := dialProtocolV1(t, testServer.URL)
+			defer connection.Close()
+			capabilities := []string{
+				protocolv1.CapabilityTerminalBinaryOutput,
+				protocolv1.CapabilityTerminalSequencedIO,
+				protocolv1.CapabilitySessionProcessExit,
+			}
+			if testCase.explicitEnd {
+				capabilities = append(capabilities, protocolv1.CapabilityTerminalResizeEnd)
+			}
+			if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+				t.Fatalf("send client Hello: %v", err)
+			}
+			_ = readProtocolEnvelope(t, connection) // Agent Hello.
+			initialOutput := readProtocolEnvelope(t, connection)
+			if initialOutput.Sequence != 2 || initialOutput.GetTerminalOutput() == nil {
+				t.Fatalf("initial output sequence/payload = %d/%T", initialOutput.Sequence, initialOutput.Payload)
+			}
+
+			wantSequence := uint64(3)
+			wantAcknowledgement := uint64(1)
+			if testCase.explicitEnd {
+				if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientEnd(t, nil, 0, 2, 2)); err != nil {
+					t.Fatalf("send EndSession: %v", err)
+				}
+				endingOutput := readProtocolEnvelope(t, connection)
+				if endingOutput.Sequence != 3 || endingOutput.Acknowledge != 2 || !strings.Contains(string(endingOutput.GetTerminalOutput().GetData()), "ending session") {
+					t.Fatalf("ending output sequence/ack/data = %d/%d/%q", endingOutput.Sequence, endingOutput.Acknowledge, endingOutput.GetTerminalOutput().GetData())
+				}
+				wantSequence = 4
+				wantAcknowledgement = 2
+			} else {
+				close(wait)
+			}
+			processExit := readProtocolEnvelope(t, connection)
+			if processExit.Sequence != wantSequence || processExit.Acknowledge != wantAcknowledgement || processExit.GetProcessExit().GetOutcome() != testCase.wantOutcome {
+				t.Fatalf("ProcessExit sequence/ack/outcome = %d/%d/%v", processExit.Sequence, processExit.Acknowledge, processExit.GetProcessExit().GetOutcome())
+			}
+			if encoded, err := proto.Marshal(processExit); err != nil || bytes.Contains(encoded, []byte("private host process failure")) {
+				t.Fatalf("ProcessExit exposed host error: marshal err = %v, bytes = %q", err, encoded)
+			}
+		})
+	}
+}
+
+func TestProtocolV1ResumesDetachedSessionWithIdentityAndGeneration(t *testing.T) {
+	wait := make(chan struct{})
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    &recordingPTY{writes: make(chan []byte, 1)},
+		processTree: &countingProcessTree{},
+		cancel:      func() {},
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilitySessionResume,
+	}
+
+	first := dialProtocolV1(t, testServer.URL)
+	if err := first.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send first client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, first)
+	if err := first.WriteMessage(websocket.BinaryMessage, marshalClientAttach(t, nil, 0, 0)); err != nil {
+		t.Fatalf("send fresh AttachSession: %v", err)
+	}
+	fresh := readProtocolEnvelope(t, first)
+	if fresh.Sequence != 2 || fresh.Acknowledge != 2 || fresh.GetSessionStatus().GetResumeDisposition() != vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_FRESH {
+		t.Fatalf("fresh status sequence/ack/disposition = %d/%d/%v", fresh.Sequence, fresh.Acknowledge, fresh.GetSessionStatus().GetResumeDisposition())
+	}
+	if len(fresh.SessionId) != 16 || fresh.SessionGeneration == 0 {
+		t.Fatalf("fresh session identity = %x/%d", fresh.SessionId, fresh.SessionGeneration)
+	}
+	initialOutput := readProtocolEnvelope(t, first)
+	if initialOutput.Sequence != 3 || !strings.Contains(string(initialOutput.GetTerminalOutput().GetData()), "started PTY shell") {
+		t.Fatalf("initial output sequence/data = %d/%q", initialOutput.Sequence, initialOutput.GetTerminalOutput().GetData())
+	}
+	if err := first.WriteMessage(websocket.BinaryMessage, marshalClientAcknowledgement(t, fresh.SessionId, fresh.SessionGeneration, 3, 3)); err != nil {
+		t.Fatalf("acknowledge initial output: %v", err)
+	}
+	first.Close()
+	waitForSessionState(t, app, sessionStateDetached)
+
+	app.mu.Lock()
+	session := app.session
+	app.mu.Unlock()
+	if session == nil {
+		t.Fatal("session ended before resume")
+	}
+	session.deliverOutput([]byte("output while detached\r\n"))
+
+	second := dialProtocolV1(t, testServer.URL)
+	defer second.Close()
+	if err := second.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send reconnect Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, second)
+	if err := second.WriteMessage(websocket.BinaryMessage, marshalClientAttach(t, fresh.SessionId, fresh.SessionGeneration, 3)); err != nil {
+		t.Fatalf("send resume AttachSession: %v", err)
+	}
+	resumed := readProtocolEnvelope(t, second)
+	if resumed.GetSessionStatus().GetResumeDisposition() != vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESUMED {
+		t.Fatalf("resume disposition = %v, want resumed", resumed.GetSessionStatus().GetResumeDisposition())
+	}
+	if !bytes.Equal(resumed.SessionId, fresh.SessionId) || resumed.SessionGeneration != fresh.SessionGeneration {
+		t.Fatalf("resumed identity = %x/%d, want %x/%d", resumed.SessionId, resumed.SessionGeneration, fresh.SessionId, fresh.SessionGeneration)
+	}
+	replay := readProtocolEnvelope(t, second)
+	if replay.Sequence != 3 || string(replay.GetTerminalOutput().GetData()) != "output while detached\r\n" {
+		t.Fatalf("replayed output sequence/data = %d/%q", replay.Sequence, replay.GetTerminalOutput().GetData())
+	}
+
+	second.Close()
+	close(wait)
+	app.Close()
+}
+
+func TestProtocolV1ReportsResyncRequiredForStaleCursor(t *testing.T) {
+	wait := make(chan struct{})
+	launcher := &fakeTerminalLauncher{launch: terminalLaunch{
+		terminal:    &recordingPTY{writes: make(chan []byte, 1)},
+		processTree: &countingProcessTree{},
+		cancel:      func() {},
+		waiter:      blockingWaiter{done: wait},
+	}}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	t.Cleanup(func() {
+		close(wait)
+		app.Close()
+	})
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilitySessionResume,
+	}
+
+	first := dialProtocolV1(t, testServer.URL)
+	if err := first.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send first client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, first)
+	if err := first.WriteMessage(websocket.BinaryMessage, marshalClientAttach(t, nil, 0, 0)); err != nil {
+		t.Fatalf("send fresh AttachSession: %v", err)
+	}
+	fresh := readProtocolEnvelope(t, first)
+	if fresh.GetSessionStatus().GetResumeDisposition() != vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_FRESH {
+		t.Fatalf("fresh disposition = %v, want fresh", fresh.GetSessionStatus().GetResumeDisposition())
+	}
+	initialOutput := readProtocolEnvelope(t, first)
+	if initialOutput.Sequence != 3 {
+		t.Fatalf("initial output sequence = %d, want 3", initialOutput.Sequence)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first connection: %v", err)
+	}
+	waitForSessionState(t, app, sessionStateDetached)
+
+	app.mu.Lock()
+	session := app.session
+	app.mu.Unlock()
+	if session == nil {
+		t.Fatal("session ended before resynchronization")
+	}
+	session.deliverOutput([]byte("retained replay tail\r\n"))
+
+	second := dialProtocolV1(t, testServer.URL)
+	defer second.Close()
+	if err := second.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send reconnect Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, second)
+	if err := second.WriteMessage(websocket.BinaryMessage, marshalClientAttach(t, fresh.SessionId, fresh.SessionGeneration, 2)); err != nil {
+		t.Fatalf("send stale resume AttachSession: %v", err)
+	}
+	status := readProtocolEnvelope(t, second)
+	if status.Sequence != 2 || status.GetSessionStatus().GetResumeDisposition() != vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED {
+		t.Fatalf("status sequence/disposition = %d/%v, want 2/resync required", status.Sequence, status.GetSessionStatus().GetResumeDisposition())
+	}
+	replay := readProtocolEnvelope(t, second)
+	if replay.Sequence != 3 || string(replay.GetTerminalOutput().GetData()) != "retained replay tail\r\n" {
+		t.Fatalf("replay sequence/data = %d/%q, want 3/retained tail", replay.Sequence, replay.GetTerminalOutput().GetData())
+	}
+}
+
+func TestResumeDispositionRequiresMatchingCompleteCheckpoint(t *testing.T) {
+	sessionID := []byte("fedcba9876543210")
+	baseSession := func() *ptySession {
+		return &ptySession{
+			sessionID:          append([]byte(nil), sessionID...),
+			generation:         7,
+			resumeCheckpoint:   true,
+			lastDetachedOutput: 8,
+		}
+	}
+	baseRequest := func() protocolv1.ClientStreamMessage {
+		return protocolv1.ClientStreamMessage{
+			Kind:                     protocolv1.ClientStreamMessageAttachSession,
+			SessionID:                append([]byte(nil), sessionID...),
+			SessionGeneration:        7,
+			LastAcknowledgedSequence: 8,
+		}
+	}
+
+	tests := []struct {
+		name           string
+		mutateSession  func(*ptySession)
+		mutateRequest  func(*protocolv1.ClientStreamMessage)
+		created        bool
+		replayComplete bool
+		want           vibebridgev1.ResumeDisposition
+	}{
+		{name: "matching checkpoint", replayComplete: true, want: vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESUMED},
+		{name: "session ID mismatch", mutateRequest: func(request *protocolv1.ClientStreamMessage) { request.SessionID = []byte("0123456789abcdef") }, replayComplete: true, want: vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED},
+		{name: "generation mismatch", mutateRequest: func(request *protocolv1.ClientStreamMessage) { request.SessionGeneration-- }, replayComplete: true, want: vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED},
+		{name: "stale cursor", mutateRequest: func(request *protocolv1.ClientStreamMessage) { request.LastAcknowledgedSequence-- }, replayComplete: true, want: vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED},
+		{name: "too-new cursor", mutateRequest: func(request *protocolv1.ClientStreamMessage) { request.LastAcknowledgedSequence++ }, replayComplete: true, want: vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED},
+		{name: "truncated replay", replayComplete: false, want: vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED},
+		{name: "missing checkpoint", mutateSession: func(session *ptySession) { session.resumeCheckpoint = false }, replayComplete: true, want: vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED},
+		{name: "stale identity after new PTY", created: true, replayComplete: true, want: vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			session := baseSession()
+			request := baseRequest()
+			if testCase.mutateSession != nil {
+				testCase.mutateSession(session)
+			}
+			if testCase.mutateRequest != nil {
+				testCase.mutateRequest(&request)
+			}
+			if got := session.resumeDispositionLocked(request, testCase.created, testCase.replayComplete); got != testCase.want {
+				t.Fatalf("resume disposition = %v, want %v", got, testCase.want)
+			}
+		})
+	}
+
+	fresh := protocolv1.ClientStreamMessage{Kind: protocolv1.ClientStreamMessageAttachSession}
+	if got := baseSession().resumeDispositionLocked(fresh, true, true); got != vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_FRESH {
+		t.Fatalf("new PTY fresh disposition = %v, want fresh", got)
+	}
+	if got := baseSession().resumeDispositionLocked(fresh, false, true); got != vibebridgev1.ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED {
+		t.Fatalf("existing PTY fresh disposition = %v, want resync required", got)
+	}
+}
+
+func TestProtocolV1RejectsMissingAttachWithoutStartingSession(t *testing.T) {
+	launcher := &fakeTerminalLauncher{}
+	app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+	app.launcher = launcher
+	testServer := httptest.NewServer(app.Handler())
+	defer testServer.Close()
+
+	connection := dialProtocolV1(t, testServer.URL)
+	defer connection.Close()
+	capabilities := []string{
+		protocolv1.CapabilityTerminalBinaryOutput,
+		protocolv1.CapabilityTerminalSequencedIO,
+		protocolv1.CapabilitySessionResume,
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
+		t.Fatalf("send client Hello: %v", err)
+	}
+	_ = readProtocolEnvelope(t, connection)
+	invalid := &vibebridgev1.Envelope{
+		ProtocolMajor: 1,
+		ConnectionId:  []byte("0123456789abcdef"),
+		Sequence:      2,
+		Acknowledge:   1,
+		Payload: &vibebridgev1.Envelope_TerminalInput{TerminalInput: &vibebridgev1.TerminalInput{
+			Data: []byte("must not start"),
+		}},
+	}
+	encoded, err := proto.Marshal(invalid)
+	if err != nil {
+		t.Fatalf("marshal invalid attachment: %v", err)
+	}
+	if err := connection.WriteMessage(websocket.BinaryMessage, encoded); err != nil {
+		t.Fatalf("send invalid attachment: %v", err)
+	}
+	if _, _, err := connection.ReadMessage(); err == nil {
+		t.Fatal("connection remained open without AttachSession")
+	}
+	if launcher.calls.Load() != 0 {
+		t.Fatalf("terminal launch calls = %d, want 0", launcher.calls.Load())
+	}
+}
+
+func TestProtocolV1RejectsInvalidHelloWithoutStartingSession(t *testing.T) {
+	tests := []struct {
+		name         string
+		major        uint32
+		capabilities []string
+	}{
+		{name: "incompatible version", major: 2, capabilities: []string{protocolv1.CapabilityTerminalBinaryOutput}},
+		{name: "missing required capability", major: 1},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			launcher := &fakeTerminalLauncher{}
+			app := New(Config{SessionToken: "expected-token", Command: []string{"fake"}})
+			app.launcher = launcher
+			testServer := httptest.NewServer(app.Handler())
+			defer testServer.Close()
+
+			connection := dialProtocolV1(t, testServer.URL)
+			defer connection.Close()
+			encoded := marshalClientHello(t, testCase.major, 0, testCase.capabilities)
+			if err := connection.WriteMessage(websocket.BinaryMessage, encoded); err != nil {
+				t.Fatalf("send invalid client Hello: %v", err)
+			}
+			if _, _, err := connection.ReadMessage(); err == nil {
+				t.Fatal("connection remained open after invalid Hello")
+			}
+			if launcher.calls.Load() != 0 {
+				t.Fatalf("terminal launch calls = %d, want 0", launcher.calls.Load())
+			}
+		})
+	}
+}
+
+type terminalDimensions struct {
+	columns int
+	rows    int
+}
+
+type recordingPTY struct {
+	writes  chan []byte
+	resizes chan terminalDimensions
+}
+
+func (p *recordingPTY) Close() error             { return nil }
+func (p *recordingPTY) Read([]byte) (int, error) { return 0, io.EOF }
+func (p *recordingPTY) Resize(columns, rows int) error {
+	if p.resizes != nil {
+		p.resizes <- terminalDimensions{columns: columns, rows: rows}
+	}
+	return nil
+}
+func (p *recordingPTY) Write(data []byte) (int, error) {
+	p.writes <- append([]byte(nil), data...)
+	return len(data), nil
+}
+
+func marshalClientPing(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64) []byte {
+	t.Helper()
+	envelope := newClientProtocolEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_Ping{Ping: &vibebridgev1.Ping{}}
+	return marshalClientProtocolEnvelope(t, envelope)
+}
+
+func marshalClientAttach(t *testing.T, sessionID []byte, generation, lastAcknowledgedSequence uint64) []byte {
+	t.Helper()
+	envelope := newClientProtocolEnvelope(sessionID, generation, 2, 1)
+	envelope.Payload = &vibebridgev1.Envelope_AttachSession{
+		AttachSession: &vibebridgev1.AttachSession{LastAcknowledgedSequence: lastAcknowledgedSequence},
+	}
+	return marshalClientProtocolEnvelope(t, envelope)
+}
+
+func marshalClientAcknowledgement(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64) []byte {
+	t.Helper()
+	envelope := newClientProtocolEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_Acknowledgement{
+		Acknowledgement: &vibebridgev1.Acknowledgement{},
+	}
+	return marshalClientProtocolEnvelope(t, envelope)
+}
+
+func marshalClientResize(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64, columns, rows uint32) []byte {
+	t.Helper()
+	envelope := newClientProtocolEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_TerminalResize{
+		TerminalResize: &vibebridgev1.TerminalResize{Columns: columns, Rows: rows},
+	}
+	return marshalClientProtocolEnvelope(t, envelope)
+}
+
+func marshalClientEnd(t *testing.T, sessionID []byte, generation, sequence, acknowledge uint64) []byte {
+	t.Helper()
+	envelope := newClientProtocolEnvelope(sessionID, generation, sequence, acknowledge)
+	envelope.Payload = &vibebridgev1.Envelope_EndSession{EndSession: &vibebridgev1.EndSession{}}
+	return marshalClientProtocolEnvelope(t, envelope)
+}
+
+func newClientProtocolEnvelope(sessionID []byte, generation, sequence, acknowledge uint64) *vibebridgev1.Envelope {
+	return &vibebridgev1.Envelope{
+		ProtocolMajor:     1,
+		ConnectionId:      []byte("0123456789abcdef"),
+		SessionId:         append([]byte(nil), sessionID...),
+		SessionGeneration: generation,
+		Sequence:          sequence,
+		Acknowledge:       acknowledge,
+	}
+}
+
+func marshalClientProtocolEnvelope(t *testing.T, envelope *vibebridgev1.Envelope) []byte {
+	t.Helper()
+	encoded, err := proto.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal client Protocol V1 envelope: %v", err)
+	}
+	return encoded
+}
+
+func waitForSessionState(t *testing.T, app *Server, want sessionState) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		app.mu.Lock()
+		session := app.session
+		app.mu.Unlock()
+		if session != nil {
+			session.mu.Lock()
+			state := session.lifecycle.state
+			session.mu.Unlock()
+			if state == want {
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("session did not reach state %q", want)
+}
+
+func readProtocolEnvelope(t *testing.T, connection *websocket.Conn) *vibebridgev1.Envelope {
+	t.Helper()
+	messageType, encoded, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("read Protocol V1 envelope: %v", err)
+	}
+	if messageType != websocket.BinaryMessage {
+		t.Fatalf("Protocol V1 message type = %d, want binary", messageType)
+	}
+	envelope := new(vibebridgev1.Envelope)
+	if err := proto.Unmarshal(encoded, envelope); err != nil {
+		t.Fatalf("decode Protocol V1 envelope: %v", err)
+	}
+	return envelope
+}
+
+func dialProtocolV1(t *testing.T, serverURL string) *websocket.Conn {
+	t.Helper()
+	dialer := *websocket.DefaultDialer
+	dialer.Subprotocols = []string{protocolv1.WebSocketSubprotocol}
+	wsURL := "ws" + strings.TrimPrefix(serverURL, "http") + "/ws?token=expected-token"
+	connection, response, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial Protocol V1 WebSocket: %v", err)
+	}
+	if response.Header.Get("Sec-WebSocket-Protocol") != protocolv1.WebSocketSubprotocol {
+		connection.Close()
+		t.Fatalf("selected subprotocol = %q, want %q", response.Header.Get("Sec-WebSocket-Protocol"), protocolv1.WebSocketSubprotocol)
+	}
+	return connection
+}
+
+func marshalClientHello(t *testing.T, major, minor uint32, capabilities []string) []byte {
+	t.Helper()
+	version := &vibebridgev1.ProtocolVersion{Major: major, Minor: minor}
+	envelope := &vibebridgev1.Envelope{
+		ProtocolMajor: major,
+		ProtocolMinor: minor,
+		ConnectionId:  []byte("0123456789abcdef"),
+		Sequence:      1,
+		Payload: &vibebridgev1.Envelope_Hello{Hello: &vibebridgev1.Hello{
+			PeerRole: vibebridgev1.PeerRole_PEER_ROLE_CLIENT,
+			SupportedVersions: &vibebridgev1.ProtocolVersionRange{
+				Minimum: version,
+				Maximum: &vibebridgev1.ProtocolVersion{Major: major, Minor: minor},
+			},
+			Capabilities:     capabilities,
+			MaxEnvelopeBytes: protocolv1.MaxEnvelopeBytes,
+		}},
+	}
+	encoded, err := proto.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal client Hello: %v", err)
+	}
+	return encoded
+}

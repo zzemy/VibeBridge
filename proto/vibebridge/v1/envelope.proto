@@ -37,6 +37,158 @@ message Hello {
   uint32 max_envelope_bytes = 4;
 }
 
+// TerminalInput carries bytes written to the local PTY.
+message TerminalInput {
+  bytes data = 1;
+}
+
+// TerminalOutput carries bytes read from the local PTY.
+message TerminalOutput {
+  bytes data = 1;
+}
+
+// TerminalResize changes the PTY dimensions. Both values must be in the
+// inclusive range 1..65535.
+message TerminalResize {
+  uint32 columns = 1;
+  uint32 rows = 2;
+}
+
+// EndSession requests idempotent termination of the active PTY session.
+message EndSession {}
+
+// Ping requests an application-level health response. WebSocket control-frame
+// keepalive remains a separate transport concern.
+message Ping {}
+
+// Pong confirms receipt of one ordered application-level Ping.
+message Pong {}
+
+// ErrorCode identifies a stable, user-actionable Agent error without exposing
+// host or implementation details.
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_SESSION_START_FAILED = 1;
+  ERROR_CODE_SESSION_ALREADY_ACTIVE = 2;
+  ERROR_CODE_TERMINAL_INPUT_FAILED = 3;
+  ERROR_CODE_TERMINAL_RESIZE_FAILED = 4;
+  ERROR_CODE_UNSUPPORTED_MESSAGE = 5;
+  ERROR_CODE_ATTACHMENT_TRANSFER_FAILED = 6;
+  ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED = 7;
+}
+
+// Error reports an application failure using an allowlisted code. Protocol
+// framing and negotiation failures use the WebSocket protocol close instead.
+message Error {
+  ErrorCode code = 1;
+}
+
+// ProcessExitOutcome reports the final PTY lifecycle result without exposing
+// host process errors.
+enum ProcessExitOutcome {
+  PROCESS_EXIT_OUTCOME_UNSPECIFIED = 0;
+  PROCESS_EXIT_OUTCOME_SUCCESS = 1;
+  PROCESS_EXIT_OUTCOME_FAILURE = 2;
+}
+
+// ProcessExit reports that the PTY process and session have ended.
+message ProcessExit {
+  ProcessExitOutcome outcome = 1;
+}
+
+// AttachSession starts a fresh attachment or resumes a previously attached
+// session. The cursor refers to the highest Agent sequence processed on the
+// previous physical connection.
+message AttachSession {
+  uint64 last_acknowledged_sequence = 1;
+}
+
+// ResumeDisposition reports whether the Agent could preserve terminal history.
+enum ResumeDisposition {
+  RESUME_DISPOSITION_UNSPECIFIED = 0;
+  RESUME_DISPOSITION_FRESH = 1;
+  RESUME_DISPOSITION_RESUMED = 2;
+  RESUME_DISPOSITION_RESYNC_REQUIRED = 3;
+}
+
+// SessionStatus binds the connection to the session identity carried by its
+// envelope and reports the result of the attachment request.
+message SessionStatus {
+  ResumeDisposition resume_disposition = 1;
+}
+
+// Acknowledgement advances the peer acknowledgement when there is no other
+// outbound payload on which it can be piggybacked.
+message Acknowledgement {}
+
+// AttachmentBegin requests a new client-to-Agent transfer. transfer_id is an
+// opaque transport identifier and must not be used to construct a local path.
+// The name, content type, and extension are untrusted display/policy metadata.
+message AttachmentBegin {
+  bytes transfer_id = 1;
+  string display_name = 2;
+  string declared_content_type = 3;
+  string declared_extension = 4;
+  uint64 total_size_bytes = 5;
+  bytes total_sha256 = 6;
+}
+
+// AttachmentChunk carries bytes at one absolute offset. chunk_sha256 covers
+// data only; the Agent independently verifies total_sha256 before availability.
+message AttachmentChunk {
+  bytes transfer_id = 1;
+  uint64 offset_bytes = 2;
+  bytes data = 3;
+  bytes chunk_sha256 = 4;
+}
+
+// AttachmentComplete asks the Agent to verify and finalize one transfer. The
+// resulting file must remain unavailable until size and total hash both match.
+message AttachmentComplete {
+  bytes transfer_id = 1;
+}
+
+// AttachmentCancel idempotently abandons one transfer and its partial data.
+message AttachmentCancel {
+  bytes transfer_id = 1;
+}
+
+// AttachmentPromptPrepare asks the Agent to derive trusted local references
+// from completed transfer IDs. Remote clients never supply filesystem paths.
+message AttachmentPromptPrepare {
+  bytes action_id = 1;
+  repeated bytes transfer_ids = 2;
+  string prompt = 3;
+  bool append_enter = 4;
+}
+
+// AttachmentPromptDisposition reports durable session-local action state.
+enum AttachmentPromptDisposition {
+  ATTACHMENT_PROMPT_DISPOSITION_UNSPECIFIED = 0;
+  ATTACHMENT_PROMPT_DISPOSITION_PREPARED = 1;
+  ATTACHMENT_PROMPT_DISPOSITION_COMMITTED = 2;
+}
+
+// AttachmentPromptPreview returns exact Agent-generated terminal text for user
+// confirmation. A committed tombstone intentionally carries no preview bytes.
+message AttachmentPromptPreview {
+  bytes action_id = 1;
+  AttachmentPromptDisposition disposition = 2;
+  string preview = 3;
+  bool append_enter = 4;
+}
+
+// AttachmentPromptCommit writes the exact bytes retained by a prior prepare.
+message AttachmentPromptCommit {
+  bytes action_id = 1;
+}
+
+// AttachmentPromptCancel abandons a prepared action without removing staged
+// attachments. The action ID remains a non-reusable session-local tombstone.
+message AttachmentPromptCancel {
+  bytes action_id = 1;
+}
+
 // Envelope carries one typed V1 application message. Sequence and acknowledge
 // are direction-local counters; zero acknowledge means no message is confirmed.
 message Envelope {
@@ -51,5 +203,24 @@ message Envelope {
 
   oneof payload {
     Hello hello = 20;
+    AttachSession attach_session = 22;
+    TerminalInput terminal_input = 23;
+    TerminalOutput terminal_output = 24;
+    TerminalResize terminal_resize = 25;
+    SessionStatus session_status = 26;
+    EndSession end_session = 27;
+    Ping ping = 28;
+    Pong pong = 29;
+    Error error = 32;
+    Acknowledgement acknowledgement = 33;
+    ProcessExit process_exit = 34;
+    AttachmentBegin attachment_begin = 40;
+    AttachmentChunk attachment_chunk = 41;
+    AttachmentComplete attachment_complete = 42;
+    AttachmentCancel attachment_cancel = 43;
+    AttachmentPromptPrepare attachment_prompt_prepare = 44;
+    AttachmentPromptPreview attachment_prompt_preview = 45;
+    AttachmentPromptCommit attachment_prompt_commit = 46;
+    AttachmentPromptCancel attachment_prompt_cancel = 47;
   }
 }

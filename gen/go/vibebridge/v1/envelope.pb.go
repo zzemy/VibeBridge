@@ -76,6 +76,226 @@ func (PeerRole) EnumDescriptor() ([]byte, []int) {
 	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{0}
 }
 
+// ErrorCode identifies a stable, user-actionable Agent error without exposing
+// host or implementation details.
+type ErrorCode int32
+
+const (
+	ErrorCode_ERROR_CODE_UNSPECIFIED                     ErrorCode = 0
+	ErrorCode_ERROR_CODE_SESSION_START_FAILED            ErrorCode = 1
+	ErrorCode_ERROR_CODE_SESSION_ALREADY_ACTIVE          ErrorCode = 2
+	ErrorCode_ERROR_CODE_TERMINAL_INPUT_FAILED           ErrorCode = 3
+	ErrorCode_ERROR_CODE_TERMINAL_RESIZE_FAILED          ErrorCode = 4
+	ErrorCode_ERROR_CODE_UNSUPPORTED_MESSAGE             ErrorCode = 5
+	ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED      ErrorCode = 6
+	ErrorCode_ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED ErrorCode = 7
+)
+
+// Enum value maps for ErrorCode.
+var (
+	ErrorCode_name = map[int32]string{
+		0: "ERROR_CODE_UNSPECIFIED",
+		1: "ERROR_CODE_SESSION_START_FAILED",
+		2: "ERROR_CODE_SESSION_ALREADY_ACTIVE",
+		3: "ERROR_CODE_TERMINAL_INPUT_FAILED",
+		4: "ERROR_CODE_TERMINAL_RESIZE_FAILED",
+		5: "ERROR_CODE_UNSUPPORTED_MESSAGE",
+		6: "ERROR_CODE_ATTACHMENT_TRANSFER_FAILED",
+		7: "ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED",
+	}
+	ErrorCode_value = map[string]int32{
+		"ERROR_CODE_UNSPECIFIED":                     0,
+		"ERROR_CODE_SESSION_START_FAILED":            1,
+		"ERROR_CODE_SESSION_ALREADY_ACTIVE":          2,
+		"ERROR_CODE_TERMINAL_INPUT_FAILED":           3,
+		"ERROR_CODE_TERMINAL_RESIZE_FAILED":          4,
+		"ERROR_CODE_UNSUPPORTED_MESSAGE":             5,
+		"ERROR_CODE_ATTACHMENT_TRANSFER_FAILED":      6,
+		"ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED": 7,
+	}
+)
+
+func (x ErrorCode) Enum() *ErrorCode {
+	p := new(ErrorCode)
+	*p = x
+	return p
+}
+
+func (x ErrorCode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ErrorCode) Descriptor() protoreflect.EnumDescriptor {
+	return file_vibebridge_v1_envelope_proto_enumTypes[1].Descriptor()
+}
+
+func (ErrorCode) Type() protoreflect.EnumType {
+	return &file_vibebridge_v1_envelope_proto_enumTypes[1]
+}
+
+func (x ErrorCode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ErrorCode.Descriptor instead.
+func (ErrorCode) EnumDescriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{1}
+}
+
+// ProcessExitOutcome reports the final PTY lifecycle result without exposing
+// host process errors.
+type ProcessExitOutcome int32
+
+const (
+	ProcessExitOutcome_PROCESS_EXIT_OUTCOME_UNSPECIFIED ProcessExitOutcome = 0
+	ProcessExitOutcome_PROCESS_EXIT_OUTCOME_SUCCESS     ProcessExitOutcome = 1
+	ProcessExitOutcome_PROCESS_EXIT_OUTCOME_FAILURE     ProcessExitOutcome = 2
+)
+
+// Enum value maps for ProcessExitOutcome.
+var (
+	ProcessExitOutcome_name = map[int32]string{
+		0: "PROCESS_EXIT_OUTCOME_UNSPECIFIED",
+		1: "PROCESS_EXIT_OUTCOME_SUCCESS",
+		2: "PROCESS_EXIT_OUTCOME_FAILURE",
+	}
+	ProcessExitOutcome_value = map[string]int32{
+		"PROCESS_EXIT_OUTCOME_UNSPECIFIED": 0,
+		"PROCESS_EXIT_OUTCOME_SUCCESS":     1,
+		"PROCESS_EXIT_OUTCOME_FAILURE":     2,
+	}
+)
+
+func (x ProcessExitOutcome) Enum() *ProcessExitOutcome {
+	p := new(ProcessExitOutcome)
+	*p = x
+	return p
+}
+
+func (x ProcessExitOutcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ProcessExitOutcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_vibebridge_v1_envelope_proto_enumTypes[2].Descriptor()
+}
+
+func (ProcessExitOutcome) Type() protoreflect.EnumType {
+	return &file_vibebridge_v1_envelope_proto_enumTypes[2]
+}
+
+func (x ProcessExitOutcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ProcessExitOutcome.Descriptor instead.
+func (ProcessExitOutcome) EnumDescriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{2}
+}
+
+// ResumeDisposition reports whether the Agent could preserve terminal history.
+type ResumeDisposition int32
+
+const (
+	ResumeDisposition_RESUME_DISPOSITION_UNSPECIFIED     ResumeDisposition = 0
+	ResumeDisposition_RESUME_DISPOSITION_FRESH           ResumeDisposition = 1
+	ResumeDisposition_RESUME_DISPOSITION_RESUMED         ResumeDisposition = 2
+	ResumeDisposition_RESUME_DISPOSITION_RESYNC_REQUIRED ResumeDisposition = 3
+)
+
+// Enum value maps for ResumeDisposition.
+var (
+	ResumeDisposition_name = map[int32]string{
+		0: "RESUME_DISPOSITION_UNSPECIFIED",
+		1: "RESUME_DISPOSITION_FRESH",
+		2: "RESUME_DISPOSITION_RESUMED",
+		3: "RESUME_DISPOSITION_RESYNC_REQUIRED",
+	}
+	ResumeDisposition_value = map[string]int32{
+		"RESUME_DISPOSITION_UNSPECIFIED":     0,
+		"RESUME_DISPOSITION_FRESH":           1,
+		"RESUME_DISPOSITION_RESUMED":         2,
+		"RESUME_DISPOSITION_RESYNC_REQUIRED": 3,
+	}
+)
+
+func (x ResumeDisposition) Enum() *ResumeDisposition {
+	p := new(ResumeDisposition)
+	*p = x
+	return p
+}
+
+func (x ResumeDisposition) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ResumeDisposition) Descriptor() protoreflect.EnumDescriptor {
+	return file_vibebridge_v1_envelope_proto_enumTypes[3].Descriptor()
+}
+
+func (ResumeDisposition) Type() protoreflect.EnumType {
+	return &file_vibebridge_v1_envelope_proto_enumTypes[3]
+}
+
+func (x ResumeDisposition) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ResumeDisposition.Descriptor instead.
+func (ResumeDisposition) EnumDescriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{3}
+}
+
+// AttachmentPromptDisposition reports durable session-local action state.
+type AttachmentPromptDisposition int32
+
+const (
+	AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_UNSPECIFIED AttachmentPromptDisposition = 0
+	AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_PREPARED    AttachmentPromptDisposition = 1
+	AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_COMMITTED   AttachmentPromptDisposition = 2
+)
+
+// Enum value maps for AttachmentPromptDisposition.
+var (
+	AttachmentPromptDisposition_name = map[int32]string{
+		0: "ATTACHMENT_PROMPT_DISPOSITION_UNSPECIFIED",
+		1: "ATTACHMENT_PROMPT_DISPOSITION_PREPARED",
+		2: "ATTACHMENT_PROMPT_DISPOSITION_COMMITTED",
+	}
+	AttachmentPromptDisposition_value = map[string]int32{
+		"ATTACHMENT_PROMPT_DISPOSITION_UNSPECIFIED": 0,
+		"ATTACHMENT_PROMPT_DISPOSITION_PREPARED":    1,
+		"ATTACHMENT_PROMPT_DISPOSITION_COMMITTED":   2,
+	}
+)
+
+func (x AttachmentPromptDisposition) Enum() *AttachmentPromptDisposition {
+	p := new(AttachmentPromptDisposition)
+	*p = x
+	return p
+}
+
+func (x AttachmentPromptDisposition) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AttachmentPromptDisposition) Descriptor() protoreflect.EnumDescriptor {
+	return file_vibebridge_v1_envelope_proto_enumTypes[4].Descriptor()
+}
+
+func (AttachmentPromptDisposition) Type() protoreflect.EnumType {
+	return &file_vibebridge_v1_envelope_proto_enumTypes[4]
+}
+
+func (x AttachmentPromptDisposition) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AttachmentPromptDisposition.Descriptor instead.
+func (AttachmentPromptDisposition) EnumDescriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{4}
+}
+
 // ProtocolVersion identifies one application-protocol revision.
 type ProtocolVersion struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -253,6 +473,963 @@ func (x *Hello) GetMaxEnvelopeBytes() uint32 {
 	return 0
 }
 
+// TerminalInput carries bytes written to the local PTY.
+type TerminalInput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalInput) Reset() {
+	*x = TerminalInput{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalInput) ProtoMessage() {}
+
+func (x *TerminalInput) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalInput.ProtoReflect.Descriptor instead.
+func (*TerminalInput) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *TerminalInput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+// TerminalOutput carries bytes read from the local PTY.
+type TerminalOutput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalOutput) Reset() {
+	*x = TerminalOutput{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalOutput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalOutput) ProtoMessage() {}
+
+func (x *TerminalOutput) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalOutput.ProtoReflect.Descriptor instead.
+func (*TerminalOutput) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *TerminalOutput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+// TerminalResize changes the PTY dimensions. Both values must be in the
+// inclusive range 1..65535.
+type TerminalResize struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Columns       uint32                 `protobuf:"varint,1,opt,name=columns,proto3" json:"columns,omitempty"`
+	Rows          uint32                 `protobuf:"varint,2,opt,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalResize) Reset() {
+	*x = TerminalResize{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalResize) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalResize) ProtoMessage() {}
+
+func (x *TerminalResize) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalResize.ProtoReflect.Descriptor instead.
+func (*TerminalResize) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *TerminalResize) GetColumns() uint32 {
+	if x != nil {
+		return x.Columns
+	}
+	return 0
+}
+
+func (x *TerminalResize) GetRows() uint32 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
+// EndSession requests idempotent termination of the active PTY session.
+type EndSession struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EndSession) Reset() {
+	*x = EndSession{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndSession) ProtoMessage() {}
+
+func (x *EndSession) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndSession.ProtoReflect.Descriptor instead.
+func (*EndSession) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{6}
+}
+
+// Ping requests an application-level health response. WebSocket control-frame
+// keepalive remains a separate transport concern.
+type Ping struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Ping) Reset() {
+	*x = Ping{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Ping) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Ping) ProtoMessage() {}
+
+func (x *Ping) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Ping.ProtoReflect.Descriptor instead.
+func (*Ping) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{7}
+}
+
+// Pong confirms receipt of one ordered application-level Ping.
+type Pong struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Pong) Reset() {
+	*x = Pong{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Pong) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Pong) ProtoMessage() {}
+
+func (x *Pong) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Pong.ProtoReflect.Descriptor instead.
+func (*Pong) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{8}
+}
+
+// Error reports an application failure using an allowlisted code. Protocol
+// framing and negotiation failures use the WebSocket protocol close instead.
+type Error struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          ErrorCode              `protobuf:"varint,1,opt,name=code,proto3,enum=vibebridge.v1.ErrorCode" json:"code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Error) Reset() {
+	*x = Error{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Error) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Error) ProtoMessage() {}
+
+func (x *Error) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Error.ProtoReflect.Descriptor instead.
+func (*Error) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *Error) GetCode() ErrorCode {
+	if x != nil {
+		return x.Code
+	}
+	return ErrorCode_ERROR_CODE_UNSPECIFIED
+}
+
+// ProcessExit reports that the PTY process and session have ended.
+type ProcessExit struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Outcome       ProcessExitOutcome     `protobuf:"varint,1,opt,name=outcome,proto3,enum=vibebridge.v1.ProcessExitOutcome" json:"outcome,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProcessExit) Reset() {
+	*x = ProcessExit{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessExit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessExit) ProtoMessage() {}
+
+func (x *ProcessExit) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessExit.ProtoReflect.Descriptor instead.
+func (*ProcessExit) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ProcessExit) GetOutcome() ProcessExitOutcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return ProcessExitOutcome_PROCESS_EXIT_OUTCOME_UNSPECIFIED
+}
+
+// AttachSession starts a fresh attachment or resumes a previously attached
+// session. The cursor refers to the highest Agent sequence processed on the
+// previous physical connection.
+type AttachSession struct {
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	LastAcknowledgedSequence uint64                 `protobuf:"varint,1,opt,name=last_acknowledged_sequence,json=lastAcknowledgedSequence,proto3" json:"last_acknowledged_sequence,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *AttachSession) Reset() {
+	*x = AttachSession{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttachSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttachSession) ProtoMessage() {}
+
+func (x *AttachSession) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttachSession.ProtoReflect.Descriptor instead.
+func (*AttachSession) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *AttachSession) GetLastAcknowledgedSequence() uint64 {
+	if x != nil {
+		return x.LastAcknowledgedSequence
+	}
+	return 0
+}
+
+// SessionStatus binds the connection to the session identity carried by its
+// envelope and reports the result of the attachment request.
+type SessionStatus struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ResumeDisposition ResumeDisposition      `protobuf:"varint,1,opt,name=resume_disposition,json=resumeDisposition,proto3,enum=vibebridge.v1.ResumeDisposition" json:"resume_disposition,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SessionStatus) Reset() {
+	*x = SessionStatus{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionStatus) ProtoMessage() {}
+
+func (x *SessionStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionStatus.ProtoReflect.Descriptor instead.
+func (*SessionStatus) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SessionStatus) GetResumeDisposition() ResumeDisposition {
+	if x != nil {
+		return x.ResumeDisposition
+	}
+	return ResumeDisposition_RESUME_DISPOSITION_UNSPECIFIED
+}
+
+// Acknowledgement advances the peer acknowledgement when there is no other
+// outbound payload on which it can be piggybacked.
+type Acknowledgement struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Acknowledgement) Reset() {
+	*x = Acknowledgement{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Acknowledgement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Acknowledgement) ProtoMessage() {}
+
+func (x *Acknowledgement) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Acknowledgement.ProtoReflect.Descriptor instead.
+func (*Acknowledgement) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{13}
+}
+
+// AttachmentBegin requests a new client-to-Agent transfer. transfer_id is an
+// opaque transport identifier and must not be used to construct a local path.
+// The name, content type, and extension are untrusted display/policy metadata.
+type AttachmentBegin struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	TransferId          []byte                 `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	DisplayName         string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	DeclaredContentType string                 `protobuf:"bytes,3,opt,name=declared_content_type,json=declaredContentType,proto3" json:"declared_content_type,omitempty"`
+	DeclaredExtension   string                 `protobuf:"bytes,4,opt,name=declared_extension,json=declaredExtension,proto3" json:"declared_extension,omitempty"`
+	TotalSizeBytes      uint64                 `protobuf:"varint,5,opt,name=total_size_bytes,json=totalSizeBytes,proto3" json:"total_size_bytes,omitempty"`
+	TotalSha256         []byte                 `protobuf:"bytes,6,opt,name=total_sha256,json=totalSha256,proto3" json:"total_sha256,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *AttachmentBegin) Reset() {
+	*x = AttachmentBegin{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttachmentBegin) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttachmentBegin) ProtoMessage() {}
+
+func (x *AttachmentBegin) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttachmentBegin.ProtoReflect.Descriptor instead.
+func (*AttachmentBegin) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *AttachmentBegin) GetTransferId() []byte {
+	if x != nil {
+		return x.TransferId
+	}
+	return nil
+}
+
+func (x *AttachmentBegin) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *AttachmentBegin) GetDeclaredContentType() string {
+	if x != nil {
+		return x.DeclaredContentType
+	}
+	return ""
+}
+
+func (x *AttachmentBegin) GetDeclaredExtension() string {
+	if x != nil {
+		return x.DeclaredExtension
+	}
+	return ""
+}
+
+func (x *AttachmentBegin) GetTotalSizeBytes() uint64 {
+	if x != nil {
+		return x.TotalSizeBytes
+	}
+	return 0
+}
+
+func (x *AttachmentBegin) GetTotalSha256() []byte {
+	if x != nil {
+		return x.TotalSha256
+	}
+	return nil
+}
+
+// AttachmentChunk carries bytes at one absolute offset. chunk_sha256 covers
+// data only; the Agent independently verifies total_sha256 before availability.
+type AttachmentChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TransferId    []byte                 `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	OffsetBytes   uint64                 `protobuf:"varint,2,opt,name=offset_bytes,json=offsetBytes,proto3" json:"offset_bytes,omitempty"`
+	Data          []byte                 `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+	ChunkSha256   []byte                 `protobuf:"bytes,4,opt,name=chunk_sha256,json=chunkSha256,proto3" json:"chunk_sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AttachmentChunk) Reset() {
+	*x = AttachmentChunk{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttachmentChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttachmentChunk) ProtoMessage() {}
+
+func (x *AttachmentChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttachmentChunk.ProtoReflect.Descriptor instead.
+func (*AttachmentChunk) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *AttachmentChunk) GetTransferId() []byte {
+	if x != nil {
+		return x.TransferId
+	}
+	return nil
+}
+
+func (x *AttachmentChunk) GetOffsetBytes() uint64 {
+	if x != nil {
+		return x.OffsetBytes
+	}
+	return 0
+}
+
+func (x *AttachmentChunk) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *AttachmentChunk) GetChunkSha256() []byte {
+	if x != nil {
+		return x.ChunkSha256
+	}
+	return nil
+}
+
+// AttachmentComplete asks the Agent to verify and finalize one transfer. The
+// resulting file must remain unavailable until size and total hash both match.
+type AttachmentComplete struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TransferId    []byte                 `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AttachmentComplete) Reset() {
+	*x = AttachmentComplete{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttachmentComplete) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttachmentComplete) ProtoMessage() {}
+
+func (x *AttachmentComplete) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttachmentComplete.ProtoReflect.Descriptor instead.
+func (*AttachmentComplete) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *AttachmentComplete) GetTransferId() []byte {
+	if x != nil {
+		return x.TransferId
+	}
+	return nil
+}
+
+// AttachmentCancel idempotently abandons one transfer and its partial data.
+type AttachmentCancel struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TransferId    []byte                 `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AttachmentCancel) Reset() {
+	*x = AttachmentCancel{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttachmentCancel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttachmentCancel) ProtoMessage() {}
+
+func (x *AttachmentCancel) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttachmentCancel.ProtoReflect.Descriptor instead.
+func (*AttachmentCancel) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *AttachmentCancel) GetTransferId() []byte {
+	if x != nil {
+		return x.TransferId
+	}
+	return nil
+}
+
+// AttachmentPromptPrepare asks the Agent to derive trusted local references
+// from completed transfer IDs. Remote clients never supply filesystem paths.
+type AttachmentPromptPrepare struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ActionId      []byte                 `protobuf:"bytes,1,opt,name=action_id,json=actionId,proto3" json:"action_id,omitempty"`
+	TransferIds   [][]byte               `protobuf:"bytes,2,rep,name=transfer_ids,json=transferIds,proto3" json:"transfer_ids,omitempty"`
+	Prompt        string                 `protobuf:"bytes,3,opt,name=prompt,proto3" json:"prompt,omitempty"`
+	AppendEnter   bool                   `protobuf:"varint,4,opt,name=append_enter,json=appendEnter,proto3" json:"append_enter,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AttachmentPromptPrepare) Reset() {
+	*x = AttachmentPromptPrepare{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttachmentPromptPrepare) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttachmentPromptPrepare) ProtoMessage() {}
+
+func (x *AttachmentPromptPrepare) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttachmentPromptPrepare.ProtoReflect.Descriptor instead.
+func (*AttachmentPromptPrepare) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *AttachmentPromptPrepare) GetActionId() []byte {
+	if x != nil {
+		return x.ActionId
+	}
+	return nil
+}
+
+func (x *AttachmentPromptPrepare) GetTransferIds() [][]byte {
+	if x != nil {
+		return x.TransferIds
+	}
+	return nil
+}
+
+func (x *AttachmentPromptPrepare) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
+	}
+	return ""
+}
+
+func (x *AttachmentPromptPrepare) GetAppendEnter() bool {
+	if x != nil {
+		return x.AppendEnter
+	}
+	return false
+}
+
+// AttachmentPromptPreview returns exact Agent-generated terminal text for user
+// confirmation. A committed tombstone intentionally carries no preview bytes.
+type AttachmentPromptPreview struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	ActionId      []byte                      `protobuf:"bytes,1,opt,name=action_id,json=actionId,proto3" json:"action_id,omitempty"`
+	Disposition   AttachmentPromptDisposition `protobuf:"varint,2,opt,name=disposition,proto3,enum=vibebridge.v1.AttachmentPromptDisposition" json:"disposition,omitempty"`
+	Preview       string                      `protobuf:"bytes,3,opt,name=preview,proto3" json:"preview,omitempty"`
+	AppendEnter   bool                        `protobuf:"varint,4,opt,name=append_enter,json=appendEnter,proto3" json:"append_enter,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AttachmentPromptPreview) Reset() {
+	*x = AttachmentPromptPreview{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttachmentPromptPreview) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttachmentPromptPreview) ProtoMessage() {}
+
+func (x *AttachmentPromptPreview) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttachmentPromptPreview.ProtoReflect.Descriptor instead.
+func (*AttachmentPromptPreview) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *AttachmentPromptPreview) GetActionId() []byte {
+	if x != nil {
+		return x.ActionId
+	}
+	return nil
+}
+
+func (x *AttachmentPromptPreview) GetDisposition() AttachmentPromptDisposition {
+	if x != nil {
+		return x.Disposition
+	}
+	return AttachmentPromptDisposition_ATTACHMENT_PROMPT_DISPOSITION_UNSPECIFIED
+}
+
+func (x *AttachmentPromptPreview) GetPreview() string {
+	if x != nil {
+		return x.Preview
+	}
+	return ""
+}
+
+func (x *AttachmentPromptPreview) GetAppendEnter() bool {
+	if x != nil {
+		return x.AppendEnter
+	}
+	return false
+}
+
+// AttachmentPromptCommit writes the exact bytes retained by a prior prepare.
+type AttachmentPromptCommit struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ActionId      []byte                 `protobuf:"bytes,1,opt,name=action_id,json=actionId,proto3" json:"action_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AttachmentPromptCommit) Reset() {
+	*x = AttachmentPromptCommit{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttachmentPromptCommit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttachmentPromptCommit) ProtoMessage() {}
+
+func (x *AttachmentPromptCommit) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttachmentPromptCommit.ProtoReflect.Descriptor instead.
+func (*AttachmentPromptCommit) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *AttachmentPromptCommit) GetActionId() []byte {
+	if x != nil {
+		return x.ActionId
+	}
+	return nil
+}
+
+// AttachmentPromptCancel abandons a prepared action without removing staged
+// attachments. The action ID remains a non-reusable session-local tombstone.
+type AttachmentPromptCancel struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ActionId      []byte                 `protobuf:"bytes,1,opt,name=action_id,json=actionId,proto3" json:"action_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AttachmentPromptCancel) Reset() {
+	*x = AttachmentPromptCancel{}
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttachmentPromptCancel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttachmentPromptCancel) ProtoMessage() {}
+
+func (x *AttachmentPromptCancel) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttachmentPromptCancel.ProtoReflect.Descriptor instead.
+func (*AttachmentPromptCancel) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *AttachmentPromptCancel) GetActionId() []byte {
+	if x != nil {
+		return x.ActionId
+	}
+	return nil
+}
+
 // Envelope carries one typed V1 application message. Sequence and acknowledge
 // are direction-local counters; zero acknowledge means no message is confirmed.
 type Envelope struct {
@@ -268,6 +1445,25 @@ type Envelope struct {
 	// Types that are valid to be assigned to Payload:
 	//
 	//	*Envelope_Hello
+	//	*Envelope_AttachSession
+	//	*Envelope_TerminalInput
+	//	*Envelope_TerminalOutput
+	//	*Envelope_TerminalResize
+	//	*Envelope_SessionStatus
+	//	*Envelope_EndSession
+	//	*Envelope_Ping
+	//	*Envelope_Pong
+	//	*Envelope_Error
+	//	*Envelope_Acknowledgement
+	//	*Envelope_ProcessExit
+	//	*Envelope_AttachmentBegin
+	//	*Envelope_AttachmentChunk
+	//	*Envelope_AttachmentComplete
+	//	*Envelope_AttachmentCancel
+	//	*Envelope_AttachmentPromptPrepare
+	//	*Envelope_AttachmentPromptPreview
+	//	*Envelope_AttachmentPromptCommit
+	//	*Envelope_AttachmentPromptCancel
 	Payload       isEnvelope_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -275,7 +1471,7 @@ type Envelope struct {
 
 func (x *Envelope) Reset() {
 	*x = Envelope{}
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[3]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -287,7 +1483,7 @@ func (x *Envelope) String() string {
 func (*Envelope) ProtoMessage() {}
 
 func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_vibebridge_v1_envelope_proto_msgTypes[3]
+	mi := &file_vibebridge_v1_envelope_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -300,7 +1496,7 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
 func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{3}
+	return file_vibebridge_v1_envelope_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Envelope) GetProtocolMajor() uint32 {
@@ -375,6 +1571,177 @@ func (x *Envelope) GetHello() *Hello {
 	return nil
 }
 
+func (x *Envelope) GetAttachSession() *AttachSession {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_AttachSession); ok {
+			return x.AttachSession
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetTerminalInput() *TerminalInput {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_TerminalInput); ok {
+			return x.TerminalInput
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetTerminalOutput() *TerminalOutput {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_TerminalOutput); ok {
+			return x.TerminalOutput
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetTerminalResize() *TerminalResize {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_TerminalResize); ok {
+			return x.TerminalResize
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetSessionStatus() *SessionStatus {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_SessionStatus); ok {
+			return x.SessionStatus
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetEndSession() *EndSession {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_EndSession); ok {
+			return x.EndSession
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetPing() *Ping {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_Ping); ok {
+			return x.Ping
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetPong() *Pong {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_Pong); ok {
+			return x.Pong
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetError() *Error {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_Error); ok {
+			return x.Error
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAcknowledgement() *Acknowledgement {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_Acknowledgement); ok {
+			return x.Acknowledgement
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetProcessExit() *ProcessExit {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_ProcessExit); ok {
+			return x.ProcessExit
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAttachmentBegin() *AttachmentBegin {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_AttachmentBegin); ok {
+			return x.AttachmentBegin
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAttachmentChunk() *AttachmentChunk {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_AttachmentChunk); ok {
+			return x.AttachmentChunk
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAttachmentComplete() *AttachmentComplete {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_AttachmentComplete); ok {
+			return x.AttachmentComplete
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAttachmentCancel() *AttachmentCancel {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_AttachmentCancel); ok {
+			return x.AttachmentCancel
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAttachmentPromptPrepare() *AttachmentPromptPrepare {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_AttachmentPromptPrepare); ok {
+			return x.AttachmentPromptPrepare
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAttachmentPromptPreview() *AttachmentPromptPreview {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_AttachmentPromptPreview); ok {
+			return x.AttachmentPromptPreview
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAttachmentPromptCommit() *AttachmentPromptCommit {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_AttachmentPromptCommit); ok {
+			return x.AttachmentPromptCommit
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetAttachmentPromptCancel() *AttachmentPromptCancel {
+	if x != nil {
+		if x, ok := x.Payload.(*Envelope_AttachmentPromptCancel); ok {
+			return x.AttachmentPromptCancel
+		}
+	}
+	return nil
+}
+
 type isEnvelope_Payload interface {
 	isEnvelope_Payload()
 }
@@ -383,7 +1750,121 @@ type Envelope_Hello struct {
 	Hello *Hello `protobuf:"bytes,20,opt,name=hello,proto3,oneof"`
 }
 
+type Envelope_AttachSession struct {
+	AttachSession *AttachSession `protobuf:"bytes,22,opt,name=attach_session,json=attachSession,proto3,oneof"`
+}
+
+type Envelope_TerminalInput struct {
+	TerminalInput *TerminalInput `protobuf:"bytes,23,opt,name=terminal_input,json=terminalInput,proto3,oneof"`
+}
+
+type Envelope_TerminalOutput struct {
+	TerminalOutput *TerminalOutput `protobuf:"bytes,24,opt,name=terminal_output,json=terminalOutput,proto3,oneof"`
+}
+
+type Envelope_TerminalResize struct {
+	TerminalResize *TerminalResize `protobuf:"bytes,25,opt,name=terminal_resize,json=terminalResize,proto3,oneof"`
+}
+
+type Envelope_SessionStatus struct {
+	SessionStatus *SessionStatus `protobuf:"bytes,26,opt,name=session_status,json=sessionStatus,proto3,oneof"`
+}
+
+type Envelope_EndSession struct {
+	EndSession *EndSession `protobuf:"bytes,27,opt,name=end_session,json=endSession,proto3,oneof"`
+}
+
+type Envelope_Ping struct {
+	Ping *Ping `protobuf:"bytes,28,opt,name=ping,proto3,oneof"`
+}
+
+type Envelope_Pong struct {
+	Pong *Pong `protobuf:"bytes,29,opt,name=pong,proto3,oneof"`
+}
+
+type Envelope_Error struct {
+	Error *Error `protobuf:"bytes,32,opt,name=error,proto3,oneof"`
+}
+
+type Envelope_Acknowledgement struct {
+	Acknowledgement *Acknowledgement `protobuf:"bytes,33,opt,name=acknowledgement,proto3,oneof"`
+}
+
+type Envelope_ProcessExit struct {
+	ProcessExit *ProcessExit `protobuf:"bytes,34,opt,name=process_exit,json=processExit,proto3,oneof"`
+}
+
+type Envelope_AttachmentBegin struct {
+	AttachmentBegin *AttachmentBegin `protobuf:"bytes,40,opt,name=attachment_begin,json=attachmentBegin,proto3,oneof"`
+}
+
+type Envelope_AttachmentChunk struct {
+	AttachmentChunk *AttachmentChunk `protobuf:"bytes,41,opt,name=attachment_chunk,json=attachmentChunk,proto3,oneof"`
+}
+
+type Envelope_AttachmentComplete struct {
+	AttachmentComplete *AttachmentComplete `protobuf:"bytes,42,opt,name=attachment_complete,json=attachmentComplete,proto3,oneof"`
+}
+
+type Envelope_AttachmentCancel struct {
+	AttachmentCancel *AttachmentCancel `protobuf:"bytes,43,opt,name=attachment_cancel,json=attachmentCancel,proto3,oneof"`
+}
+
+type Envelope_AttachmentPromptPrepare struct {
+	AttachmentPromptPrepare *AttachmentPromptPrepare `protobuf:"bytes,44,opt,name=attachment_prompt_prepare,json=attachmentPromptPrepare,proto3,oneof"`
+}
+
+type Envelope_AttachmentPromptPreview struct {
+	AttachmentPromptPreview *AttachmentPromptPreview `protobuf:"bytes,45,opt,name=attachment_prompt_preview,json=attachmentPromptPreview,proto3,oneof"`
+}
+
+type Envelope_AttachmentPromptCommit struct {
+	AttachmentPromptCommit *AttachmentPromptCommit `protobuf:"bytes,46,opt,name=attachment_prompt_commit,json=attachmentPromptCommit,proto3,oneof"`
+}
+
+type Envelope_AttachmentPromptCancel struct {
+	AttachmentPromptCancel *AttachmentPromptCancel `protobuf:"bytes,47,opt,name=attachment_prompt_cancel,json=attachmentPromptCancel,proto3,oneof"`
+}
+
 func (*Envelope_Hello) isEnvelope_Payload() {}
+
+func (*Envelope_AttachSession) isEnvelope_Payload() {}
+
+func (*Envelope_TerminalInput) isEnvelope_Payload() {}
+
+func (*Envelope_TerminalOutput) isEnvelope_Payload() {}
+
+func (*Envelope_TerminalResize) isEnvelope_Payload() {}
+
+func (*Envelope_SessionStatus) isEnvelope_Payload() {}
+
+func (*Envelope_EndSession) isEnvelope_Payload() {}
+
+func (*Envelope_Ping) isEnvelope_Payload() {}
+
+func (*Envelope_Pong) isEnvelope_Payload() {}
+
+func (*Envelope_Error) isEnvelope_Payload() {}
+
+func (*Envelope_Acknowledgement) isEnvelope_Payload() {}
+
+func (*Envelope_ProcessExit) isEnvelope_Payload() {}
+
+func (*Envelope_AttachmentBegin) isEnvelope_Payload() {}
+
+func (*Envelope_AttachmentChunk) isEnvelope_Payload() {}
+
+func (*Envelope_AttachmentComplete) isEnvelope_Payload() {}
+
+func (*Envelope_AttachmentCancel) isEnvelope_Payload() {}
+
+func (*Envelope_AttachmentPromptPrepare) isEnvelope_Payload() {}
+
+func (*Envelope_AttachmentPromptPreview) isEnvelope_Payload() {}
+
+func (*Envelope_AttachmentPromptCommit) isEnvelope_Payload() {}
+
+func (*Envelope_AttachmentPromptCancel) isEnvelope_Payload() {}
 
 var File_vibebridge_v1_envelope_proto protoreflect.FileDescriptor
 
@@ -400,7 +1881,61 @@ const file_vibebridge_v1_envelope_proto_rawDesc = "" +
 	"\tpeer_role\x18\x01 \x01(\x0e2\x17.vibebridge.v1.PeerRoleR\bpeerRole\x12R\n" +
 	"\x12supported_versions\x18\x02 \x01(\v2#.vibebridge.v1.ProtocolVersionRangeR\x11supportedVersions\x12\"\n" +
 	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\x12,\n" +
-	"\x12max_envelope_bytes\x18\x04 \x01(\rR\x10maxEnvelopeBytes\"\xf7\x02\n" +
+	"\x12max_envelope_bytes\x18\x04 \x01(\rR\x10maxEnvelopeBytes\"#\n" +
+	"\rTerminalInput\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"$\n" +
+	"\x0eTerminalOutput\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\">\n" +
+	"\x0eTerminalResize\x12\x18\n" +
+	"\acolumns\x18\x01 \x01(\rR\acolumns\x12\x12\n" +
+	"\x04rows\x18\x02 \x01(\rR\x04rows\"\f\n" +
+	"\n" +
+	"EndSession\"\x06\n" +
+	"\x04Ping\"\x06\n" +
+	"\x04Pong\"5\n" +
+	"\x05Error\x12,\n" +
+	"\x04code\x18\x01 \x01(\x0e2\x18.vibebridge.v1.ErrorCodeR\x04code\"J\n" +
+	"\vProcessExit\x12;\n" +
+	"\aoutcome\x18\x01 \x01(\x0e2!.vibebridge.v1.ProcessExitOutcomeR\aoutcome\"M\n" +
+	"\rAttachSession\x12<\n" +
+	"\x1alast_acknowledged_sequence\x18\x01 \x01(\x04R\x18lastAcknowledgedSequence\"`\n" +
+	"\rSessionStatus\x12O\n" +
+	"\x12resume_disposition\x18\x01 \x01(\x0e2 .vibebridge.v1.ResumeDispositionR\x11resumeDisposition\"\x11\n" +
+	"\x0fAcknowledgement\"\x85\x02\n" +
+	"\x0fAttachmentBegin\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\fR\n" +
+	"transferId\x12!\n" +
+	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x122\n" +
+	"\x15declared_content_type\x18\x03 \x01(\tR\x13declaredContentType\x12-\n" +
+	"\x12declared_extension\x18\x04 \x01(\tR\x11declaredExtension\x12(\n" +
+	"\x10total_size_bytes\x18\x05 \x01(\x04R\x0etotalSizeBytes\x12!\n" +
+	"\ftotal_sha256\x18\x06 \x01(\fR\vtotalSha256\"\x8c\x01\n" +
+	"\x0fAttachmentChunk\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\fR\n" +
+	"transferId\x12!\n" +
+	"\foffset_bytes\x18\x02 \x01(\x04R\voffsetBytes\x12\x12\n" +
+	"\x04data\x18\x03 \x01(\fR\x04data\x12!\n" +
+	"\fchunk_sha256\x18\x04 \x01(\fR\vchunkSha256\"5\n" +
+	"\x12AttachmentComplete\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\fR\n" +
+	"transferId\"3\n" +
+	"\x10AttachmentCancel\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\fR\n" +
+	"transferId\"\x94\x01\n" +
+	"\x17AttachmentPromptPrepare\x12\x1b\n" +
+	"\taction_id\x18\x01 \x01(\fR\bactionId\x12!\n" +
+	"\ftransfer_ids\x18\x02 \x03(\fR\vtransferIds\x12\x16\n" +
+	"\x06prompt\x18\x03 \x01(\tR\x06prompt\x12!\n" +
+	"\fappend_enter\x18\x04 \x01(\bR\vappendEnter\"\xc1\x01\n" +
+	"\x17AttachmentPromptPreview\x12\x1b\n" +
+	"\taction_id\x18\x01 \x01(\fR\bactionId\x12L\n" +
+	"\vdisposition\x18\x02 \x01(\x0e2*.vibebridge.v1.AttachmentPromptDispositionR\vdisposition\x12\x18\n" +
+	"\apreview\x18\x03 \x01(\tR\apreview\x12!\n" +
+	"\fappend_enter\x18\x04 \x01(\bR\vappendEnter\"5\n" +
+	"\x16AttachmentPromptCommit\x12\x1b\n" +
+	"\taction_id\x18\x01 \x01(\fR\bactionId\"5\n" +
+	"\x16AttachmentPromptCancel\x12\x1b\n" +
+	"\taction_id\x18\x01 \x01(\fR\bactionId\"\x81\x0e\n" +
 	"\bEnvelope\x12%\n" +
 	"\x0eprotocol_major\x18\x01 \x01(\rR\rprotocolMajor\x12%\n" +
 	"\x0eprotocol_minor\x18\x02 \x01(\rR\rprotocolMinor\x12#\n" +
@@ -411,13 +1946,55 @@ const file_vibebridge_v1_envelope_proto_rawDesc = "" +
 	"\bsequence\x18\x06 \x01(\x04R\bsequence\x12 \n" +
 	"\vacknowledge\x18\a \x01(\x04R\vacknowledge\x123\n" +
 	"\asent_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x06sentAt\x12,\n" +
-	"\x05hello\x18\x14 \x01(\v2\x14.vibebridge.v1.HelloH\x00R\x05helloB\t\n" +
+	"\x05hello\x18\x14 \x01(\v2\x14.vibebridge.v1.HelloH\x00R\x05hello\x12E\n" +
+	"\x0eattach_session\x18\x16 \x01(\v2\x1c.vibebridge.v1.AttachSessionH\x00R\rattachSession\x12E\n" +
+	"\x0eterminal_input\x18\x17 \x01(\v2\x1c.vibebridge.v1.TerminalInputH\x00R\rterminalInput\x12H\n" +
+	"\x0fterminal_output\x18\x18 \x01(\v2\x1d.vibebridge.v1.TerminalOutputH\x00R\x0eterminalOutput\x12H\n" +
+	"\x0fterminal_resize\x18\x19 \x01(\v2\x1d.vibebridge.v1.TerminalResizeH\x00R\x0eterminalResize\x12E\n" +
+	"\x0esession_status\x18\x1a \x01(\v2\x1c.vibebridge.v1.SessionStatusH\x00R\rsessionStatus\x12<\n" +
+	"\vend_session\x18\x1b \x01(\v2\x19.vibebridge.v1.EndSessionH\x00R\n" +
+	"endSession\x12)\n" +
+	"\x04ping\x18\x1c \x01(\v2\x13.vibebridge.v1.PingH\x00R\x04ping\x12)\n" +
+	"\x04pong\x18\x1d \x01(\v2\x13.vibebridge.v1.PongH\x00R\x04pong\x12,\n" +
+	"\x05error\x18  \x01(\v2\x14.vibebridge.v1.ErrorH\x00R\x05error\x12J\n" +
+	"\x0facknowledgement\x18! \x01(\v2\x1e.vibebridge.v1.AcknowledgementH\x00R\x0facknowledgement\x12?\n" +
+	"\fprocess_exit\x18\" \x01(\v2\x1a.vibebridge.v1.ProcessExitH\x00R\vprocessExit\x12K\n" +
+	"\x10attachment_begin\x18( \x01(\v2\x1e.vibebridge.v1.AttachmentBeginH\x00R\x0fattachmentBegin\x12K\n" +
+	"\x10attachment_chunk\x18) \x01(\v2\x1e.vibebridge.v1.AttachmentChunkH\x00R\x0fattachmentChunk\x12T\n" +
+	"\x13attachment_complete\x18* \x01(\v2!.vibebridge.v1.AttachmentCompleteH\x00R\x12attachmentComplete\x12N\n" +
+	"\x11attachment_cancel\x18+ \x01(\v2\x1f.vibebridge.v1.AttachmentCancelH\x00R\x10attachmentCancel\x12d\n" +
+	"\x19attachment_prompt_prepare\x18, \x01(\v2&.vibebridge.v1.AttachmentPromptPrepareH\x00R\x17attachmentPromptPrepare\x12d\n" +
+	"\x19attachment_prompt_preview\x18- \x01(\v2&.vibebridge.v1.AttachmentPromptPreviewH\x00R\x17attachmentPromptPreview\x12a\n" +
+	"\x18attachment_prompt_commit\x18. \x01(\v2%.vibebridge.v1.AttachmentPromptCommitH\x00R\x16attachmentPromptCommit\x12a\n" +
+	"\x18attachment_prompt_cancel\x18/ \x01(\v2%.vibebridge.v1.AttachmentPromptCancelH\x00R\x16attachmentPromptCancelB\t\n" +
 	"\apayload*e\n" +
 	"\bPeerRole\x12\x19\n" +
 	"\x15PEER_ROLE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fPEER_ROLE_AGENT\x10\x01\x12\x14\n" +
 	"\x10PEER_ROLE_CLIENT\x10\x02\x12\x13\n" +
-	"\x0fPEER_ROLE_RELAY\x10\x03B?Z=github.com/zzemy/VibeBridge/gen/go/vibebridge/v1;vibebridgev1b\x06proto3"
+	"\x0fPEER_ROLE_RELAY\x10\x03*\xbf\x02\n" +
+	"\tErrorCode\x12\x1a\n" +
+	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fERROR_CODE_SESSION_START_FAILED\x10\x01\x12%\n" +
+	"!ERROR_CODE_SESSION_ALREADY_ACTIVE\x10\x02\x12$\n" +
+	" ERROR_CODE_TERMINAL_INPUT_FAILED\x10\x03\x12%\n" +
+	"!ERROR_CODE_TERMINAL_RESIZE_FAILED\x10\x04\x12\"\n" +
+	"\x1eERROR_CODE_UNSUPPORTED_MESSAGE\x10\x05\x12)\n" +
+	"%ERROR_CODE_ATTACHMENT_TRANSFER_FAILED\x10\x06\x12.\n" +
+	"*ERROR_CODE_ATTACHMENT_PROMPT_ACTION_FAILED\x10\a*~\n" +
+	"\x12ProcessExitOutcome\x12$\n" +
+	" PROCESS_EXIT_OUTCOME_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cPROCESS_EXIT_OUTCOME_SUCCESS\x10\x01\x12 \n" +
+	"\x1cPROCESS_EXIT_OUTCOME_FAILURE\x10\x02*\x9d\x01\n" +
+	"\x11ResumeDisposition\x12\"\n" +
+	"\x1eRESUME_DISPOSITION_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18RESUME_DISPOSITION_FRESH\x10\x01\x12\x1e\n" +
+	"\x1aRESUME_DISPOSITION_RESUMED\x10\x02\x12&\n" +
+	"\"RESUME_DISPOSITION_RESYNC_REQUIRED\x10\x03*\xa5\x01\n" +
+	"\x1bAttachmentPromptDisposition\x12-\n" +
+	")ATTACHMENT_PROMPT_DISPOSITION_UNSPECIFIED\x10\x00\x12*\n" +
+	"&ATTACHMENT_PROMPT_DISPOSITION_PREPARED\x10\x01\x12+\n" +
+	"'ATTACHMENT_PROMPT_DISPOSITION_COMMITTED\x10\x02B?Z=github.com/zzemy/VibeBridge/gen/go/vibebridge/v1;vibebridgev1b\x06proto3"
 
 var (
 	file_vibebridge_v1_envelope_proto_rawDescOnce sync.Once
@@ -431,28 +2008,74 @@ func file_vibebridge_v1_envelope_proto_rawDescGZIP() []byte {
 	return file_vibebridge_v1_envelope_proto_rawDescData
 }
 
-var file_vibebridge_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_vibebridge_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_vibebridge_v1_envelope_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_vibebridge_v1_envelope_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_vibebridge_v1_envelope_proto_goTypes = []any{
-	(PeerRole)(0),                 // 0: vibebridge.v1.PeerRole
-	(*ProtocolVersion)(nil),       // 1: vibebridge.v1.ProtocolVersion
-	(*ProtocolVersionRange)(nil),  // 2: vibebridge.v1.ProtocolVersionRange
-	(*Hello)(nil),                 // 3: vibebridge.v1.Hello
-	(*Envelope)(nil),              // 4: vibebridge.v1.Envelope
-	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
+	(PeerRole)(0),                    // 0: vibebridge.v1.PeerRole
+	(ErrorCode)(0),                   // 1: vibebridge.v1.ErrorCode
+	(ProcessExitOutcome)(0),          // 2: vibebridge.v1.ProcessExitOutcome
+	(ResumeDisposition)(0),           // 3: vibebridge.v1.ResumeDisposition
+	(AttachmentPromptDisposition)(0), // 4: vibebridge.v1.AttachmentPromptDisposition
+	(*ProtocolVersion)(nil),          // 5: vibebridge.v1.ProtocolVersion
+	(*ProtocolVersionRange)(nil),     // 6: vibebridge.v1.ProtocolVersionRange
+	(*Hello)(nil),                    // 7: vibebridge.v1.Hello
+	(*TerminalInput)(nil),            // 8: vibebridge.v1.TerminalInput
+	(*TerminalOutput)(nil),           // 9: vibebridge.v1.TerminalOutput
+	(*TerminalResize)(nil),           // 10: vibebridge.v1.TerminalResize
+	(*EndSession)(nil),               // 11: vibebridge.v1.EndSession
+	(*Ping)(nil),                     // 12: vibebridge.v1.Ping
+	(*Pong)(nil),                     // 13: vibebridge.v1.Pong
+	(*Error)(nil),                    // 14: vibebridge.v1.Error
+	(*ProcessExit)(nil),              // 15: vibebridge.v1.ProcessExit
+	(*AttachSession)(nil),            // 16: vibebridge.v1.AttachSession
+	(*SessionStatus)(nil),            // 17: vibebridge.v1.SessionStatus
+	(*Acknowledgement)(nil),          // 18: vibebridge.v1.Acknowledgement
+	(*AttachmentBegin)(nil),          // 19: vibebridge.v1.AttachmentBegin
+	(*AttachmentChunk)(nil),          // 20: vibebridge.v1.AttachmentChunk
+	(*AttachmentComplete)(nil),       // 21: vibebridge.v1.AttachmentComplete
+	(*AttachmentCancel)(nil),         // 22: vibebridge.v1.AttachmentCancel
+	(*AttachmentPromptPrepare)(nil),  // 23: vibebridge.v1.AttachmentPromptPrepare
+	(*AttachmentPromptPreview)(nil),  // 24: vibebridge.v1.AttachmentPromptPreview
+	(*AttachmentPromptCommit)(nil),   // 25: vibebridge.v1.AttachmentPromptCommit
+	(*AttachmentPromptCancel)(nil),   // 26: vibebridge.v1.AttachmentPromptCancel
+	(*Envelope)(nil),                 // 27: vibebridge.v1.Envelope
+	(*timestamppb.Timestamp)(nil),    // 28: google.protobuf.Timestamp
 }
 var file_vibebridge_v1_envelope_proto_depIdxs = []int32{
-	1, // 0: vibebridge.v1.ProtocolVersionRange.minimum:type_name -> vibebridge.v1.ProtocolVersion
-	1, // 1: vibebridge.v1.ProtocolVersionRange.maximum:type_name -> vibebridge.v1.ProtocolVersion
-	0, // 2: vibebridge.v1.Hello.peer_role:type_name -> vibebridge.v1.PeerRole
-	2, // 3: vibebridge.v1.Hello.supported_versions:type_name -> vibebridge.v1.ProtocolVersionRange
-	5, // 4: vibebridge.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
-	3, // 5: vibebridge.v1.Envelope.hello:type_name -> vibebridge.v1.Hello
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	5,  // 0: vibebridge.v1.ProtocolVersionRange.minimum:type_name -> vibebridge.v1.ProtocolVersion
+	5,  // 1: vibebridge.v1.ProtocolVersionRange.maximum:type_name -> vibebridge.v1.ProtocolVersion
+	0,  // 2: vibebridge.v1.Hello.peer_role:type_name -> vibebridge.v1.PeerRole
+	6,  // 3: vibebridge.v1.Hello.supported_versions:type_name -> vibebridge.v1.ProtocolVersionRange
+	1,  // 4: vibebridge.v1.Error.code:type_name -> vibebridge.v1.ErrorCode
+	2,  // 5: vibebridge.v1.ProcessExit.outcome:type_name -> vibebridge.v1.ProcessExitOutcome
+	3,  // 6: vibebridge.v1.SessionStatus.resume_disposition:type_name -> vibebridge.v1.ResumeDisposition
+	4,  // 7: vibebridge.v1.AttachmentPromptPreview.disposition:type_name -> vibebridge.v1.AttachmentPromptDisposition
+	28, // 8: vibebridge.v1.Envelope.sent_at:type_name -> google.protobuf.Timestamp
+	7,  // 9: vibebridge.v1.Envelope.hello:type_name -> vibebridge.v1.Hello
+	16, // 10: vibebridge.v1.Envelope.attach_session:type_name -> vibebridge.v1.AttachSession
+	8,  // 11: vibebridge.v1.Envelope.terminal_input:type_name -> vibebridge.v1.TerminalInput
+	9,  // 12: vibebridge.v1.Envelope.terminal_output:type_name -> vibebridge.v1.TerminalOutput
+	10, // 13: vibebridge.v1.Envelope.terminal_resize:type_name -> vibebridge.v1.TerminalResize
+	17, // 14: vibebridge.v1.Envelope.session_status:type_name -> vibebridge.v1.SessionStatus
+	11, // 15: vibebridge.v1.Envelope.end_session:type_name -> vibebridge.v1.EndSession
+	12, // 16: vibebridge.v1.Envelope.ping:type_name -> vibebridge.v1.Ping
+	13, // 17: vibebridge.v1.Envelope.pong:type_name -> vibebridge.v1.Pong
+	14, // 18: vibebridge.v1.Envelope.error:type_name -> vibebridge.v1.Error
+	18, // 19: vibebridge.v1.Envelope.acknowledgement:type_name -> vibebridge.v1.Acknowledgement
+	15, // 20: vibebridge.v1.Envelope.process_exit:type_name -> vibebridge.v1.ProcessExit
+	19, // 21: vibebridge.v1.Envelope.attachment_begin:type_name -> vibebridge.v1.AttachmentBegin
+	20, // 22: vibebridge.v1.Envelope.attachment_chunk:type_name -> vibebridge.v1.AttachmentChunk
+	21, // 23: vibebridge.v1.Envelope.attachment_complete:type_name -> vibebridge.v1.AttachmentComplete
+	22, // 24: vibebridge.v1.Envelope.attachment_cancel:type_name -> vibebridge.v1.AttachmentCancel
+	23, // 25: vibebridge.v1.Envelope.attachment_prompt_prepare:type_name -> vibebridge.v1.AttachmentPromptPrepare
+	24, // 26: vibebridge.v1.Envelope.attachment_prompt_preview:type_name -> vibebridge.v1.AttachmentPromptPreview
+	25, // 27: vibebridge.v1.Envelope.attachment_prompt_commit:type_name -> vibebridge.v1.AttachmentPromptCommit
+	26, // 28: vibebridge.v1.Envelope.attachment_prompt_cancel:type_name -> vibebridge.v1.AttachmentPromptCancel
+	29, // [29:29] is the sub-list for method output_type
+	29, // [29:29] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_vibebridge_v1_envelope_proto_init() }
@@ -460,16 +2083,35 @@ func file_vibebridge_v1_envelope_proto_init() {
 	if File_vibebridge_v1_envelope_proto != nil {
 		return
 	}
-	file_vibebridge_v1_envelope_proto_msgTypes[3].OneofWrappers = []any{
+	file_vibebridge_v1_envelope_proto_msgTypes[22].OneofWrappers = []any{
 		(*Envelope_Hello)(nil),
+		(*Envelope_AttachSession)(nil),
+		(*Envelope_TerminalInput)(nil),
+		(*Envelope_TerminalOutput)(nil),
+		(*Envelope_TerminalResize)(nil),
+		(*Envelope_SessionStatus)(nil),
+		(*Envelope_EndSession)(nil),
+		(*Envelope_Ping)(nil),
+		(*Envelope_Pong)(nil),
+		(*Envelope_Error)(nil),
+		(*Envelope_Acknowledgement)(nil),
+		(*Envelope_ProcessExit)(nil),
+		(*Envelope_AttachmentBegin)(nil),
+		(*Envelope_AttachmentChunk)(nil),
+		(*Envelope_AttachmentComplete)(nil),
+		(*Envelope_AttachmentCancel)(nil),
+		(*Envelope_AttachmentPromptPrepare)(nil),
+		(*Envelope_AttachmentPromptPreview)(nil),
+		(*Envelope_AttachmentPromptCommit)(nil),
+		(*Envelope_AttachmentPromptCancel)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vibebridge_v1_envelope_proto_rawDesc), len(file_vibebridge_v1_envelope_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   4,
+			NumEnums:      5,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

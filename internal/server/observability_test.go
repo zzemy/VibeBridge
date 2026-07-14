@@ -59,6 +59,7 @@ func TestSessionLifecycleLogsOnlyOpaqueMetadata(t *testing.T) {
 		systemClock{},
 		launcher,
 		nil,
+		nil,
 		sessionTelemetry{correlationID: correlationID, logger: logger},
 	)
 	if err != nil {
@@ -116,6 +117,7 @@ func TestUnexpectedProcessFailureLogsOnlySafeOutcome(t *testing.T) {
 		0,
 		systemClock{},
 		launcher,
+		nil,
 		nil,
 		sessionTelemetry{correlationID: "opaque-session-id", logger: logger},
 	)

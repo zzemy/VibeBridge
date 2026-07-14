@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/zzemy/VibeBridge/internal/agentservice"
+	workspacev1 "github.com/zzemy/VibeBridge/internal/workspace"
 )
 
 func TestIsWildcardAddress(t *testing.T) {
@@ -66,6 +67,49 @@ func TestRunDiagnosticsReportsExpandedPreflight(t *testing.T) {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("diagnostic output did not contain %q:\n%s", expected, output.String())
 		}
+	}
+}
+
+func TestRunDiagnosticsReportsWorkspaceWithoutExposingItsPath(t *testing.T) {
+	workingDirectory := canonicalTestDirectory(t, t.TempDir())
+	var output bytes.Buffer
+	options := startupOptions{
+		addr:             "127.0.0.1:0",
+		webDir:           t.TempDir(),
+		command:          []string{os.Args[0]},
+		profileID:        "test-profile",
+		workspaceID:      "private-repo",
+		workspaceRoot:    workingDirectory,
+		workingDirectory: workingDirectory,
+	}
+	if err := runDiagnostics(options, false, &output); err != nil {
+		t.Fatalf("run diagnostics: %v", err)
+	}
+	if !strings.Contains(output.String(), `workspace "private-repo" root and launch working directory are available`) {
+		t.Fatalf("workspace diagnostic was not reported:\n%s", output.String())
+	}
+	if strings.Contains(output.String(), workingDirectory) {
+		t.Fatalf("workspace path was exposed in diagnostic output:\n%s", output.String())
+	}
+}
+
+func TestRunDiagnosticsDoesNotExposeUnavailableWorkspacePath(t *testing.T) {
+	workspaceRoot := canonicalTestDirectory(t, t.TempDir())
+	workingDirectory := filepath.Join(workspaceRoot, "private-working-directory")
+	var output bytes.Buffer
+	err := runDiagnostics(startupOptions{
+		addr:             "127.0.0.1:0",
+		webDir:           t.TempDir(),
+		command:          []string{os.Args[0]},
+		workspaceID:      "private-repo",
+		workspaceRoot:    workspaceRoot,
+		workingDirectory: workingDirectory,
+	}, false, &output)
+	if err == nil {
+		t.Fatal("diagnostics accepted an unavailable workspace path")
+	}
+	if strings.Contains(output.String(), workingDirectory) || strings.Contains(output.String(), "private-working-directory") {
+		t.Fatalf("workspace path was exposed in diagnostic output:\n%s", output.String())
 	}
 }
 
@@ -137,21 +181,24 @@ func TestBackgroundServiceDiagnosticClassifiesInstallationState(t *testing.T) {
 }
 
 func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
-	workspace := t.TempDir()
+	workspace := canonicalTestDirectory(t, t.TempDir())
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	content := `{
-		"version": 1,
+		"version": 2,
 		"listen_address": "127.0.0.1:9000",
 		"web_directory": "custom-web",
 		"reconnect_timeout": "2m",
 		"idle_timeout": "0s",
+		"disable_legacy_protocol": true,
+		"workspaces": [{"id":"repo","label":"Repository","root":"` + filepath.ToSlash(workspace) + `"}],
 		"default_profile": "codex",
 		"profiles": [{
 			"id": "codex",
 			"label": "Codex",
 			"executable": "codex",
 			"args": ["--model", "gpt 5"],
-			"working_directory": "` + filepath.ToSlash(workspace) + `",
+			"workspace_id": "repo",
+			"tool_adapter": "generic",
 			"environment_allowlist": ["PATH", "MISSING"]
 		}]
 	}`
@@ -175,17 +222,26 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 	if !reflect.DeepEqual(options.command, []string{"codex", "--model", "gpt 5"}) {
 		t.Fatalf("command = %q, want structured profile arguments", options.command)
 	}
-	if options.profileID != "codex" {
-		t.Fatalf("profile ID = %q, want codex", options.profileID)
+	if options.profileID != "codex" || options.workspaceID != "repo" {
+		t.Fatalf("profile/workspace ID = %q/%q, want codex/repo", options.profileID, options.workspaceID)
+	}
+	if options.toolAdapter != "generic" {
+		t.Fatalf("tool adapter = %q, want generic", options.toolAdapter)
 	}
 	if options.workingDirectory != workspace {
 		t.Fatalf("working directory = %q, want %q", options.workingDirectory, workspace)
+	}
+	if options.workspaceRoot != options.workingDirectory {
+		t.Fatalf("workspace root = %q, want canonical root %q", options.workspaceRoot, options.workingDirectory)
 	}
 	if options.addr != "127.0.0.1:9000" || options.webDir != "custom-web" {
 		t.Fatalf("configured address/web = %q/%q", options.addr, options.webDir)
 	}
 	if options.reconnectTimeout != 2*time.Minute || options.idleTimeout != 0 {
 		t.Fatalf("configured timeouts = %v/%v", options.reconnectTimeout, options.idleTimeout)
+	}
+	if !options.disableLegacyProtocol {
+		t.Fatal("configured disable_legacy_protocol was not applied")
 	}
 	if !reflect.DeepEqual(options.environment, []string{"PATH=test-path"}) {
 		t.Fatalf("environment = %q, want allowlisted existing value", options.environment)
@@ -194,19 +250,20 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 
 func TestResolveStartupOptionsPreservesExplicitCLIOverrides(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	content := `{"version":1,"listen_address":"127.0.0.1:9000","web_directory":"configured-web","reconnect_timeout":"2m","idle_timeout":"0s","default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`
+	content := `{"version":1,"listen_address":"127.0.0.1:9000","web_directory":"configured-web","reconnect_timeout":"2m","idle_timeout":"0s","disable_legacy_protocol":true,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`
 	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
 	options, err := resolveStartupOptions(startupOptions{
-		addr:             "127.0.0.1:7000",
-		webDir:           "cli-web",
-		commandLine:      "custom --arg",
-		reconnectTimeout: time.Minute,
-		idleTimeout:      15 * time.Minute,
+		addr:                  "127.0.0.1:7000",
+		webDir:                "cli-web",
+		commandLine:           "custom --arg",
+		reconnectTimeout:      time.Minute,
+		idleTimeout:           15 * time.Minute,
+		disableLegacyProtocol: false,
 	}, configPath, "", map[string]bool{
-		"addr": true, "web-dir": true, "cmd": true, "reconnect-timeout": true, "idle-timeout": true,
+		"addr": true, "web-dir": true, "cmd": true, "reconnect-timeout": true, "idle-timeout": true, "disable-legacy-protocol": true,
 	}, os.LookupEnv)
 	if err != nil {
 		t.Fatalf("resolve options: %v", err)
@@ -216,6 +273,9 @@ func TestResolveStartupOptionsPreservesExplicitCLIOverrides(t *testing.T) {
 	}
 	if options.reconnectTimeout != time.Minute || options.idleTimeout != 15*time.Minute {
 		t.Fatalf("CLI timeout overrides = %v/%v", options.reconnectTimeout, options.idleTimeout)
+	}
+	if options.disableLegacyProtocol {
+		t.Fatal("explicit CLI false did not override disable_legacy_protocol")
 	}
 	if !reflect.DeepEqual(options.command, []string{"custom", "--arg"}) {
 		t.Fatalf("CLI command override = %q", options.command)
@@ -270,4 +330,19 @@ func TestValidateWorkingDirectory(t *testing.T) {
 	if err := validateWorkingDirectory(file); err == nil {
 		t.Fatal("regular file accepted as working directory")
 	}
+}
+
+func canonicalTestDirectory(t *testing.T, directory string) string {
+	t.Helper()
+	registry, err := workspacev1.NewRegistry([]workspacev1.Definition{{
+		ID: "test", Label: "Test", Root: directory,
+	}}, "")
+	if err != nil {
+		t.Fatalf("canonicalize test directory: %v", err)
+	}
+	definition, ok := registry.Lookup("test")
+	if !ok {
+		t.Fatal("canonical test directory was not registered")
+	}
+	return definition.Root
 }

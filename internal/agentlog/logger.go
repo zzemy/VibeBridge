@@ -10,14 +10,15 @@ import (
 type Name string
 
 const (
-	EventAgentStarting   Name = "agent.starting"
-	EventAgentStopping   Name = "agent.stopping"
-	EventAgentStopped    Name = "agent.stopped"
-	EventSessionStarted  Name = "session.started"
-	EventSessionAttached Name = "session.attached"
-	EventSessionDetached Name = "session.detached"
-	EventSessionEnding   Name = "session.ending"
-	EventSessionEnded    Name = "session.ended"
+	EventAgentStarting        Name = "agent.starting"
+	EventAgentStopping        Name = "agent.stopping"
+	EventAgentStopped         Name = "agent.stopped"
+	EventSessionStarted       Name = "session.started"
+	EventSessionAttached      Name = "session.attached"
+	EventSessionDetached      Name = "session.detached"
+	EventSessionEnding        Name = "session.ending"
+	EventSessionEnded         Name = "session.ended"
+	EventSessionCleanupFailed Name = "session.cleanup_failed"
 )
 
 // State, Reason, and Outcome are deliberately closed vocabularies at call
