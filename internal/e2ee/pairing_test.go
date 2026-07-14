@@ -162,6 +162,9 @@ func TestPairingMatchesCrossLanguageVector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read pairing vector: %v", err)
 	}
+	// Git may check text fixtures out with CRLF on Windows. The vector bytes
+	// inside JSON remain canonical; line endings are not part of the protocol.
+	golden = bytes.ReplaceAll(golden, []byte("\r\n"), []byte("\n"))
 	if !bytes.Equal(encoded, golden) {
 		t.Fatalf("pairing vector differs from %s; set VIBEBRIDGE_UPDATE_GOLDEN=1 to update", path)
 	}
