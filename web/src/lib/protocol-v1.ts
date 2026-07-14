@@ -8,6 +8,7 @@ import {
   AttachmentCancelSchema,
   AttachmentChunkSchema,
   AttachmentCompleteSchema,
+  AttachmentDiscardSchema,
   AttachmentTransferDisposition,
   AttachmentTransferStatusRequestSchema,
   AttachmentPromptCancelSchema,
@@ -56,6 +57,7 @@ const maxCapabilityLength = 128;
 const maxUint64 = (1n << 64n) - 1n;
 const maxAttachmentTransferIdBytes = 64;
 const maxAttachmentPromptTransferIds = 10;
+const maxAttachmentDiscardTransferIds = 10;
 const maxAttachmentPromptBytes = 32 * 1024;
 const maxAttachmentPromptPreviewBytes = 48 * 1024;
 const sha256Bytes = 32;
@@ -422,6 +424,28 @@ export class ProtocolV1ClientStream {
     return this.encodeSequenced({
       case: "attachmentCancel",
       value: create(AttachmentCancelSchema, { transferId }),
+    }, sentAt);
+  }
+
+  createAttachmentDiscard(transferIds: readonly Uint8Array[], sentAt = new Date()): SequencedClientEnvelope {
+    this.assertAttachmentTransfer();
+    if (transferIds.length === 0 || transferIds.length > maxAttachmentDiscardTransferIds) {
+      throw new Error(`Attachment discard requires between 1 and ${maxAttachmentDiscardTransferIds} transfer IDs`);
+    }
+    const seenTransferIds = new Set<string>();
+    for (const transferId of transferIds) {
+      assertAttachmentTransferId(transferId);
+      const key = bytesKey(transferId);
+      if (seenTransferIds.has(key)) {
+        throw new Error("Attachment discard transfer IDs must be unique");
+      }
+      seenTransferIds.add(key);
+    }
+    return this.encodeSequenced({
+      case: "attachmentDiscard",
+      value: create(AttachmentDiscardSchema, {
+        transferIds: transferIds.map((transferId) => transferId.slice()),
+      }),
     }, sentAt);
   }
 

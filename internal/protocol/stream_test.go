@@ -123,6 +123,28 @@ func TestAgentStreamDecodesNegotiatedAttachmentChunkCompleteAndCancel(t *testing
 	}
 }
 
+func TestAgentStreamDecodesNegotiatedAttachmentDiscard(t *testing.T) {
+	stream := newTestAgentAttachmentStream(t, MaxEnvelopeBytes)
+	transferIDs := [][]byte{[]byte("first"), []byte("second")}
+	envelope := newClientStreamEnvelope(nil, 0, 2, 1)
+	envelope.Payload = &vibebridgev1.Envelope_AttachmentDiscard{AttachmentDiscard: &vibebridgev1.AttachmentDiscard{
+		TransferIds: transferIDs,
+	}}
+
+	message, err := stream.DecodeClientMessage(marshalClientStreamEnvelope(t, envelope))
+	if err != nil {
+		t.Fatalf("decode AttachmentDiscard: %v", err)
+	}
+	if message.Kind != ClientStreamMessageAttachmentDiscard || len(message.TransferIDs) != 2 ||
+		!bytes.Equal(message.TransferIDs[0], transferIDs[0]) || !bytes.Equal(message.TransferIDs[1], transferIDs[1]) {
+		t.Fatalf("decoded AttachmentDiscard = %#v", message)
+	}
+	envelope.GetAttachmentDiscard().TransferIds[0][0] = 'X'
+	if bytes.Equal(message.TransferIDs[0], envelope.GetAttachmentDiscard().TransferIds[0]) {
+		t.Fatal("decoded AttachmentDiscard retained protobuf transfer ID storage")
+	}
+}
+
 func TestAgentStreamReconcilesNegotiatedAttachmentTransferStatus(t *testing.T) {
 	stream := newTestAgentAttachmentStream(t, MaxEnvelopeBytes)
 	transferID := []byte("transfer-id")
@@ -379,6 +401,33 @@ func TestAgentStreamRejectsMalformedAttachmentMessages(t *testing.T) {
 			name: "cancel without transfer ID",
 			setPayload: func(envelope *vibebridgev1.Envelope) {
 				envelope.Payload = &vibebridgev1.Envelope_AttachmentCancel{AttachmentCancel: &vibebridgev1.AttachmentCancel{}}
+			},
+		},
+		{
+			name: "discard without transfer IDs",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentDiscard{AttachmentDiscard: &vibebridgev1.AttachmentDiscard{}}
+			},
+		},
+		{
+			name: "discard with duplicate transfer IDs",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentDiscard{AttachmentDiscard: &vibebridgev1.AttachmentDiscard{TransferIds: [][]byte{[]byte("same"), []byte("same")}}}
+			},
+		},
+		{
+			name: "discard with invalid transfer ID",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentDiscard{AttachmentDiscard: &vibebridgev1.AttachmentDiscard{TransferIds: [][]byte{nil}}}
+			},
+		},
+		{
+			name: "discard over transfer limit",
+			setPayload: func(envelope *vibebridgev1.Envelope) {
+				envelope.Payload = &vibebridgev1.Envelope_AttachmentDiscard{AttachmentDiscard: &vibebridgev1.AttachmentDiscard{TransferIds: make([][]byte, maxAttachmentDiscardTransfers+1)}}
+				for index := range envelope.GetAttachmentDiscard().TransferIds {
+					envelope.GetAttachmentDiscard().TransferIds[index] = []byte{byte(index + 1)}
+				}
 			},
 		},
 		{

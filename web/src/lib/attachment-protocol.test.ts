@@ -22,6 +22,7 @@ import {
 
 const connectionId = Uint8Array.from({ length: 16 }, (_, index) => index);
 const transferId = Uint8Array.from({ length: 16 }, (_, index) => 16 + index);
+const secondTransferId = Uint8Array.from({ length: 16 }, (_, index) => 32 + index);
 
 function attachmentStream() {
   return new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, {
@@ -184,7 +185,7 @@ describe("AcknowledgedAttachmentSender", () => {
     await expect(sender.begin(beginRequest(), new AbortController().signal)).rejects.toThrow("recovering");
   });
 
-  test("preserves abort semantics and requests stream recovery", async () => {
+  test("does not abandon an already-sent operation when the UI aborts", async () => {
     const stream = attachmentStream();
     const requestRecovery = vi.fn();
     const controller = new AbortController();
@@ -192,13 +193,18 @@ describe("AcknowledgedAttachmentSender", () => {
       send: () => {},
       requestRecovery,
     });
+    let settled = false;
 
     const begin = sender.begin(beginRequest(), controller.signal);
-    const rejection = expect(begin).rejects.toMatchObject({ name: "AbortError" });
+    void begin.finally(() => { settled = true; });
     controller.abort();
+    await Promise.resolve();
 
-    await rejection;
-    expect(requestRecovery).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+    expect(requestRecovery).not.toHaveBeenCalled();
+    acceptAgentMessage(stream, sender, 2n, 2n, acknowledgementPayload());
+    await expect(begin).resolves.toBeUndefined();
+    expect(requestRecovery).not.toHaveBeenCalled();
   });
 
   test("reconciles a chunk applied before its acknowledgement was lost", async () => {
@@ -385,4 +391,166 @@ describe("AcknowledgedAttachmentSender", () => {
     await rejection;
     expect(requestRecovery).toHaveBeenCalledTimes(1);
   });
+
+  test("sends one acknowledged discard operation with defensive transfer ID copies", async () => {
+    const stream = attachmentStream();
+    const sent: Uint8Array[] = [];
+    const sender = new AcknowledgedAttachmentSender(stream, {
+      send: (encoded) => sent.push(encoded),
+      requestRecovery: vi.fn(),
+    });
+    const first = transferId.slice();
+    const second = secondTransferId.slice();
+
+    const discard = sender.discard([first, second]);
+    first[0] ^= 255;
+    second[0] ^= 255;
+
+    const envelope = onlySentEnvelope(sent);
+    expect(envelope.payload.case).toBe("attachmentDiscard");
+    if (envelope.payload.case !== "attachmentDiscard") throw new Error("expected attachment discard");
+    expect(envelope.payload.value.transferIds).toEqual([transferId, secondTransferId]);
+    acceptAgentMessage(stream, sender, 2n, 2n, acknowledgementPayload());
+    await expect(discard).resolves.toBeUndefined();
+  });
+
+  test("reconciles a lost discard acknowledgement when every ID is absent", async () => {
+    const stream = attachmentStream();
+    const sender = new AcknowledgedAttachmentSender(stream, { send: () => {}, requestRecovery: vi.fn() });
+    const discard = sender.discard([transferId, secondTransferId]);
+    sender.disconnect();
+
+    const reconnectedStream = attachmentStream();
+    const sent: Uint8Array[] = [];
+    sender.reconnect(reconnectedStream, { send: (encoded) => sent.push(encoded), requestRecovery: vi.fn() });
+    expect(onlySentEnvelope(sent).payload.case).toBe("attachmentTransferStatusRequest");
+
+    acceptAgentMessage(reconnectedStream, sender, 2n, 2n, {
+      case: "attachmentTransferStatus",
+      value: create(AttachmentTransferStatusSchema, {
+        transferId,
+        disposition: AttachmentTransferDisposition.CANCELLED,
+      }),
+    });
+    expect(sent).toHaveLength(2);
+    const secondStatus = fromBinary(EnvelopeSchema, sent[1]!);
+    expect(secondStatus.payload.case).toBe("attachmentTransferStatusRequest");
+    if (secondStatus.payload.case !== "attachmentTransferStatusRequest") throw new Error("expected second status request");
+    expect(secondStatus.payload.value.transferId).toEqual(secondTransferId);
+
+    acceptAgentMessage(reconnectedStream, sender, 3n, 3n, {
+      case: "attachmentTransferStatus",
+      value: create(AttachmentTransferStatusSchema, {
+        transferId: secondTransferId,
+        disposition: AttachmentTransferDisposition.UNKNOWN,
+      }),
+    });
+    await expect(discard).resolves.toBeUndefined();
+    expect(sent).toHaveLength(2);
+  });
+
+  test.each([
+    ["active", AttachmentTransferDisposition.ACTIVE],
+    ["completed", AttachmentTransferDisposition.COMPLETED],
+  ])("replays the whole discard when one reconciled ID is still %s", async (_name, disposition) => {
+    const stream = attachmentStream();
+    const sender = new AcknowledgedAttachmentSender(stream, { send: () => {}, requestRecovery: vi.fn() });
+    const discard = sender.discard([transferId, secondTransferId]);
+    sender.disconnect();
+
+    const reconnectedStream = attachmentStream();
+    const sent: Uint8Array[] = [];
+    sender.reconnect(reconnectedStream, { send: (encoded) => sent.push(encoded), requestRecovery: vi.fn() });
+    acceptAgentMessage(reconnectedStream, sender, 2n, 2n, {
+      case: "attachmentTransferStatus",
+      value: create(AttachmentTransferStatusSchema, { transferId, disposition }),
+    });
+
+    expect(sent).toHaveLength(2);
+    const replay = fromBinary(EnvelopeSchema, sent[1]!);
+    expect(replay.payload.case).toBe("attachmentDiscard");
+    if (replay.payload.case !== "attachmentDiscard") throw new Error("expected replayed discard");
+    expect(replay.payload.value.transferIds).toEqual([transferId, secondTransferId]);
+    acceptAgentMessage(reconnectedStream, sender, 3n, 3n, acknowledgementPayload());
+    await expect(discard).resolves.toBeUndefined();
+  });
+
+  test("fails closed when discard reconciliation returns a different transfer ID", async () => {
+    const stream = attachmentStream();
+    const requestRecovery = vi.fn();
+    const sender = new AcknowledgedAttachmentSender(stream, { send: () => {}, requestRecovery });
+    const discard = sender.discard([transferId, secondTransferId]);
+    const rejection = expect(discard).rejects.toThrow("did not match");
+    sender.disconnect();
+
+    const reconnectedStream = attachmentStream();
+    sender.reconnect(reconnectedStream, { send: () => {}, requestRecovery });
+    acceptAgentMessage(reconnectedStream, sender, 2n, 2n, {
+      case: "attachmentTransferStatus",
+      value: create(AttachmentTransferStatusSchema, {
+        transferId: secondTransferId,
+        disposition: AttachmentTransferDisposition.CANCELLED,
+      }),
+    });
+
+    await rejection;
+    expect(requestRecovery).toHaveBeenCalledTimes(1);
+  });
+
+  test("queues discard during recovery and sends it after reconnect", async () => {
+    const stream = attachmentStream();
+    const requestRecovery = vi.fn();
+    const sent: Uint8Array[] = [];
+    const sender = new AcknowledgedAttachmentSender(stream, {
+      send: (encoded) => sent.push(encoded),
+      requestRecovery,
+    });
+
+    const begin = sender.begin(beginRequest(), new AbortController().signal);
+    const beginRejection = expect(begin).rejects.toThrow("Agent rejected");
+    acceptAgentMessage(stream, sender, 2n, 1n, errorPayload(ErrorCode.ATTACHMENT_TRANSFER_FAILED));
+    await beginRejection;
+
+    const discard = sender.discard([transferId]);
+    await Promise.resolve();
+    expect(sent).toHaveLength(1);
+    expect(requestRecovery).toHaveBeenCalledTimes(1);
+
+    const reconnectedStream = attachmentStream();
+    const reconnectedSent: Uint8Array[] = [];
+    sender.reconnect(reconnectedStream, {
+      send: (encoded) => reconnectedSent.push(encoded),
+      requestRecovery,
+    });
+    expect(onlySentEnvelope(reconnectedSent).payload.case).toBe("attachmentDiscard");
+    acceptAgentMessage(reconnectedStream, sender, 2n, 2n, acknowledgementPayload());
+    await expect(discard).resolves.toBeUndefined();
+  });
+
+  test("rejects a queued discard when the owning session is disposed", async () => {
+    const stream = attachmentStream();
+    const sender = new AcknowledgedAttachmentSender(stream, { send: () => {}, requestRecovery: vi.fn() });
+    sender.disconnect();
+
+    const discard = sender.discard([transferId]);
+    const rejection = expect(discard).rejects.toThrow("disposed");
+    sender.dispose();
+
+    await rejection;
+  });
+
+  test("rejects cleanup started after the owning session is disposed", async () => {
+    const stream = attachmentStream();
+    const requestRecovery = vi.fn();
+    const sender = new AcknowledgedAttachmentSender(stream, { send: () => {}, requestRecovery });
+    const begin = sender.begin(beginRequest(), new AbortController().signal);
+    const beginRejection = expect(begin).rejects.toThrow("disposed");
+
+    sender.dispose();
+
+    await beginRejection;
+    await expect(sender.discard([transferId])).rejects.toThrow("disposed");
+    expect(requestRecovery).not.toHaveBeenCalled();
+  });
+
 });

@@ -299,3 +299,60 @@ func goldenAttachmentTransferStatusEnvelope() *vibebridgev1.Envelope {
 		}},
 	}
 }
+
+func TestAttachmentDiscardEnvelopeMatchesCrossLanguageGoldenVector(t *testing.T) {
+	goldenPath := filepath.Join("..", "..", "proto", "vibebridge", "v1", "testdata", "attachment_discard_envelope.bin")
+	want := goldenAttachmentDiscardEnvelope()
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(want)
+	if err != nil {
+		t.Fatalf("encode attachment discard envelope: %v", err)
+	}
+	if os.Getenv("VIBEBRIDGE_UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(goldenPath, encoded, 0o644); err != nil {
+			t.Fatalf("update attachment discard envelope golden vector: %v", err)
+		}
+	}
+
+	golden, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read attachment discard envelope golden vector: %v", err)
+	}
+	if !bytes.Equal(encoded, golden) {
+		t.Fatalf("encoded attachment discard envelope does not match %s", goldenPath)
+	}
+
+	decoded := new(vibebridgev1.Envelope)
+	if err := proto.Unmarshal(golden, decoded); err != nil {
+		t.Fatalf("decode attachment discard envelope golden vector: %v", err)
+	}
+	if !proto.Equal(decoded, want) {
+		t.Fatalf("decoded attachment discard envelope = %v, want %v", decoded, want)
+	}
+}
+
+func goldenAttachmentDiscardEnvelope() *vibebridgev1.Envelope {
+	return &vibebridgev1.Envelope{
+		ProtocolMajor: 1,
+		ConnectionId: []byte{
+			0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+			0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+		},
+		SessionId: []byte{
+			0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+			0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+		},
+		SessionGeneration: 7,
+		Sequence:          12,
+		Acknowledge:       11,
+		SentAt: &timestamppb.Timestamp{
+			Seconds: 1783843204,
+			Nanos:   678000000,
+		},
+		Payload: &vibebridgev1.Envelope_AttachmentDiscard{AttachmentDiscard: &vibebridgev1.AttachmentDiscard{
+			TransferIds: [][]byte{
+				{0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7},
+				{0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7},
+			},
+		}},
+	}
+}

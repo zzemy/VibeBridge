@@ -2,6 +2,7 @@ import { Camera, CheckCircle2, CircleAlert, FileText, Image as ImageIcon, Paperc
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
 import {
+  AttachmentBatchCleanupError,
   attachmentMaxFilesPerAction,
   formatAttachmentBytes,
   type AttachmentTransferProgress,
@@ -23,6 +24,10 @@ type AttachmentComposerProps = {
     onProgress: (progress: AttachmentTransferProgress) => void,
   ) => Promise<unknown>;
 };
+
+function isAbortError(cause: unknown): boolean {
+  return cause instanceof DOMException && cause.name === "AbortError";
+}
 
 export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: AttachmentComposerProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -111,8 +116,14 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
       await onTransfer(selection.map((item) => item.file), controller.signal, setProgress);
       setState("success");
     } catch (cause) {
-      if (cause instanceof DOMException && cause.name === "AbortError") {
-        setError("Transfer cancelled. Files already sent may remain staged until the session ends.");
+      if (cause instanceof AttachmentBatchCleanupError) {
+        if (isAbortError(cause.transferCause)) {
+          setError("Transfer cancelled, but cleanup could not be confirmed. Remaining files will be removed when the session ends.");
+        } else {
+          setError(`${cause.message}. Cleanup could not be confirmed; remaining files will be removed when the session ends.`);
+        }
+      } else if (isAbortError(cause)) {
+        setError("Transfer cancelled. This file batch was discarded.");
       } else {
         setError(cause instanceof Error ? cause.message : "Attachment transfer failed");
       }

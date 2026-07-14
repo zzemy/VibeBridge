@@ -2,7 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-import type { AttachmentTransferProgress } from "../lib/attachments";
+import { AttachmentBatchCleanupError, type AttachmentTransferProgress } from "../lib/attachments";
 import { AttachmentComposer } from "./AttachmentComposer";
 
 afterEach(cleanup);
@@ -122,8 +122,27 @@ test("shows progress and cancels an in-flight transfer", async () => {
   await user.click(screen.getByRole("button", { name: "Cancel" }));
 
   expect(observedSignal?.aborted).toBe(true);
-  expect((await screen.findByRole("alert")).textContent).toContain("Files already sent may remain staged");
+  expect((await screen.findByRole("alert")).textContent).toContain("This file batch was discarded");
   expectButtonDisabled("Send files", false);
+});
+
+
+test("explains session-end fallback when batch cleanup cannot be confirmed", async () => {
+  const user = userEvent.setup();
+  const transferFailure = new Error("connection queue failed");
+  const onTransfer = vi.fn(async () => {
+    throw new AttachmentBatchCleanupError(transferFailure, new Error("discard acknowledgement lost"));
+  });
+  const { container } = render(<AttachmentComposer disabled={false} transferEnabled onTransfer={onTransfer} />);
+  const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+  if (!input) throw new Error("file input missing");
+
+  await user.upload(input, attachment());
+  await user.click(screen.getByRole("button", { name: "Send files" }));
+
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("connection queue failed");
+  expect(alert.textContent).toContain("remaining files will be removed when the session ends");
 });
 
 test("shows transfer failures and permits an explicit retry", async () => {
