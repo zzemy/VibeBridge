@@ -5,6 +5,8 @@ import {
   AcknowledgementSchema,
   ErrorCode,
   ErrorSchema,
+  AttachmentTransferDisposition,
+  AttachmentTransferStatusSchema,
   EnvelopeSchema,
   TerminalOutputSchema,
   type Envelope,
@@ -199,21 +201,144 @@ describe("AcknowledgedAttachmentSender", () => {
     expect(requestRecovery).toHaveBeenCalledTimes(1);
   });
 
-  test("rejects a pending operation when the physical connection closes", async () => {
+  test("reconciles a chunk applied before its acknowledgement was lost", async () => {
     const stream = attachmentStream();
-    const requestRecovery = vi.fn();
+    const sent: Uint8Array[] = [];
     const sender = new AcknowledgedAttachmentSender(stream, {
-      send: () => {},
-      requestRecovery,
+      send: (encoded) => sent.push(encoded),
+      requestRecovery: vi.fn(),
     });
 
     const begin = sender.begin(beginRequest(), new AbortController().signal);
-    const rejection = expect(begin).rejects.toThrow("Connection closed before the Agent acknowledged");
+    acceptAgentMessage(stream, sender, 2n, 2n, acknowledgementPayload());
+    await begin;
+
+    let settled = false;
+    const chunk = sender.chunk(chunkRequest(), new AbortController().signal);
+    void chunk.then(() => { settled = true; });
+    sender.disconnect();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    const reconnectedStream = attachmentStream();
+    const reconnectedSent: Uint8Array[] = [];
+    sender.reconnect(reconnectedStream, {
+      send: (encoded) => reconnectedSent.push(encoded),
+      requestRecovery: vi.fn(),
+    });
+    const statusRequest = onlySentEnvelope(reconnectedSent);
+    expect(statusRequest.payload.case).toBe("attachmentTransferStatusRequest");
+    if (statusRequest.payload.case !== "attachmentTransferStatusRequest") {
+      throw new Error("expected an attachment transfer status request");
+    }
+    expect(statusRequest.payload.value.transferId).toEqual(transferId);
+
+    const statusMessage = reconnectedStream.acceptAgentMessage(agentEnvelope(2n, 2n, {
+      case: "attachmentTransferStatus",
+      value: create(AttachmentTransferStatusSchema, {
+        transferId,
+        disposition: AttachmentTransferDisposition.ACTIVE,
+        nextOffsetBytes: 5n,
+      }),
+    }));
+    sender.acceptAgentMessage(statusMessage);
+
+    await chunk;
+    expect(settled).toBe(true);
+    expect(reconnectedSent).toHaveLength(1);
+  });
+
+  test("reconciles lost begin, complete, and cancel acknowledgements without duplicate side effects", async () => {
+    const cases = [
+      {
+        name: "begin",
+        start: (sender: AcknowledgedAttachmentSender) => sender.begin(beginRequest(), new AbortController().signal),
+        disposition: AttachmentTransferDisposition.ACTIVE,
+      },
+      {
+        name: "complete",
+        start: (sender: AcknowledgedAttachmentSender) => sender.complete(transferId, new AbortController().signal),
+        disposition: AttachmentTransferDisposition.COMPLETED,
+      },
+      {
+        name: "cancel",
+        start: (sender: AcknowledgedAttachmentSender) => sender.cancel(transferId),
+        disposition: AttachmentTransferDisposition.CANCELLED,
+      },
+    ] as const;
+
+    for (const fixture of cases) {
+      const stream = attachmentStream();
+      const sender = new AcknowledgedAttachmentSender(stream, { send: () => {}, requestRecovery: vi.fn() });
+      const pending = fixture.start(sender);
+      sender.disconnect();
+
+      const reconnectedStream = attachmentStream();
+      const sent: Uint8Array[] = [];
+      sender.reconnect(reconnectedStream, { send: (encoded) => sent.push(encoded), requestRecovery: vi.fn() });
+      const status = reconnectedStream.acceptAgentMessage(agentEnvelope(2n, 2n, {
+        case: "attachmentTransferStatus",
+        value: create(AttachmentTransferStatusSchema, {
+          transferId,
+          disposition: fixture.disposition,
+        }),
+      }));
+      sender.acceptAgentMessage(status);
+
+      await expect(pending, fixture.name).resolves.toBeUndefined();
+      expect(sent, fixture.name).toHaveLength(1);
+    }
+  });
+
+  test("replays a chunk only when the Agent cursor proves it was not applied", async () => {
+    const stream = attachmentStream();
+    const sender = new AcknowledgedAttachmentSender(stream, { send: () => {}, requestRecovery: vi.fn() });
+    const pending = sender.chunk(chunkRequest(), new AbortController().signal);
     sender.disconnect();
 
+    const reconnectedStream = attachmentStream();
+    const sent: Uint8Array[] = [];
+    sender.reconnect(reconnectedStream, { send: (encoded) => sent.push(encoded), requestRecovery: vi.fn() });
+    const status = reconnectedStream.acceptAgentMessage(agentEnvelope(2n, 2n, {
+      case: "attachmentTransferStatus",
+      value: create(AttachmentTransferStatusSchema, {
+        transferId,
+        disposition: AttachmentTransferDisposition.ACTIVE,
+        nextOffsetBytes: 0n,
+      }),
+    }));
+    sender.acceptAgentMessage(status);
+
+    expect(sent).toHaveLength(2);
+    expect(fromBinary(EnvelopeSchema, sent[1]!).payload.case).toBe("attachmentChunk");
+    acceptAgentMessage(reconnectedStream, sender, 3n, 3n, acknowledgementPayload());
+    await pending;
+  });
+
+  test("fails closed when the Agent cursor is inside the pending chunk", async () => {
+    const stream = attachmentStream();
+    const requestRecovery = vi.fn();
+    const sender = new AcknowledgedAttachmentSender(stream, { send: () => {}, requestRecovery });
+    const pending = sender.chunk(chunkRequest(), new AbortController().signal);
+    const rejection = expect(pending).rejects.toThrow("cannot safely reconcile");
+    sender.disconnect();
+
+    const reconnectedStream = attachmentStream();
+    const sent: Uint8Array[] = [];
+    sender.reconnect(reconnectedStream, { send: (encoded) => sent.push(encoded), requestRecovery });
+    const status = reconnectedStream.acceptAgentMessage(agentEnvelope(2n, 2n, {
+      case: "attachmentTransferStatus",
+      value: create(AttachmentTransferStatusSchema, {
+        transferId,
+        disposition: AttachmentTransferDisposition.ACTIVE,
+        nextOffsetBytes: 3n,
+      }),
+    }));
+    sender.acceptAgentMessage(status);
+
     await rejection;
-    expect(requestRecovery).not.toHaveBeenCalled();
-    await expect(sender.cancel(transferId)).rejects.toThrow("recovering");
+    expect(sent).toHaveLength(1);
+    expect(requestRecovery).toHaveBeenCalledTimes(1);
   });
 
   test("poisons the stream when WebSocket send throws", async () => {

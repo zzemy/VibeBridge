@@ -71,6 +71,91 @@ func TestTransferManagerCompletesVerifiedTextAttachment(t *testing.T) {
 	}
 }
 
+func TestTransferManagerReportsSessionLocalOutcomes(t *testing.T) {
+	manager, _ := newTestTransferManager(t, managerLimits{
+		maxFileBytes:    32,
+		maxSessionBytes: 64,
+		maxChunkBytes:   8,
+		maxActive:       2,
+	})
+	content := []byte("resume me")
+	request := validBeginRequest([]byte("active"), content)
+	beginTransfer(t, manager, request)
+	writeTransferChunk(t, manager, request.TransferID, 0, content[:4])
+
+	active, err := manager.Outcome(request.TransferID)
+	if err != nil {
+		t.Fatalf("query active transfer: %v", err)
+	}
+	if active.Disposition != TransferDispositionActive || active.NextOffsetBytes != 4 {
+		t.Fatalf("active outcome = %+v, want active at offset 4", active)
+	}
+
+	writeTransferChunk(t, manager, request.TransferID, 4, content[4:])
+	if _, err := manager.Complete(request.TransferID); err != nil {
+		t.Fatalf("complete transfer: %v", err)
+	}
+	completed, err := manager.Outcome(request.TransferID)
+	if err != nil {
+		t.Fatalf("query completed transfer: %v", err)
+	}
+	if completed.Disposition != TransferDispositionCompleted || completed.NextOffsetBytes != 0 {
+		t.Fatalf("completed outcome = %+v, want completed without an offset", completed)
+	}
+
+	cancelledID := []byte("cancelled")
+	beginTransfer(t, manager, validBeginRequest(cancelledID, []byte("partial")))
+	if err := manager.Cancel(cancelledID); err != nil {
+		t.Fatalf("cancel transfer: %v", err)
+	}
+	cancelled, err := manager.Outcome(cancelledID)
+	if err != nil {
+		t.Fatalf("query cancelled transfer: %v", err)
+	}
+	if cancelled.Disposition != TransferDispositionCancelled || cancelled.NextOffsetBytes != 0 {
+		t.Fatalf("cancelled outcome = %+v, want cancelled without an offset", cancelled)
+	}
+
+	unknown, err := manager.Outcome([]byte("unknown"))
+	if err != nil {
+		t.Fatalf("query unknown transfer: %v", err)
+	}
+	if unknown.Disposition != TransferDispositionUnknown || unknown.NextOffsetBytes != 0 {
+		t.Fatalf("unknown outcome = %+v, want unknown without an offset", unknown)
+	}
+	if _, err := manager.Outcome(nil); !errors.Is(err, ErrInvalidTransfer) {
+		t.Fatalf("invalid outcome query error = %v, want %v", err, ErrInvalidTransfer)
+	}
+}
+
+func TestTransferManagerBoundsCancelledOutcomeTombstones(t *testing.T) {
+	manager, _ := newTestTransferManager(t, managerLimits{
+		maxFileBytes:    8,
+		maxSessionBytes: 8,
+		maxChunkBytes:   8,
+		maxActive:       1,
+	})
+	for index := 0; index <= maxCancelledOutcomes; index++ {
+		if err := manager.Cancel([]byte(fmt.Sprintf("cancel-%d", index))); err != nil {
+			t.Fatalf("cancel transfer %d: %v", index, err)
+		}
+	}
+	oldest, err := manager.Outcome([]byte("cancel-0"))
+	if err != nil {
+		t.Fatalf("query evicted cancellation: %v", err)
+	}
+	if oldest.Disposition != TransferDispositionUnknown {
+		t.Fatalf("evicted cancellation = %+v, want unknown", oldest)
+	}
+	newest, err := manager.Outcome([]byte(fmt.Sprintf("cancel-%d", maxCancelledOutcomes)))
+	if err != nil {
+		t.Fatalf("query retained cancellation: %v", err)
+	}
+	if newest.Disposition != TransferDispositionCancelled {
+		t.Fatalf("retained cancellation = %+v, want cancelled", newest)
+	}
+}
+
 func TestTransferManagerResolvesOnlyUniqueCompletedAttachments(t *testing.T) {
 	manager, _ := newTestTransferManager(t, managerLimits{
 		maxFileBytes:    32,

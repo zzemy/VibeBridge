@@ -243,3 +243,59 @@ func goldenAttachmentPromptPreviewEnvelope() *vibebridgev1.Envelope {
 		}},
 	}
 }
+
+func TestAttachmentTransferStatusEnvelopeMatchesCrossLanguageGoldenVector(t *testing.T) {
+	goldenPath := filepath.Join("..", "..", "proto", "vibebridge", "v1", "testdata", "attachment_transfer_status_envelope.bin")
+	want := goldenAttachmentTransferStatusEnvelope()
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(want)
+	if err != nil {
+		t.Fatalf("encode attachment transfer status envelope: %v", err)
+	}
+	if os.Getenv("VIBEBRIDGE_UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(goldenPath, encoded, 0o644); err != nil {
+			t.Fatalf("update attachment transfer status envelope golden vector: %v", err)
+		}
+	}
+
+	golden, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read attachment transfer status envelope golden vector: %v", err)
+	}
+	if !bytes.Equal(encoded, golden) {
+		t.Fatalf("encoded attachment transfer status envelope does not match %s", goldenPath)
+	}
+
+	decoded := new(vibebridgev1.Envelope)
+	if err := proto.Unmarshal(golden, decoded); err != nil {
+		t.Fatalf("decode attachment transfer status envelope golden vector: %v", err)
+	}
+	if !proto.Equal(decoded, want) {
+		t.Fatalf("decoded attachment transfer status envelope = %v, want %v", decoded, want)
+	}
+}
+
+func goldenAttachmentTransferStatusEnvelope() *vibebridgev1.Envelope {
+	return &vibebridgev1.Envelope{
+		ProtocolMajor: 1,
+		ConnectionId: []byte{
+			0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+			0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+		},
+		SessionId: []byte{
+			0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+			0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+		},
+		SessionGeneration: 7,
+		Sequence:          11,
+		Acknowledge:       10,
+		SentAt: &timestamppb.Timestamp{
+			Seconds: 1783843203,
+			Nanos:   345000000,
+		},
+		Payload: &vibebridgev1.Envelope_AttachmentTransferStatus{AttachmentTransferStatus: &vibebridgev1.AttachmentTransferStatus{
+			TransferId:      []byte{0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7},
+			Disposition:     vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_ACTIVE,
+			NextOffsetBytes: 49152,
+		}},
+	}
+}
