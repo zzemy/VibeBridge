@@ -14,7 +14,7 @@ Control local AI CLI sessions such as Codex and Claude Code from your phone over
 - Prompt composition, direct keyboard input, clipboard paste, search, reconnect feedback, and portrait/landscape layouts.
 - Short-disconnect resume, byte/time-bounded replay, idle cleanup, and idempotent PTY process-tree termination.
 - Versioned workspace roots and launch profiles, privacy-safe lifecycle logs, and local diagnostics.
-- A least-privilege, user-scoped Windows background Agent installed through Task Scheduler.
+- A least-privilege, user-scoped Windows background Agent installed through Task Scheduler, with a system tray for status, local UI, pairing, and graceful exit.
 - Canonical Protocol V1 Protobuf schemas, generated Go/TypeScript packages, golden vectors, and compatibility CI.
 
 The browser endpoint now negotiates Protocol V1. When both peers support sequenced I/O and `session.resume_v1`, terminal traffic, acknowledgements, session attachment, and bounded reconnect replay use ordered Protobuf envelopes with explicit `FRESH`, `RESUMED`, or `RESYNC_REQUIRED` results. Peers that also negotiate `terminal.resize_end_v1` carry terminal resize and explicit end controls in the same ordered stream, `session.process_exit_v1` reports a safe final process outcome, `control.error_v1` reports allowlisted application failures without exposing host errors, and `control.health_v1` sequences application Ping/Pong independently of WebSocket transport keepalive. Older peers retain safe JSON adapters during this staged transition.
@@ -24,7 +24,7 @@ The browser endpoint now negotiates Protocol V1. When both peers support sequenc
 | Capability | Windows 11 | macOS / Linux |
 | --- | --- | --- |
 | Foreground local Agent and PTY | Tested | Implementation available; release validation incomplete |
-| User-scoped background installation | Supported through Task Scheduler | Not yet supported |
+| User-scoped background installation | Supported through Task Scheduler with system tray controls | Not yet supported |
 | Public-internet relay | Not available | Not available |
 
 No packaged release is published yet; build the project from source. See the [roadmap](docs/roadmap.md) for release gates and planned remote-access work.
@@ -94,7 +94,7 @@ Legacy compatibility is enabled by default. Set `disable_legacy_protocol` to `tr
 
 ## Windows Background Agent
 
-Windows can install the built VibeBridge executable as a hidden, user-scoped Task Scheduler task. The task uses the current user's interactive token with `LeastPrivilege`, starts at sign-in, prevents duplicate instances, and retries a failed process up to three times. It is not a privileged system service. macOS and Linux background installation remain explicitly unsupported until their packaging gates are complete.
+Windows can install the built VibeBridge executable as a hidden, user-scoped Task Scheduler task. The task uses the current user's interactive token with `LeastPrivilege`, starts at sign-in, prevents duplicate instances, and retries a failed process up to three times. It also starts the Windows system tray controls in the same Agent process; left-clicking opens the local UI, and the menu exposes live session status, a local-only phone-pairing QR page, and graceful Agent exit. It is not a privileged system service. macOS and Linux background installation remain explicitly unsupported until their packaging gates are complete.
 
 First build or download a durable executable and keep both that executable and its configuration at stable paths. `go run` output is temporary and is rejected by the installer.
 
@@ -117,7 +117,7 @@ Use `--profile <id>` during installation to select a non-default launch profile.
 & $agent service uninstall
 ```
 
-The installer starts the Agent immediately and at future sign-ins. `service status` probes the local authenticated status endpoint, distinguishes installed/stopped/stale/running states, and prints the current connection URLs only when the Agent responds. `service uninstall` stops and removes the task but does not delete the executable or configuration.
+The installer starts the Agent and its tray icon immediately and at future sign-ins. `service status` remains the terminal fallback: it probes the local authenticated status endpoint, distinguishes installed/stopped/stale/running states, and prints the current connection URLs only when the Agent responds. `service uninstall` stops and removes the task but does not delete the executable or configuration.
 
 The background Agent stores its current PID, start time, listener, and random per-run token in `%LOCALAPPDATA%\VibeBridge\runtime.json`. The file is written atomically under the current user's local application-data directory and removed on graceful shutdown. It is sensitive runtime state: do not copy, publish, or commit it. Structured lifecycle logs still exclude the token, command, paths, terminal content, and environment values.
 

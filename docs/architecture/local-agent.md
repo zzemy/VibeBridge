@@ -7,6 +7,7 @@ The Local Agent is the trusted endpoint on the developer's computer. It owns loc
 ## Process Model
 
 - User-scoped background service by default.
+- On Windows, the Agent owns a system tray adapter for status, local UI/pairing entry points, and graceful shutdown; the tray never receives terminal content or bypasses Agent authorization.
 - One Agent process owns multiple logical sessions.
 - Each session owns exactly one PTY process tree.
 - Platform adapter controls process creation, signals, job/process groups, resize, and cleanup.

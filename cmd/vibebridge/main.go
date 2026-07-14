@@ -55,12 +55,16 @@ func runAgent(args []string) error {
 	profileID := flags.String("profile", "", "launch profile ID from --config")
 	diagnose := flags.Bool("diagnose", false, "check command, network listener, and frontend assets without starting a session")
 	background := flags.Bool("background", false, "hide the Agent console window")
+	tray := flags.Bool("tray", false, "show Windows system tray controls")
 	serviceStatePath := flags.String("service-state", "", "runtime state path used by the background Agent")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments: %v", flags.Args())
+	}
+	if *tray && !agentTraySupported() {
+		return errors.New("system tray is only supported on Windows")
 	}
 	if *background {
 		hideBackgroundWindow()
@@ -115,13 +119,16 @@ func runAgent(args []string) error {
 		app.Close()
 		return fmt.Errorf("start HTTP listener on %s: %w", options.addr, err)
 	}
-	listenAddress := options.addr
-	if _, port, splitErr := net.SplitHostPort(options.addr); splitErr == nil && port == "0" {
-		listenAddress = listener.Addr().String()
+	listenAddress := listener.Addr().String()
+	handler, err := newAgentHTTPHandler(app.Handler(), listenAddress, token)
+	if err != nil {
+		_ = listener.Close()
+		app.Close()
+		return fmt.Errorf("configure Agent HTTP handler: %w", err)
 	}
 	httpServer := &http.Server{
 		Addr:              listenAddress,
-		Handler:           app.Handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	if isWildcardAddress(listenAddress) {
@@ -156,18 +163,65 @@ func runAgent(args []string) error {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
 
-	stopReason := agentlog.ReasonListenerClosed
-	var serveErr error
-	select {
-	case sig := <-stop:
-		stopReason = agentlog.ReasonSignal
-		fmt.Printf("\nreceived %s, shutting down\n", sig)
-	case err := <-errCh:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			stopReason = agentlog.ReasonListenerError
-			serveErr = fmt.Errorf("server error: %w", err)
+	type stopResult struct {
+		reason   agentlog.Reason
+		serveErr error
+	}
+	trayStop := make(chan struct{}, 1)
+	requestStop := func() {
+		select {
+		case trayStop <- struct{}{}:
+		default:
 		}
 	}
+	waitForStop := func() stopResult {
+		select {
+		case sig := <-stop:
+			fmt.Printf("\nreceived %s, shutting down\n", sig)
+			return stopResult{reason: agentlog.ReasonSignal}
+		case <-trayStop:
+			return stopResult{reason: agentlog.ReasonAgentShutdown}
+		case err := <-errCh:
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return stopResult{reason: agentlog.ReasonListenerError, serveErr: fmt.Errorf("server error: %w", err)}
+			}
+			return stopResult{reason: agentlog.ReasonListenerClosed}
+		}
+	}
+
+	var result stopResult
+	if *tray {
+		appURL, pairingURL, statusURL, err := trayURLs(listenAddress, token)
+		if err != nil {
+			requestStop()
+			result = waitForStop()
+			result.serveErr = fmt.Errorf("configure system tray URLs: %w", err)
+		} else {
+			resultCh := make(chan stopResult, 1)
+			go func() {
+				resultCh <- waitForStop()
+				requestAgentTrayQuit()
+			}()
+			trayErr := runAgentTray(agentTrayOptions{
+				AppURL:       appURL,
+				PairingURL:   pairingURL,
+				StatusURL:    statusURL,
+				RequestStop:  requestStop,
+				StatusPeriod: 2 * time.Second,
+			})
+			if trayErr != nil {
+				requestStop()
+			}
+			result = <-resultCh
+			if trayErr != nil && result.serveErr == nil {
+				result.serveErr = fmt.Errorf("run system tray: %w", trayErr)
+			}
+		}
+	} else {
+		result = waitForStop()
+	}
+	stopReason := result.reason
+	serveErr := result.serveErr
 	eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopping, Reason: stopReason})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

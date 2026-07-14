@@ -30,7 +30,7 @@ pnpm --dir web build
 ## 3. Product validation
 
 - [ ] `go run ./cmd/vibebridge --diagnose` passes on the target Windows host.
-- [ ] A durable embedded binary passes `service install`, `service status --qr`, sign-out/sign-in autostart, forced replacement, and `service uninstall` checks as a non-administrator Windows user.
+- [ ] A durable embedded binary passes `service install`, tray status/open/pair/exit actions, `service status --qr`, sign-out/sign-in autostart, forced replacement, and `service uninstall` checks as a non-administrator Windows user.
 - [ ] The complete real-device workflow in the README passes on supported phone/browser combinations.
 - [ ] Explicit End, process exit, reconnect expiry, idle expiry, and Ctrl+C shutdown leave no PTY child process.
 - [ ] A previous supported client/build still behaves according to the declared compatibility range.
