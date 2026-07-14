@@ -6,7 +6,7 @@ The Local Agent now generates and persists one random 16-byte device ID, Ed25519
 
 The Agent can issue one five-minute invitation at a time. Each contains a 128-bit invitation ID and 256-bit bootstrap secret, a new invitation supersedes the old one, and successful consumption is atomic and replay-safe. The full invitation is encoded only in the URL fragment. The Agent also persists client authorization versions and monotonic revocation epochs; its local authenticated management page can list and revoke devices.
 
-This is a foundation, not yet an end-user pairing path. The advertised `/pairing/v1` connection hint is reserved for the next implementation stage: no phone-facing endpoint currently accepts it, no encrypted handshake or Agent approval exchange has occurred, and the browser client does not yet persist a trusted device. Legacy local terminal access therefore remains on the per-run bearer token and must not be exposed publicly.
+The cross-language `Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b` pairing core is implemented and validated against one shared transcript and directional-transport vector. It is still not an end-user pairing path: the advertised `/pairing/v1` connection hint does not yet accept the handshake, no local Agent approval or atomic authorization exchange occurs, and the browser client does not yet persist a trusted device. Legacy local terminal access therefore remains on the per-run bearer token and must not be exposed publicly.
 
 ## Identity Layers
 
@@ -47,7 +47,7 @@ The Agent creates an expiring, single-use pairing record and QR payload containi
 - At least 128 bits of random bootstrap secret.
 - Relay or direct-discovery hints.
 - Expiry timestamp.
-- Human-readable verification code derived from the transcript.
+- A QR-payload verification checksum; the separate approval SAS is derived only after the complete Noise transcript.
 
 The QR code is a bootstrap capability, not a permanent credential.
 
@@ -55,9 +55,9 @@ The QR code is a bootstrap capability, not a permanent credential.
 
 1. Phone scans and validates QR structure and expiry.
 2. Phone connects directly or through a pairing relay route.
-3. Peers establish an encrypted channel authenticated by the Agent key and bootstrap secret.
-4. Phone sends its signed device descriptor.
-5. Both screens show device names and a short verification code.
+3. Peers run `Noise_XXpsk0` with the QR bootstrap secret at `psk0`, binding both device IDs, invitation ID, protocol version, intent, and relay-ticket hash into the prologue.
+4. Phone sends its signed descriptor in encrypted message one; both peers verify the Noise static key against the corresponding signed descriptor.
+5. Both screens show device names and the transcript-derived `123-456` SAS.
 6. User confirms on at least the Agent side; higher-assurance mode confirms both.
 7. Agent atomically consumes the pairing record and stores the phone descriptor.
 8. Phone stores the Agent descriptor.
