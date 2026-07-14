@@ -49,7 +49,20 @@ export type AttachmentTransferSender = {
   chunk(request: AttachmentChunkRequest, signal: AbortSignal): Promise<void>;
   complete(transferId: Uint8Array, signal: AbortSignal): Promise<void>;
   cancel(transferId: Uint8Array): Promise<void>;
+  discard(transferIds: readonly Uint8Array[]): Promise<void>;
 };
+
+export class AttachmentBatchCleanupError extends Error {
+  readonly transferCause: unknown;
+  readonly cleanupCause: unknown;
+
+  constructor(transferCause: unknown, cleanupCause: unknown) {
+    super(errorMessage(transferCause), { cause: transferCause });
+    this.name = "AttachmentBatchCleanupError";
+    this.transferCause = transferCause;
+    this.cleanupCause = cleanupCause;
+  }
+}
 
 export function describeAttachment(file: File): AttachmentMetadata {
   if (file.size <= 0) {
@@ -110,18 +123,19 @@ export async function transferAttachments(
   const totalSizeBytes = metadata.reduce((total, item) => total + item.totalSizeBytes, 0);
   let completedBytes = 0;
   const completedTransferIds: Uint8Array[] = [];
+  const startedTransferIds: Uint8Array[] = [];
 
-  for (const [fileIndex, file] of files.entries()) {
-    throwIfAborted(signal);
-    const item = metadata[fileIndex];
-    if (!item) {
-      throw new Error("Attachment metadata is missing");
-    }
-    const transferId = crypto.getRandomValues(new Uint8Array(16));
-    let began = false;
-
-    try {
+  try {
+    for (const [fileIndex, file] of files.entries()) {
+      throwIfAborted(signal);
+      const item = metadata[fileIndex];
+      if (!item) {
+        throw new Error("Attachment metadata is missing");
+      }
+      const transferId = crypto.getRandomValues(new Uint8Array(16));
       const totalSha256 = await hashAttachment(file, signal);
+
+      startedTransferIds.push(transferId.slice());
       await sender.begin({
         transferId,
         displayName: item.displayName,
@@ -130,7 +144,7 @@ export async function transferAttachments(
         totalSizeBytes: BigInt(item.totalSizeBytes),
         totalSha256,
       }, signal);
-      began = true;
+      throwIfAborted(signal);
 
       for (let offset = 0; offset < file.size; offset += maxChunkBytes) {
         throwIfAborted(signal);
@@ -143,6 +157,7 @@ export async function transferAttachments(
           data,
           chunkSha256: sha256(data),
         }, signal);
+        throwIfAborted(signal);
         onProgress({
           fileIndex,
           fileCount: files.length,
@@ -156,20 +171,21 @@ export async function transferAttachments(
 
       throwIfAborted(signal);
       await sender.complete(transferId, signal);
+      throwIfAborted(signal);
       completedTransferIds.push(transferId.slice());
       completedBytes += file.size;
-    } catch (error) {
-      if (began) {
-        try {
-          await sender.cancel(transferId);
-        } catch {
-          // Preserve the original transfer failure; session cleanup remains the fallback.
-        }
-      }
-      throw error;
     }
+    return completedTransferIds;
+  } catch (transferCause) {
+    if (startedTransferIds.length > 0) {
+      try {
+        await sender.discard(startedTransferIds.map((transferId) => transferId.slice()));
+      } catch (cleanupCause) {
+        throw new AttachmentBatchCleanupError(transferCause, cleanupCause);
+      }
+    }
+    throw transferCause;
   }
-  return completedTransferIds;
 }
 
 export function formatAttachmentBytes(bytes: number): string {
@@ -247,4 +263,8 @@ function throwIfAborted(signal: AbortSignal) {
   if (signal.aborted) {
     throw new DOMException("Attachment transfer was cancelled", "AbortError");
   }
+}
+
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : "Attachment transfer failed";
 }

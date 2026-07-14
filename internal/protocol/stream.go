@@ -29,6 +29,7 @@ const (
 	maxAttachmentTransferIDBytes     = 64
 	maxAttachmentPromptActionIDBytes = 64
 	maxAttachmentPromptTransfers     = 10
+	maxAttachmentDiscardTransfers    = 10
 )
 
 type ClientStreamMessageKind uint8
@@ -44,6 +45,7 @@ const (
 	ClientStreamMessageAttachmentChunk
 	ClientStreamMessageAttachmentComplete
 	ClientStreamMessageAttachmentCancel
+	ClientStreamMessageAttachmentDiscard
 	ClientStreamMessageAttachmentTransferStatusRequest
 	ClientStreamMessageAttachmentPromptPrepare
 	ClientStreamMessageAttachmentPromptCommit
@@ -220,6 +222,28 @@ func (s *AgentStream) DecodeClientMessage(encoded []byte) (ClientStreamMessage, 
 		}
 		message.Kind = ClientStreamMessageAttachmentCancel
 		message.TransferID = append([]byte(nil), payload.AttachmentCancel.TransferId...)
+	case *vibebridgev1.Envelope_AttachmentDiscard:
+		if !s.attachmentTransfer {
+			return ClientStreamMessage{}, errors.New("attachment transfer was not negotiated")
+		}
+		discard := payload.AttachmentDiscard
+		if discard == nil || len(discard.TransferIds) == 0 || len(discard.TransferIds) > maxAttachmentDiscardTransfers {
+			return ClientStreamMessage{}, errors.New("AttachmentDiscard has invalid transfer metadata")
+		}
+		message.Kind = ClientStreamMessageAttachmentDiscard
+		message.TransferIDs = make([][]byte, len(discard.TransferIds))
+		seen := make(map[string]struct{}, len(discard.TransferIds))
+		for index, transferID := range discard.TransferIds {
+			if !validAttachmentTransferID(transferID) {
+				return ClientStreamMessage{}, errors.New("AttachmentDiscard has invalid transfer metadata")
+			}
+			key := string(transferID)
+			if _, exists := seen[key]; exists {
+				return ClientStreamMessage{}, errors.New("AttachmentDiscard contains a duplicate transfer ID")
+			}
+			seen[key] = struct{}{}
+			message.TransferIDs[index] = append([]byte(nil), transferID...)
+		}
 	case *vibebridgev1.Envelope_AttachmentTransferStatusRequest:
 		if !s.attachmentTransfer {
 			return ClientStreamMessage{}, errors.New("attachment transfer was not negotiated")
