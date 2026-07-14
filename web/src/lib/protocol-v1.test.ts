@@ -9,6 +9,8 @@ import {
   AttachmentBeginSchema,
   AttachmentPromptDisposition,
   AttachmentPromptPreviewSchema,
+  AttachmentTransferDisposition,
+  AttachmentTransferStatusSchema,
   EnvelopeSchema,
   HelloSchema,
   PeerRole,
@@ -21,6 +23,7 @@ const goldenPath = resolve(process.cwd(), "../proto/vibebridge/v1/testdata/hello
 const terminalOutputGoldenPath = resolve(process.cwd(), "../proto/vibebridge/v1/testdata/terminal_output_envelope.bin");
 const attachmentBeginGoldenPath = resolve(process.cwd(), "../proto/vibebridge/v1/testdata/attachment_begin_envelope.bin");
 const attachmentPromptPreviewGoldenPath = resolve(process.cwd(), "../proto/vibebridge/v1/testdata/attachment_prompt_preview_envelope.bin");
+const attachmentTransferStatusGoldenPath = resolve(process.cwd(), "../proto/vibebridge/v1/testdata/attachment_transfer_status_envelope.bin");
 
 function goldenHelloEnvelope() {
   const version = () => create(ProtocolVersionSchema, { major: 1, minor: 0 });
@@ -95,6 +98,32 @@ function goldenAttachmentBeginEnvelope() {
   });
 }
 
+function goldenAttachmentTransferStatusEnvelope() {
+  return create(EnvelopeSchema, {
+    protocolMajor: 1,
+    connectionId: Uint8Array.from([
+      0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+      0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+    ]),
+    sessionId: Uint8Array.from([
+      0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+      0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+    ]),
+    sessionGeneration: 7n,
+    sequence: 11n,
+    acknowledge: 10n,
+    sentAt: timestampFromDate(new Date("2026-07-12T08:00:03.345Z")),
+    payload: {
+      case: "attachmentTransferStatus",
+      value: create(AttachmentTransferStatusSchema, {
+        transferId: Uint8Array.from([0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7]),
+        disposition: AttachmentTransferDisposition.ACTIVE,
+        nextOffsetBytes: 49_152n,
+      }),
+    },
+  });
+}
+
 function goldenAttachmentPromptPreviewEnvelope() {
   return create(EnvelopeSchema, {
     protocolMajor: 1,
@@ -134,6 +163,14 @@ describe("Protocol V1 golden vectors", () => {
   test("encodes and decodes the shared attachment begin envelope", () => {
     const golden = new Uint8Array(readFileSync(attachmentBeginGoldenPath));
     const expected = goldenAttachmentBeginEnvelope();
+
+    expect(fromBinary(EnvelopeSchema, golden)).toEqual(expected);
+    expect(Array.from(toBinary(EnvelopeSchema, expected))).toEqual(Array.from(golden));
+  });
+
+  test("encodes and decodes the shared attachment transfer status envelope", () => {
+    const golden = new Uint8Array(readFileSync(attachmentTransferStatusGoldenPath));
+    const expected = goldenAttachmentTransferStatusEnvelope();
 
     expect(fromBinary(EnvelopeSchema, golden)).toEqual(expected);
     expect(Array.from(toBinary(EnvelopeSchema, expected))).toEqual(Array.from(golden));

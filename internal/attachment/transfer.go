@@ -26,6 +26,7 @@ const (
 	contentSniffBytes   = 512
 
 	maxPromptActionAttachments = 10
+	maxCancelledOutcomes       = 256
 )
 
 // Stable transfer errors classify failures without exposing remote metadata or local paths.
@@ -69,6 +70,22 @@ type ChunkRequest struct {
 	ChunkSHA256 []byte
 }
 
+// TransferDisposition describes one session-local transfer outcome without exposing metadata or paths.
+type TransferDisposition uint8
+
+const (
+	TransferDispositionUnknown TransferDisposition = iota
+	TransferDispositionActive
+	TransferDispositionCompleted
+	TransferDispositionCancelled
+)
+
+// TransferOutcome is safe to return to a remote client. NextOffsetBytes is set only for active transfers.
+type TransferOutcome struct {
+	Disposition     TransferDisposition
+	NextOffsetBytes uint64
+}
+
 // CompletedAttachment describes a verified file using a workspace-relative path.
 type CompletedAttachment struct {
 	TransferID   []byte
@@ -96,11 +113,13 @@ type Manager struct {
 	staging   *SessionStaging
 	limits    managerLimits
 
-	active        map[string]*activeTransfer
-	completed     map[string]CompletedAttachment
-	reservedBytes uint64
-	closing       bool
-	closed        bool
+	active         map[string]*activeTransfer
+	completed      map[string]CompletedAttachment
+	cancelled      map[string]struct{}
+	cancelledOrder []string
+	reservedBytes  uint64
+	closing        bool
+	closed         bool
 }
 
 type activeTransfer struct {
@@ -147,6 +166,7 @@ func newTransferManager(staging *SessionStaging, limits managerLimits) (*Manager
 		limits:        limits,
 		active:        make(map[string]*activeTransfer),
 		completed:     make(map[string]CompletedAttachment),
+		cancelled:     make(map[string]struct{}),
 		reservedBytes: staging.completedBytes(),
 	}, nil
 }
@@ -314,6 +334,33 @@ func (m *Manager) Complete(transferID []byte) (CompletedAttachment, error) {
 	return cloneCompletedAttachment(completed), nil
 }
 
+// Outcome reports the durable in-session state for an opaque transfer ID.
+// It intentionally returns no attachment metadata or storage path.
+func (m *Manager) Outcome(transferID []byte) (TransferOutcome, error) {
+	if m == nil {
+		return TransferOutcome{}, ErrManagerClosed
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || m.closing {
+		return TransferOutcome{}, ErrManagerClosed
+	}
+	if !validTransferID(transferID) {
+		return TransferOutcome{}, ErrInvalidTransfer
+	}
+	key := string(transferID)
+	if transfer, exists := m.active[key]; exists {
+		return TransferOutcome{Disposition: TransferDispositionActive, NextOffsetBytes: transfer.receivedBytes}, nil
+	}
+	if _, exists := m.completed[key]; exists {
+		return TransferOutcome{Disposition: TransferDispositionCompleted}, nil
+	}
+	if _, exists := m.cancelled[key]; exists {
+		return TransferOutcome{Disposition: TransferDispositionCancelled}, nil
+	}
+	return TransferOutcome{Disposition: TransferDispositionUnknown}, nil
+}
+
 // CompletedAttachments resolves an ordered prompt-action selection from this
 // manager's completed records. Active and unknown IDs intentionally share one error.
 func (m *Manager) CompletedAttachments(transferIDs [][]byte) ([]CompletedAttachment, error) {
@@ -372,15 +419,28 @@ func (m *Manager) Cancel(transferID []byte) error {
 	if _, completed := m.completed[key]; completed {
 		return nil
 	}
-	transfer, active := m.active[key]
-	if !active {
-		return nil
+	if transfer, active := m.active[key]; active {
+		if err := m.cleanupActiveTransferLocked(transfer); err != nil {
+			return fmt.Errorf("cancel attachment transfer: %w", err)
+		}
+		m.releaseActiveLocked(key, transfer)
 	}
-	if err := m.cleanupActiveTransferLocked(transfer); err != nil {
-		return fmt.Errorf("cancel attachment transfer: %w", err)
-	}
-	m.releaseActiveLocked(key, transfer)
+	m.recordCancelledLocked(key)
 	return nil
+}
+
+func (m *Manager) recordCancelledLocked(key string) {
+	if _, exists := m.cancelled[key]; exists {
+		return
+	}
+	m.cancelled[key] = struct{}{}
+	m.cancelledOrder = append(m.cancelledOrder, key)
+	if len(m.cancelledOrder) <= maxCancelledOutcomes {
+		return
+	}
+	oldest := m.cancelledOrder[0]
+	m.cancelledOrder = m.cancelledOrder[1:]
+	delete(m.cancelled, oldest)
 }
 
 // Close removes active partials and releases the staging-directory handle.

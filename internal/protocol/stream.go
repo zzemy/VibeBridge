@@ -44,6 +44,7 @@ const (
 	ClientStreamMessageAttachmentChunk
 	ClientStreamMessageAttachmentComplete
 	ClientStreamMessageAttachmentCancel
+	ClientStreamMessageAttachmentTransferStatusRequest
 	ClientStreamMessageAttachmentPromptPrepare
 	ClientStreamMessageAttachmentPromptCommit
 	ClientStreamMessageAttachmentPromptCancel
@@ -219,6 +220,15 @@ func (s *AgentStream) DecodeClientMessage(encoded []byte) (ClientStreamMessage, 
 		}
 		message.Kind = ClientStreamMessageAttachmentCancel
 		message.TransferID = append([]byte(nil), payload.AttachmentCancel.TransferId...)
+	case *vibebridgev1.Envelope_AttachmentTransferStatusRequest:
+		if !s.attachmentTransfer {
+			return ClientStreamMessage{}, errors.New("attachment transfer was not negotiated")
+		}
+		if payload.AttachmentTransferStatusRequest == nil || !validAttachmentTransferID(payload.AttachmentTransferStatusRequest.TransferId) {
+			return ClientStreamMessage{}, errors.New("AttachmentTransferStatusRequest has invalid transfer metadata")
+		}
+		message.Kind = ClientStreamMessageAttachmentTransferStatusRequest
+		message.TransferID = append([]byte(nil), payload.AttachmentTransferStatusRequest.TransferId...)
 	case *vibebridgev1.Envelope_AttachmentPromptPrepare:
 		if !s.attachmentPromptAction {
 			return ClientStreamMessage{}, errors.New("attachment prompt action was not negotiated")
@@ -410,6 +420,37 @@ func (s *AgentStream) EncodeProcessExit(outcome vibebridgev1.ProcessExitOutcome,
 	}
 	return s.encodeLocked(&vibebridgev1.Envelope{Payload: &vibebridgev1.Envelope_ProcessExit{ProcessExit: &vibebridgev1.ProcessExit{
 		Outcome: outcome,
+	}}}, sentAt)
+}
+
+// EncodeAttachmentTransferStatus reports read-only, session-local transfer state.
+func (s *AgentStream) EncodeAttachmentTransferStatus(transferID []byte, disposition vibebridgev1.AttachmentTransferDisposition, nextOffsetBytes uint64, sentAt time.Time) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.attachmentTransfer {
+		return nil, errors.New("attachment transfer was not negotiated")
+	}
+	if s.sessionResume && !s.sessionBound {
+		return nil, errors.New("session must be bound before AttachmentTransferStatus")
+	}
+	if !validAttachmentTransferID(transferID) {
+		return nil, errors.New("attachment transfer ID is invalid")
+	}
+	switch disposition {
+	case vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_ACTIVE:
+	case vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_UNKNOWN,
+		vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_COMPLETED,
+		vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_CANCELLED:
+		if nextOffsetBytes != 0 {
+			return nil, errors.New("non-active attachment transfer status cannot carry an offset")
+		}
+	default:
+		return nil, errors.New("attachment transfer disposition is invalid")
+	}
+	return s.encodeLocked(&vibebridgev1.Envelope{Payload: &vibebridgev1.Envelope_AttachmentTransferStatus{AttachmentTransferStatus: &vibebridgev1.AttachmentTransferStatus{
+		TransferId:      append([]byte(nil), transferID...),
+		Disposition:     disposition,
+		NextOffsetBytes: nextOffsetBytes,
 	}}}, sentAt)
 }
 

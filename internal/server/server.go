@@ -507,6 +507,15 @@ func (s *Server) readClientMessages(session *ptySession, writer *websocketWriter
 					if err := writer.commitProtocolV1ClientMessage(streamMessage, true); err != nil {
 						return
 					}
+				case protocolv1.ClientStreamMessageAttachmentTransferStatusRequest:
+					outcome, err := session.attachmentOutcome(streamMessage.TransferID)
+					if err != nil {
+						_ = writer.writeError(vibebridgev1.ErrorCode_ERROR_CODE_ATTACHMENT_TRANSFER_FAILED)
+						return
+					}
+					if err := writer.respondProtocolV1AttachmentTransferStatus(streamMessage, outcome); err != nil {
+						return
+					}
 				case protocolv1.ClientStreamMessageAttachmentPromptPrepare:
 					result, err := session.prepareAttachmentPrompt(streamMessage)
 					if err != nil {
@@ -814,6 +823,20 @@ func (s *ptySession) applyAttachmentMessage(message protocolv1.ClientStreamMessa
 	// A rejected operation is not committed to the ordered stream. Abandon its
 	// active partial so the client can reconnect and retry the whole file.
 	return errors.Join(operationErr, manager.Cancel(message.TransferID))
+}
+
+func (s *ptySession) attachmentOutcome(transferID []byte) (attachment.TransferOutcome, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.attachmentMu.Lock()
+	defer s.attachmentMu.Unlock()
+	if s.lifecycle.state == sessionStateEnding || s.lifecycle.done() || s.attachmentsClosed {
+		return attachment.TransferOutcome{}, errors.New("attachment transfers are closed for this session")
+	}
+	if s.attachmentManager == nil {
+		return attachment.TransferOutcome{Disposition: attachment.TransferDispositionUnknown}, nil
+	}
+	return s.attachmentManager.Outcome(transferID)
 }
 
 func (s *ptySession) prepareAttachmentPrompt(message protocolv1.ClientStreamMessage) (promptaction.PrepareResult, error) {
@@ -1248,6 +1271,32 @@ func (w *websocketWriter) highestProtocolV1OutboundSequence() uint64 {
 		return 0
 	}
 	return w.protocolV1.HighestOutboundSequence()
+}
+
+func (w *websocketWriter) respondProtocolV1AttachmentTransferStatus(message protocolv1.ClientStreamMessage, outcome attachment.TransferOutcome) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.protocolV1.CommitClientMessage(message); err != nil {
+		return err
+	}
+	var disposition vibebridgev1.AttachmentTransferDisposition
+	switch outcome.Disposition {
+	case attachment.TransferDispositionUnknown:
+		disposition = vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_UNKNOWN
+	case attachment.TransferDispositionActive:
+		disposition = vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_ACTIVE
+	case attachment.TransferDispositionCompleted:
+		disposition = vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_COMPLETED
+	case attachment.TransferDispositionCancelled:
+		disposition = vibebridgev1.AttachmentTransferDisposition_ATTACHMENT_TRANSFER_DISPOSITION_CANCELLED
+	default:
+		return errors.New("attachment transfer outcome is invalid")
+	}
+	encoded, err := w.protocolV1.EncodeAttachmentTransferStatus(message.TransferID, disposition, outcome.NextOffsetBytes, w.currentTime())
+	if err != nil {
+		return err
+	}
+	return w.conn.WriteMessage(websocket.BinaryMessage, encoded)
 }
 
 func (w *websocketWriter) respondProtocolV1AttachmentPromptPrepare(message protocolv1.ClientStreamMessage, result promptaction.PrepareResult) error {
