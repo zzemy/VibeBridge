@@ -134,6 +134,16 @@ func (s *SessionStaging) recordCompletedBytes(size uint64) {
 	s.mu.Unlock()
 }
 
+func (s *SessionStaging) releaseCompletedBytes(size uint64) {
+	s.mu.Lock()
+	if size <= s.completedBytesReserved {
+		s.completedBytesReserved -= size
+	} else {
+		s.completedBytesReserved = 0
+	}
+	s.mu.Unlock()
+}
+
 func claimTransferManager(staging *SessionStaging) error {
 	if staging == nil {
 		return errors.New("session staging is required")

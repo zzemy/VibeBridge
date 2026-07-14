@@ -26,6 +26,7 @@ const (
 	contentSniffBytes   = 512
 
 	maxPromptActionAttachments = 10
+	maxDiscardAttachments      = 10
 	maxCancelledOutcomes       = 256
 )
 
@@ -402,6 +403,58 @@ func (m *Manager) CompletedAttachments(transferIDs [][]byte) ([]CompletedAttachm
 	return completed, nil
 }
 
+// Discard idempotently removes one validated transfer batch, including published
+// files, and releases its session quota. The complete selection is validated
+// before any filesystem mutation; a partial filesystem failure remains safe to
+// retry because already-absent entries are successful outcomes.
+func (m *Manager) Discard(transferIDs [][]byte) error {
+	if m == nil {
+		return ErrManagerClosed
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || m.closing {
+		return ErrManagerClosed
+	}
+	if len(transferIDs) == 0 {
+		return ErrInvalidAttachmentSelection
+	}
+	if len(transferIDs) > maxDiscardAttachments {
+		return ErrAttachmentSelectionLimit
+	}
+
+	seen := make(map[string]struct{}, len(transferIDs))
+	for _, transferID := range transferIDs {
+		if !validTransferID(transferID) {
+			return ErrInvalidTransfer
+		}
+		key := string(transferID)
+		if _, exists := seen[key]; exists {
+			return ErrDuplicateAttachment
+		}
+		seen[key] = struct{}{}
+	}
+
+	for _, transferID := range transferIDs {
+		key := string(transferID)
+		if transfer, active := m.active[key]; active {
+			if err := m.cleanupActiveTransferLocked(transfer); err != nil {
+				return fmt.Errorf("discard active attachment transfer: %w", err)
+			}
+			m.releaseActiveLocked(key, transfer)
+		}
+		if completed, exists := m.completed[key]; exists {
+			if err := m.directory.remove(filepath.Base(completed.RelativePath)); err != nil {
+				return fmt.Errorf("discard completed attachment transfer: %w", err)
+			}
+			delete(m.completed, key)
+			m.releaseCompletedLocked(completed.SizeBytes)
+		}
+		m.recordCancelledLocked(key)
+	}
+	return nil
+}
+
 // Cancel idempotently removes an active partial; completed files remain for session cleanup.
 func (m *Manager) Cancel(transferID []byte) error {
 	if m == nil {
@@ -431,9 +484,15 @@ func (m *Manager) Cancel(transferID []byte) error {
 
 func (m *Manager) recordCancelledLocked(key string) {
 	if _, exists := m.cancelled[key]; exists {
-		return
+		for index, existing := range m.cancelledOrder {
+			if existing == key {
+				m.cancelledOrder = append(m.cancelledOrder[:index], m.cancelledOrder[index+1:]...)
+				break
+			}
+		}
+	} else {
+		m.cancelled[key] = struct{}{}
 	}
-	m.cancelled[key] = struct{}{}
 	m.cancelledOrder = append(m.cancelledOrder, key)
 	if len(m.cancelledOrder) <= maxCancelledOutcomes {
 		return
@@ -515,6 +574,15 @@ func (m *Manager) cleanupActiveTransferLocked(transfer *activeTransfer) error {
 		}
 	}
 	return m.directory.remove(transfer.partialName)
+}
+
+func (m *Manager) releaseCompletedLocked(size uint64) {
+	if size <= m.reservedBytes {
+		m.reservedBytes -= size
+	} else {
+		m.reservedBytes = 0
+	}
+	m.staging.releaseCompletedBytes(size)
 }
 
 func (m *Manager) releaseActiveLocked(key string, transfer *activeTransfer) {
