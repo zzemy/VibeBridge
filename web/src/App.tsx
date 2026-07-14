@@ -475,7 +475,7 @@ export function App() {
       complete: (transferId) => send(protocolStream.createAttachmentComplete(transferId)),
       cancel: (transferId) => send(protocolStream.createAttachmentCancel(transferId)),
     };
-    await transferAttachments(files, sender, signal, onProgress);
+    await transferAttachments(files, sender, signal, onProgress, protocolStream.maxAttachmentChunkBytes());
   }, []);
 
   const sendInput = useCallback((data: string) => {
