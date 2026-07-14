@@ -105,6 +105,7 @@ describe("attachment transfer", () => {
     let acknowledgeChunk: () => void = () => { throw new Error("chunk acknowledgement was not initialized"); };
     const beginAcknowledged = new Promise<void>((resolve) => { acknowledgeBegin = resolve; });
     const chunkAcknowledged = new Promise<void>((resolve) => { acknowledgeChunk = resolve; });
+    let completedTransferId: Uint8Array | undefined;
     const sender: AttachmentTransferSender = {
       async begin(request) {
         calls.push(`begin:${request.displayName}:${request.totalSizeBytes}`);
@@ -118,6 +119,7 @@ describe("attachment transfer", () => {
         await chunkAcknowledged;
       },
       async complete(transferId) {
+        completedTransferId = transferId;
         calls.push(`complete:${transferId.byteLength}`);
       },
       async cancel() {
@@ -133,8 +135,13 @@ describe("attachment transfer", () => {
     await vi.waitFor(() => expect(calls).toEqual(["begin:notes.md:5", "chunk:0:5"]));
     expect(progress).not.toHaveBeenCalled();
     acknowledgeChunk();
-    await transfer;
+    const completedIds = await transfer;
 
+    expect(completedIds).toHaveLength(1);
+    expect(completedIds[0]).toEqual(completedTransferId);
+    const firstCompletedByte = completedTransferId?.[0];
+    if (completedIds[0]) completedIds[0][0] ^= 255;
+    expect(completedTransferId?.[0]).toBe(firstCompletedByte);
     expect(calls).toEqual(["begin:notes.md:5", "chunk:0:5", "complete:16"]);
     expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({
       fileName: "notes.md",

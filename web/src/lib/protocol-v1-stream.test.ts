@@ -4,6 +4,8 @@ import { describe, expect, test } from "vitest";
 
 import {
   AcknowledgementSchema,
+  AttachmentPromptDisposition,
+  AttachmentPromptPreviewSchema,
   ErrorCode,
   ErrorSchema,
   EnvelopeSchema,
@@ -369,6 +371,90 @@ describe("Protocol V1 sequenced terminal stream", () => {
       data: new Uint8Array(protocolV1MaxAttachmentChunkBytes + 1),
       chunkSha256: hash,
     }, sentAt)).toThrow("invalid offset, size, or checksum");
+  });
+
+  test("encodes trusted prompt operations and accepts the Agent exact preview", () => {
+    const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, {
+      attachmentTransfer: true,
+      attachmentPromptAction: true,
+    });
+    const actionId = Uint8Array.from({ length: 16 }, (_, index) => index + 32);
+    const transferIds = [new Uint8Array([1, 2]), new Uint8Array([3, 4])];
+
+    const prepareResult = stream.createAttachmentPromptPrepare({
+      actionId,
+      transferIds,
+      prompt: "Review these files",
+      appendEnter: true,
+    }, sentAt);
+    const prepare = fromBinary(EnvelopeSchema, prepareResult.encoded);
+    expect(prepareResult.sequence).toBe(2n);
+    expect(prepare.payload.case).toBe("attachmentPromptPrepare");
+    if (prepare.payload.case !== "attachmentPromptPrepare") throw new Error("expected attachment prompt prepare");
+    expect(prepare.payload.value).toMatchObject({ prompt: "Review these files", appendEnter: true });
+    expect(prepare.payload.value.actionId).toEqual(actionId);
+    expect(prepare.payload.value.transferIds).toEqual(transferIds);
+
+    const previewBytes = agentEnvelope(2n, 2n, {
+      case: "attachmentPromptPreview",
+      value: create(AttachmentPromptPreviewSchema, {
+        actionId,
+        disposition: AttachmentPromptDisposition.PREPARED,
+        preview: "Review these files ./uploads/a.md ./uploads/b.md",
+        appendEnter: true,
+      }),
+    });
+    const preview = stream.acceptAgentMessage(previewBytes);
+    expect(preview).toEqual({
+      type: "attachment-prompt-preview",
+      actionId,
+      disposition: AttachmentPromptDisposition.PREPARED,
+      preview: "Review these files ./uploads/a.md ./uploads/b.md",
+      appendEnter: true,
+    });
+    if (preview.type !== "attachment-prompt-preview") throw new Error("expected attachment prompt preview");
+    preview.actionId[0] = 255;
+    expect(actionId[0]).toBe(32);
+
+    const commit = fromBinary(EnvelopeSchema, stream.createAttachmentPromptCommit(actionId, sentAt).encoded);
+    const cancel = fromBinary(EnvelopeSchema, stream.createAttachmentPromptCancel(actionId, sentAt).encoded);
+    expect(commit.payload.case).toBe("attachmentPromptCommit");
+    expect(cancel.payload.case).toBe("attachmentPromptCancel");
+    expect(stream.usesAttachmentPromptAction()).toBe(true);
+  });
+
+  test("rejects malformed or unnegotiated attachment prompt actions", () => {
+    const actionId = new Uint8Array([9]);
+    const unavailable = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes);
+    expect(() => unavailable.createAttachmentPromptCommit(actionId, sentAt)).toThrow("not negotiated");
+    expect(() => unavailable.acceptAgentMessage(agentEnvelope(2n, 1n, {
+      case: "attachmentPromptPreview",
+      value: create(AttachmentPromptPreviewSchema, {
+        actionId,
+        disposition: AttachmentPromptDisposition.PREPARED,
+        preview: "safe preview",
+      }),
+    }))).toThrow("not valid");
+
+    const stream = new ProtocolV1ClientStream(connectionId, protocolV1MaxEnvelopeBytes, {
+      attachmentTransfer: true,
+      attachmentPromptAction: true,
+    });
+    expect(() => stream.createAttachmentPromptPrepare({
+      actionId,
+      transferIds: [new Uint8Array([1]), new Uint8Array([1])],
+      prompt: "Review",
+      appendEnter: false,
+    }, sentAt)).toThrow("unique");
+    expect(() => stream.acceptAgentMessage(agentEnvelope(2n, 1n, {
+      case: "attachmentPromptPreview",
+      value: create(AttachmentPromptPreviewSchema, {
+        actionId,
+        disposition: AttachmentPromptDisposition.COMMITTED,
+        preview: "must be empty",
+        appendEnter: true,
+      }),
+    }))).toThrow("committed");
   });
 
 });

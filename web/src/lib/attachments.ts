@@ -102,13 +102,14 @@ export async function transferAttachments(
   signal: AbortSignal,
   onProgress: (progress: AttachmentTransferProgress) => void,
   maxChunkBytes = protocolV1MaxAttachmentChunkBytes,
-): Promise<void> {
+): Promise<Uint8Array[]> {
   if (!Number.isInteger(maxChunkBytes) || maxChunkBytes <= 0 || maxChunkBytes > protocolV1MaxAttachmentChunkBytes) {
     throw new Error("Attachment chunk limit is invalid");
   }
   const metadata = validateAttachmentSelection(files);
   const totalSizeBytes = metadata.reduce((total, item) => total + item.totalSizeBytes, 0);
   let completedBytes = 0;
+  const completedTransferIds: Uint8Array[] = [];
 
   for (const [fileIndex, file] of files.entries()) {
     throwIfAborted(signal);
@@ -155,6 +156,7 @@ export async function transferAttachments(
 
       throwIfAborted(signal);
       await sender.complete(transferId, signal);
+      completedTransferIds.push(transferId.slice());
       completedBytes += file.size;
     } catch (error) {
       if (began) {
@@ -167,6 +169,7 @@ export async function transferAttachments(
       throw error;
     }
   }
+  return completedTransferIds;
 }
 
 export function formatAttachmentBytes(bytes: number): string {
