@@ -137,6 +137,11 @@ Exit gate:
 - Lost-phone recovery is documented and tested.
 - Cryptographic design has an independent review before remote exposure.
 
+Current status (2026-07-15):
+
+- In progress. The Agent now has protected persistent Ed25519/X25519 identity state, canonical signed descriptors, deterministic Go/TypeScript identity and invitation vectors, atomic cross-process first creation, one active five-minute/single-use invitation, local authorization versions, monotonic revocation epochs, and a local authenticated tray management page for invitation display and device revocation.
+- The Phase 4 exit gate is not met. The phone-facing encrypted pairing transport, complete Noise transcript/SAS, Agent approval, browser device key storage, paired-session authorization, revoked-session rejection, recovery drill, and independent cryptographic review remain required. Current terminal access still uses the legacy per-run bearer token.
+
 ## Phase 5: Direct and Self-Hosted Remote Transport
 
 Goal: run the same E2EE session protocol outside the LAN.

@@ -29,11 +29,11 @@ License names were checked from module/package metadata and bundled license file
 | `github.com/mdp/qrterminal/v3` | `v3.2.1` | Terminal QR rendering | MIT |
 | `github.com/u-root/u-root` | `v0.16.0` | Unix process/PTY support used by `go-pty` | BSD-3-Clause |
 | `golang.org/x/crypto` | `v0.51.0` | Transitive SSH/terminal support | BSD-3-Clause |
-| `golang.org/x/sys` | `v0.47.0` | Windows Job Objects and platform syscalls | BSD-3-Clause |
+| `golang.org/x/sys` | `v0.47.0` | Windows Job Objects, DPAPI, file locking, and platform syscalls | BSD-3-Clause |
 | `golang.org/x/term` | `v0.43.0` | Transitive terminal support | BSD-3-Clause |
 | `rsc.io/qr` | `v0.2.0` | Terminal and local tray pairing-page QR encoding | BSD-3-Clause |
 
-The generated protocol package uses `google.golang.org/protobuf` `v1.36.11` (BSD-3-Clause). It is reachable from the Agent through negotiated Protocol V1 Hello, sequenced terminal I/O, acknowledgement, session-resume, terminal resize/end, process-exit, stable error, and application health paths; the legacy adapter remains available only for staged compatibility.
+The generated protocol package uses `google.golang.org/protobuf` `v1.36.11` (BSD-3-Clause). It is reachable from the Agent through negotiated Protocol V1 Hello, sequenced terminal I/O, acknowledgement, session-resume, terminal resize/end, process-exit, stable error, application health, signed device-descriptor, authorization, and pairing-invitation paths; the legacy terminal adapter remains available only for staged compatibility.
 
 `github.com/creack/pty` and `github.com/u-root/u-root` are reachable only in Unix builds; Windows builds use the ConPTY implementation, `fyne.io/systray`, and `golang.org/x/sys/windows`. `github.com/godbus/dbus/v5` is imported by the cross-platform systray package; its D-Bus behavior is used on Unix rather than by the Windows tray adapter. The table is the union of Windows and Linux `go list -deps` results.
 
