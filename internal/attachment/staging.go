@@ -4,9 +4,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 
 	"github.com/zzemy/VibeBridge/internal/workspace"
 )
@@ -24,8 +27,9 @@ type SessionStaging struct {
 	workspaceRoot string
 	path          string
 
-	mu      sync.Mutex
-	cleaned bool
+	mu              sync.Mutex
+	cleaned         bool
+	openDirectories int
 }
 
 // CreateSessionStaging creates a new, empty staging directory beneath the
@@ -37,7 +41,7 @@ func CreateSessionStaging(workspaceRoot string, sessionID []byte) (*SessionStagi
 	}
 	currentRoot, err := workspace.RevalidateDirectory(workspaceRoot, "")
 	if err != nil {
-		return nil, fmt.Errorf("validate staging workspace: %w", err)
+		return nil, errors.New("validate staging workspace failed")
 	}
 
 	metadataDirectory := filepath.Join(currentRoot, metadataDirectoryName)
@@ -79,6 +83,9 @@ func (s *SessionStaging) Cleanup() error {
 	defer s.mu.Unlock()
 	if s.cleaned {
 		return nil
+	}
+	if s.openDirectories > 0 {
+		return errors.New("session staging directory is still in use")
 	}
 
 	uploadsDirectory := filepath.Dir(s.path)
@@ -133,7 +140,7 @@ func ensureCanonicalDirectory(workspaceRoot string, path string) error {
 func validateCanonicalDirectory(workspaceRoot string, path string) error {
 	canonical, err := workspace.RevalidateDirectory(workspaceRoot, path)
 	if err != nil {
-		return err
+		return errors.New("staging path boundary is invalid")
 	}
 	if filepath.Clean(canonical) != filepath.Clean(path) {
 		return errors.New("staging path component must be canonical")
@@ -143,17 +150,39 @@ func validateCanonicalDirectory(workspaceRoot string, path string) error {
 
 type pathOperationError struct {
 	operation string
-	err       error
+	cause     error
 }
 
 func newPathOperationError(operation string, err error) error {
-	return pathOperationError{operation: operation, err: err}
+	return pathOperationError{operation: operation, cause: safePathOperationCause(err)}
 }
 
 func (e pathOperationError) Error() string {
 	return e.operation + " failed"
 }
 
+// Unwrap preserves only path-free error classification. In particular, it
+// never exposes the Path field from os.PathError to callers or logs.
 func (e pathOperationError) Unwrap() error {
-	return e.err
+	return e.cause
+}
+
+func safePathOperationCause(err error) error {
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return errno
+	}
+	for _, sentinel := range []error{
+		fs.ErrInvalid,
+		fs.ErrPermission,
+		fs.ErrExist,
+		fs.ErrNotExist,
+		fs.ErrClosed,
+		io.ErrShortWrite,
+	} {
+		if errors.Is(err, sentinel) {
+			return sentinel
+		}
+	}
+	return nil
 }
