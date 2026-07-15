@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file vibebridge/v1/handshake.proto.
  */
 export const file_vibebridge_v1_handshake: GenFile = /*@__PURE__*/
-  fileDesc("Ch12aWJlYnJpZGdlL3YxL2hhbmRzaGFrZS5wcm90bxINdmliZWJyaWRnZS52MSKAAgoQSGFuZHNoYWtlQ29udGV4dBIWCg5zY2hlbWFfdmVyc2lvbhgBIAEoDRI4ChBwcm90b2NvbF92ZXJzaW9uGAIgASgLMh4udmliZWJyaWRnZS52MS5Qcm90b2NvbFZlcnNpb24SGwoTaW5pdGlhdG9yX2RldmljZV9pZBgDIAEoDBIbChNyZXNwb25kZXJfZGV2aWNlX2lkGAQgASgMEhkKEXJlbGF5X3RpY2tldF9oYXNoGAUgASgMEi4KBmludGVudBgGIAEoDjIeLnZpYmVicmlkZ2UudjEuSGFuZHNoYWtlSW50ZW50EhUKDWludml0YXRpb25faWQYByABKAwiUAoXUGFpcmluZ0luaXRpYXRvclBheWxvYWQSNQoGY2xpZW50GAEgASgLMiUudmliZWJyaWRnZS52MS5TaWduZWREZXZpY2VEZXNjcmlwdG9yIk8KF1BhaXJpbmdSZXNwb25kZXJQYXlsb2FkEjQKBWFnZW50GAEgASgLMiUudmliZWJyaWRnZS52MS5TaWduZWREZXZpY2VEZXNjcmlwdG9yIjMKFFBhaXJpbmdGaW5pc2hQYXlsb2FkEhsKE2luaXRpYXRvcl9kZXZpY2VfaWQYASABKAwiYAoVUGFpcmluZ0hhbmRzaGFrZVN0YXJ0EjAKB2NvbnRleHQYASABKAsyHy52aWJlYnJpZGdlLnYxLkhhbmRzaGFrZUNvbnRleHQSFQoNbm9pc2VfbWVzc2FnZRgCIAEoDCIxChhQYWlyaW5nSGFuZHNoYWtlUmVzcG9uc2USFQoNbm9pc2VfbWVzc2FnZRgBIAEoDCIvChZQYWlyaW5nSGFuZHNoYWtlRmluaXNoEhUKDW5vaXNlX21lc3NhZ2UYASABKAwqewoPSGFuZHNoYWtlSW50ZW50EiAKHEhBTkRTSEFLRV9JTlRFTlRfVU5TUEVDSUZJRUQQABIgChxIQU5EU0hBS0VfSU5URU5UX1BBSVJfREVWSUNFEAESJAogSEFORFNIQUtFX0lOVEVOVF9DT05UUk9MX1NFU1NJT04QAkI/Wj1naXRodWIuY29tL3p6ZW15L1ZpYmVCcmlkZ2UvZ2VuL2dvL3ZpYmVicmlkZ2UvdjE7dmliZWJyaWRnZXYxYgZwcm90bzM", [file_vibebridge_v1_envelope, file_vibebridge_v1_identity]);
+  fileDesc("Ch12aWJlYnJpZGdlL3YxL2hhbmRzaGFrZS5wcm90bxINdmliZWJyaWRnZS52MSKAAgoQSGFuZHNoYWtlQ29udGV4dBIWCg5zY2hlbWFfdmVyc2lvbhgBIAEoDRI4ChBwcm90b2NvbF92ZXJzaW9uGAIgASgLMh4udmliZWJyaWRnZS52MS5Qcm90b2NvbFZlcnNpb24SGwoTaW5pdGlhdG9yX2RldmljZV9pZBgDIAEoDBIbChNyZXNwb25kZXJfZGV2aWNlX2lkGAQgASgMEhkKEXJlbGF5X3RpY2tldF9oYXNoGAUgASgMEi4KBmludGVudBgGIAEoDjIeLnZpYmVicmlkZ2UudjEuSGFuZHNoYWtlSW50ZW50EhUKDWludml0YXRpb25faWQYByABKAwiUAoXUGFpcmluZ0luaXRpYXRvclBheWxvYWQSNQoGY2xpZW50GAEgASgLMiUudmliZWJyaWRnZS52MS5TaWduZWREZXZpY2VEZXNjcmlwdG9yIk8KF1BhaXJpbmdSZXNwb25kZXJQYXlsb2FkEjQKBWFnZW50GAEgASgLMiUudmliZWJyaWRnZS52MS5TaWduZWREZXZpY2VEZXNjcmlwdG9yIjMKFFBhaXJpbmdGaW5pc2hQYXlsb2FkEhsKE2luaXRpYXRvcl9kZXZpY2VfaWQYASABKAwiYAoVUGFpcmluZ0hhbmRzaGFrZVN0YXJ0EjAKB2NvbnRleHQYASABKAsyHy52aWJlYnJpZGdlLnYxLkhhbmRzaGFrZUNvbnRleHQSFQoNbm9pc2VfbWVzc2FnZRgCIAEoDCIxChhQYWlyaW5nSGFuZHNoYWtlUmVzcG9uc2USFQoNbm9pc2VfbWVzc2FnZRgBIAEoDCIvChZQYWlyaW5nSGFuZHNoYWtlRmluaXNoEhUKDW5vaXNlX21lc3NhZ2UYASABKAwiZgoPUGFpcmluZ0FwcHJvdmFsEjQKBnN0YXR1cxgBIAEoDjIkLnZpYmVicmlkZ2UudjEuUGFpcmluZ0FwcHJvdmFsU3RhdHVzEh0KFWF1dGhvcml6YXRpb25fdmVyc2lvbhgCIAEoBCp7Cg9IYW5kc2hha2VJbnRlbnQSIAocSEFORFNIQUtFX0lOVEVOVF9VTlNQRUNJRklFRBAAEiAKHEhBTkRTSEFLRV9JTlRFTlRfUEFJUl9ERVZJQ0UQARIkCiBIQU5EU0hBS0VfSU5URU5UX0NPTlRST0xfU0VTU0lPThACKrEBChVQYWlyaW5nQXBwcm92YWxTdGF0dXMSJwojUEFJUklOR19BUFBST1ZBTF9TVEFUVVNfVU5TUEVDSUZJRUQQABIjCh9QQUlSSU5HX0FQUFJPVkFMX1NUQVRVU19QRU5ESU5HEAESJAogUEFJUklOR19BUFBST1ZBTF9TVEFUVVNfQVBQUk9WRUQQAhIkCiBQQUlSSU5HX0FQUFJPVkFMX1NUQVRVU19SRUpFQ1RFRBADQj9aPWdpdGh1Yi5jb20venplbXkvVmliZUJyaWRnZS9nZW4vZ28vdmliZWJyaWRnZS92MTt2aWJlYnJpZGdldjFiBnByb3RvMw", [file_vibebridge_v1_envelope, file_vibebridge_v1_identity]);
 
 /**
  * HandshakeContext is deterministic transcript data agreed outside Noise.
@@ -189,6 +189,31 @@ export const PairingHandshakeFinishSchema: GenMessage<PairingHandshakeFinish> = 
   messageDesc(file_vibebridge_v1_handshake, 6);
 
 /**
+ * PairingApproval reports the local Agent approval decision. authorization_version
+ * is populated only for an approved, durably persisted client authorization.
+ *
+ * @generated from message vibebridge.v1.PairingApproval
+ */
+export type PairingApproval = Message<"vibebridge.v1.PairingApproval"> & {
+  /**
+   * @generated from field: vibebridge.v1.PairingApprovalStatus status = 1;
+   */
+  status: PairingApprovalStatus;
+
+  /**
+   * @generated from field: uint64 authorization_version = 2;
+   */
+  authorizationVersion: bigint;
+};
+
+/**
+ * Describes the message vibebridge.v1.PairingApproval.
+ * Use `create(PairingApprovalSchema)` to create a new message.
+ */
+export const PairingApprovalSchema: GenMessage<PairingApproval> = /*@__PURE__*/
+  messageDesc(file_vibebridge_v1_handshake, 7);
+
+/**
  * HandshakeIntent binds a Noise transcript to one narrowly-scoped operation.
  *
  * @generated from enum vibebridge.v1.HandshakeIntent
@@ -215,4 +240,38 @@ export enum HandshakeIntent {
  */
 export const HandshakeIntentSchema: GenEnum<HandshakeIntent> = /*@__PURE__*/
   enumDesc(file_vibebridge_v1_handshake, 0);
+
+/**
+ * PairingApprovalStatus is sent only inside the Noise transport after the
+ * handshake completes. It is never a plaintext WebSocket status signal.
+ *
+ * @generated from enum vibebridge.v1.PairingApprovalStatus
+ */
+export enum PairingApprovalStatus {
+  /**
+   * @generated from enum value: PAIRING_APPROVAL_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: PAIRING_APPROVAL_STATUS_PENDING = 1;
+   */
+  PENDING = 1,
+
+  /**
+   * @generated from enum value: PAIRING_APPROVAL_STATUS_APPROVED = 2;
+   */
+  APPROVED = 2,
+
+  /**
+   * @generated from enum value: PAIRING_APPROVAL_STATUS_REJECTED = 3;
+   */
+  REJECTED = 3,
+}
+
+/**
+ * Describes the enum vibebridge.v1.PairingApprovalStatus.
+ */
+export const PairingApprovalStatusSchema: GenEnum<PairingApprovalStatus> = /*@__PURE__*/
+  enumDesc(file_vibebridge_v1_handshake, 1);
 

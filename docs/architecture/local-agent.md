@@ -91,7 +91,7 @@ Every normal Agent startup loads or creates one durable device identity before s
 
 Windows protection uses current-user DPAPI, purpose-bound entropy, owner-local directories, bounded versioned envelopes, atomic replacement, and a cross-process creation lock. An existing unreadable or invalid file is never replaced with a new identity. Unix source builds currently use atomic mode-`0600` storage as a documented lower-assurance fallback until Secret Service/Keychain adapters are implemented.
 
-The tray management page is local-machine-only and token-authenticated. It creates fragment-only, expiring pairing bootstrap capabilities and displays persisted authorized/revoked clients. It does not make remote pairing operational by itself: the phone-facing encrypted pairing endpoint and approval handshake remain in the E2EE workstream.
+The tray management page is local-machine-only and token-authenticated. It creates fragment-only, expiring pairing bootstrap capabilities, displays persisted authorized/revoked clients, and shows the pending SAS with local approval/rejection controls. The phone-facing `/pairing/v1` endpoint completes the encrypted handshake and waits for this local decision; Relay is still required for off-network access.
 
 ## Local Storage
 

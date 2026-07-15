@@ -6,7 +6,7 @@ The Local Agent now generates and persists one random 16-byte device ID, Ed25519
 
 The Agent can issue one five-minute invitation at a time. Each contains a 128-bit invitation ID and 256-bit bootstrap secret, a new invitation supersedes the old one, and successful consumption is atomic and replay-safe. The full invitation is encoded only in the URL fragment. The Agent also persists client authorization versions and monotonic revocation epochs; its local authenticated management page can list and revoke devices.
 
-The cross-language `Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b` pairing core is implemented and validated against one shared transcript and directional-transport vector. It is still not an end-user pairing path: the advertised `/pairing/v1` connection hint does not yet accept the handshake, no local Agent approval or atomic authorization exchange occurs, and the browser client does not yet persist a trusted device. Legacy local terminal access therefore remains on the per-run bearer token and must not be exposed publicly.
+The cross-language `Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b` pairing core is implemented and validated against one shared transcript and directional-transport vector. The direct `/pairing/v1` path now accepts the binary-Protobuf handshake, derives the encrypted approval transport, and exposes the request to the local Agent tray/management UI. The browser removes the invitation fragment before decoding and persists a trusted Agent only after encrypted `APPROVED` with a positive authorization version. Relay and remote terminal control remain future work; the direct listener must not be exposed publicly.
 
 ## Identity Layers
 
@@ -35,7 +35,7 @@ Private keys are non-exportable where platform APIs allow it:
 - Windows: DPAPI or CNG-backed protected storage.
 - macOS: Keychain.
 - Linux: Secret Service when available, with an explicit file-permission fallback.
-- PWA: non-extractable Web Crypto keys in browser storage, documented as lower assurance than native secure storage.
+- PWA/browser MVP: Ed25519/X25519 private material and signed descriptors are stored in IndexedDB, documented as lower assurance than native secure storage. Hardware-backed or non-extractable browser key storage remains future work.
 
 ## Pairing Bootstrap
 

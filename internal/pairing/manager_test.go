@@ -212,3 +212,152 @@ func testAgent(t *testing.T) *deviceidentity.Store {
 	}
 	return agent
 }
+
+func TestReservationUsesEphemeralSecretCopyAndAllowsOnlyOneFlow(t *testing.T) {
+	agent := testAgent(t)
+	defer agent.Close()
+	manager, err := New(Config{Agent: agent, Now: func() time.Time { return fixedNow }, Random: bytes.NewReader(bytes.Repeat([]byte{0x61}, InvitationIDBytes+BootstrapSecretBytes))})
+	if err != nil {
+		t.Fatalf("create pairing manager: %v", err)
+	}
+	defer manager.Close()
+	invitation, err := manager.Create(nil)
+	if err != nil {
+		t.Fatalf("create invitation: %v", err)
+	}
+
+	var borrowed []byte
+	reservation, status, err := manager.Begin(invitation.InvitationId, func(secret []byte) error {
+		borrowed = secret
+		if !bytes.Equal(secret, invitation.BootstrapSecret) {
+			t.Fatal("reservation callback received the wrong bootstrap secret")
+		}
+		secret[0] ^= 0xff
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("begin pairing reservation: %v", err)
+	}
+	if reservation == nil || !status.Reserved {
+		t.Fatalf("reservation status = %#v/%v", status, reservation)
+	}
+	if !bytes.Equal(borrowed, make([]byte, BootstrapSecretBytes)) {
+		t.Fatal("borrowed bootstrap secret was not cleared after callback")
+	}
+	if _, _, err := manager.Begin(invitation.InvitationId, func([]byte) error { return nil }); !errors.Is(err, ErrInvitationInUse) {
+		t.Fatalf("second reservation error = %v, want in use", err)
+	}
+	if err := manager.Release(reservation); err != nil {
+		t.Fatalf("release pairing reservation: %v", err)
+	}
+	if _, _, err := manager.Begin(invitation.InvitationId, func(secret []byte) error {
+		if !bytes.Equal(secret, invitation.BootstrapSecret) {
+			t.Fatal("callback mutation changed the stored bootstrap secret")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("reserve released invitation: %v", err)
+	}
+}
+
+func TestReservationClearsSecretCopyWhenCallbackPanics(t *testing.T) {
+	agent := testAgent(t)
+	defer agent.Close()
+	manager, err := New(Config{Agent: agent, Now: func() time.Time { return fixedNow }, Random: bytes.NewReader(bytes.Repeat([]byte{0x64}, InvitationIDBytes+BootstrapSecretBytes))})
+	if err != nil {
+		t.Fatalf("create pairing manager: %v", err)
+	}
+	defer manager.Close()
+	invitation, err := manager.Create(nil)
+	if err != nil {
+		t.Fatalf("create invitation: %v", err)
+	}
+
+	var borrowed []byte
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("reservation callback panic did not propagate")
+			}
+		}()
+		_, _, _ = manager.Begin(invitation.InvitationId, func(secret []byte) error {
+			borrowed = secret
+			panic("callback failed")
+		})
+	}()
+	if !bytes.Equal(borrowed, make([]byte, BootstrapSecretBytes)) {
+		t.Fatal("bootstrap secret copy was not cleared during panic unwinding")
+	}
+	reservation, _, err := manager.Begin(invitation.InvitationId, func([]byte) error { return nil })
+	if err != nil || reservation == nil {
+		t.Fatalf("invitation was reserved by panicking callback: %v/%v", reservation, err)
+	}
+}
+
+func TestApprovalPersistsBeforeInvitationIsConsumed(t *testing.T) {
+	agent := testAgent(t)
+	defer agent.Close()
+	manager, err := New(Config{Agent: agent, Now: func() time.Time { return fixedNow }, Random: bytes.NewReader(bytes.Repeat([]byte{0x62}, InvitationIDBytes+BootstrapSecretBytes))})
+	if err != nil {
+		t.Fatalf("create pairing manager: %v", err)
+	}
+	defer manager.Close()
+	invitation, err := manager.Create(nil)
+	if err != nil {
+		t.Fatalf("create invitation: %v", err)
+	}
+	reservation, _, err := manager.Begin(invitation.InvitationId, func([]byte) error { return nil })
+	if err != nil {
+		t.Fatalf("begin pairing reservation: %v", err)
+	}
+
+	persistFailure := errors.New("disk unavailable")
+	if err := manager.Approve(reservation, func() error { return persistFailure }); !errors.Is(err, persistFailure) {
+		t.Fatalf("failed approval error = %v, want persistence failure", err)
+	}
+	status, err := manager.ActiveStatus()
+	if err != nil || !status.Reserved {
+		t.Fatalf("invitation after failed persistence = %#v/%v", status, err)
+	}
+	persisted := false
+	if err := manager.Approve(reservation, func() error {
+		persisted = true
+		return nil
+	}); err != nil {
+		t.Fatalf("approve pairing reservation: %v", err)
+	}
+	if !persisted {
+		t.Fatal("approval did not run persistence callback")
+	}
+	if _, err := manager.ActiveStatus(); !errors.Is(err, ErrInvitationUnavailable) {
+		t.Fatalf("status after approval = %v, want unavailable", err)
+	}
+	if err := manager.Approve(reservation, func() error { t.Fatal("replay ran persistence callback"); return nil }); !errors.Is(err, ErrInvitationUnavailable) {
+		t.Fatalf("replayed approval error = %v, want unavailable", err)
+	}
+}
+
+func TestSupersessionInvalidatesReservationBeforePersistence(t *testing.T) {
+	agent := testAgent(t)
+	defer agent.Close()
+	entropy := bytes.Repeat([]byte{0x63}, (InvitationIDBytes+BootstrapSecretBytes)*2)
+	manager, err := New(Config{Agent: agent, Now: func() time.Time { return fixedNow }, Random: bytes.NewReader(entropy)})
+	if err != nil {
+		t.Fatalf("create pairing manager: %v", err)
+	}
+	defer manager.Close()
+	first, err := manager.Create(nil)
+	if err != nil {
+		t.Fatalf("create invitation: %v", err)
+	}
+	reservation, _, err := manager.Begin(first.InvitationId, func([]byte) error { return nil })
+	if err != nil {
+		t.Fatalf("begin pairing reservation: %v", err)
+	}
+	if _, err := manager.Create(nil); err != nil {
+		t.Fatalf("supersede invitation: %v", err)
+	}
+	if err := manager.Approve(reservation, func() error { t.Fatal("stale reservation ran persistence callback"); return nil }); !errors.Is(err, ErrInvitationRejected) {
+		t.Fatalf("stale approval error = %v, want rejected", err)
+	}
+}
