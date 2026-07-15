@@ -1,5 +1,5 @@
 import { clone, create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { ed25519, x25519 } from "@noble/curves/ed25519.js";
+import { x25519 } from "@noble/curves/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import NoiseHandshake, { type NoiseCurve, type NoiseKeyPair } from "noise-handshake";
 import NoiseCipher from "noise-handshake/cipher";
@@ -20,20 +20,19 @@ import {
 } from "../gen/vibebridge/v1/handshake_pb";
 import {
   DeviceClass,
-  DeviceDescriptorSchema,
   SignedDeviceDescriptorSchema,
   type SignedDeviceDescriptor,
 } from "../gen/vibebridge/v1/identity_pb";
+import { verifySignedDeviceDescriptor } from "./device-descriptor";
+import { assertNoUnknownFields } from "./strict-protobuf";
 
 const pairingContextSchemaVersion = 1;
 const deviceIdBytes = 16;
 const keyBytes = 32;
-const signatureBytes = 64;
 const invitationIdBytes = 16;
 const maxNoiseMessageBytes = 65_535;
 const maxTransportPlaintextBytes = maxNoiseMessageBytes - 16;
 const maxBrowserNoiseNonce = 0xffff_ffff;
-const descriptorSignatureDomain = encodeUtf8("VibeBridge device descriptor v1\0");
 const pairingPrologueDomain = encodeUtf8("VibeBridge pairing prologue v1\0");
 const pairingSasDomain = encodeUtf8("VibeBridge pairing SAS v1\0");
 
@@ -84,8 +83,8 @@ export class PairingInitiator {
 
   constructor(config: PairingInitiatorConfig) {
     validatePairingContext(config.context);
-    verifySignedDescriptor(config.client);
-    verifySignedDescriptor(config.agent);
+    verifySignedDeviceDescriptor(config.client);
+    verifySignedDeviceDescriptor(config.agent);
     const client = requiredDescriptor(config.client);
     const agent = requiredDescriptor(config.agent);
     if (client.deviceClass !== DeviceClass.CLIENT || agent.deviceClass !== DeviceClass.AGENT) {
@@ -160,6 +159,7 @@ export class PairingInitiator {
         throw new Error("Agent Noise static key does not match the QR descriptor");
       }
       const payload = fromBinary(PairingResponderPayloadSchema, payloadBytes);
+      assertNoUnknownFields(payload);
       if (payload.agent === undefined
         || !equalBytes(toBinary(SignedDeviceDescriptorSchema, payload.agent), toBinary(SignedDeviceDescriptorSchema, this.#agent))) {
         throw new Error("Agent descriptor does not match the QR descriptor");
@@ -194,6 +194,11 @@ export class PairingInitiator {
       this.#fail();
       throw new Error("Pairing handshake is invalid");
     }
+  }
+
+  close() {
+    if (this.#state !== "complete") this.#state = "failed";
+    this.#clearSecrets();
   }
 
   #fail() {
@@ -262,63 +267,13 @@ export class PairingTransport {
   }
 }
 
-function verifySignedDescriptor(signed: SignedDeviceDescriptor) {
-  const descriptor = requiredDescriptor(signed);
-  validateDescriptor(descriptor);
-  if (signed.signature.byteLength !== signatureBytes) {
-    throw new Error("Device descriptor signature must be 64 bytes");
-  }
-  const message = concatBytes(descriptorSignatureDomain, toBinary(DeviceDescriptorSchema, descriptor));
-  // Protobuf fields decrypted by the CommonJS Noise library may retain a
-  // cross-realm Uint8Array prototype. Normalize at the noble boundary.
-  if (!ed25519.verify(
-    Uint8Array.from(signed.signature),
-    message,
-    Uint8Array.from(descriptor.signingPublicKey),
-    { zip215: false },
-  )) {
-    throw new Error("Device descriptor signature is invalid");
-  }
-}
-
-function validateDescriptor(descriptor: ReturnType<typeof requiredDescriptor>) {
-  if (descriptor.deviceId.byteLength !== deviceIdBytes
-    || descriptor.signingPublicKey.byteLength !== keyBytes
-    || descriptor.keyAgreementPublicKey.byteLength !== keyBytes) {
-    throw new Error("Device descriptor key or ID length is invalid");
-  }
-  // Reject low-order/non-canonical X25519 values through a public-key operation later;
-  // byte length and signed binding are the checks possible without a private scalar.
-  if (descriptor.displayName.length === 0 || descriptor.displayName.trim() !== descriptor.displayName
-    || new TextEncoder().encode(descriptor.displayName).byteLength > 128
-    || descriptor.platform.length === 0 || descriptor.platform.trim() !== descriptor.platform
-    || new TextEncoder().encode(descriptor.platform).byteLength > 32) {
-    throw new Error("Device descriptor metadata is invalid");
-  }
-  if (descriptor.deviceClass !== DeviceClass.AGENT && descriptor.deviceClass !== DeviceClass.CLIENT) {
-    throw new Error("Device descriptor class is invalid");
-  }
-  const createdAt = descriptor.createdAt;
-  if (createdAt === undefined || createdAt.seconds < -62_135_596_800n || createdAt.seconds > 253_402_300_799n
-    || createdAt.nanos < 0 || createdAt.nanos > 999_999_999 || (createdAt.seconds === 0n && createdAt.nanos === 0)) {
-    throw new Error("Device creation time is invalid");
-  }
-  if (descriptor.keyVersion === 0 || descriptor.supportedVersions === undefined
-    || descriptor.supportedVersions.minimum === undefined || descriptor.supportedVersions.maximum === undefined
-    || descriptor.supportedVersions.minimum.major === 0
-    || descriptor.supportedVersions.minimum.major !== descriptor.supportedVersions.maximum.major
-    || descriptor.supportedVersions.minimum.minor > descriptor.supportedVersions.maximum.minor) {
-    throw new Error("Device descriptor version is invalid");
-  }
-}
-
 function verifyPeerDescriptor(
   signed: SignedDeviceDescriptor,
   deviceClass: DeviceClass,
   deviceId: Uint8Array,
   context: HandshakeContext,
 ) {
-  verifySignedDescriptor(signed);
+  verifySignedDeviceDescriptor(signed);
   const descriptor = requiredDescriptor(signed);
   if (descriptor.deviceClass !== deviceClass || !equalBytes(descriptor.deviceId, deviceId)
     || !descriptorSupportsVersion(signed, context)) {

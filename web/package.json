@@ -11,10 +11,12 @@
     "preview": "vite preview",
     "proto:lint": "buf lint ../proto",
     "proto:generate": "buf generate ../proto --template ../buf.gen.yaml --output ..",
-    "proto:breaking": "buf breaking ../proto --against ../.git#branch=origin/main,subdir=proto"
+    "proto:breaking": "buf breaking ../proto --against ../.git#branch=origin/main,subdir=proto",
+    "test:e2e:pairing": "pnpm build && playwright test e2e/pairing.spec.ts"
   },
   "devDependencies": {
     "@bufbuild/buf": "1.71.0",
+    "@playwright/test": "1.61.1",
     "@tailwindcss/vite": "^4.3.2",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -22,6 +24,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "fake-indexeddb": "6.2.5",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.2",
     "typescript": "~7.0.2",
