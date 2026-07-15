@@ -33,6 +33,7 @@ var (
 	ErrInvitationUnavailable = errors.New("pairing invitation is not active")
 	ErrInvitationExpired     = errors.New("pairing invitation has expired")
 	ErrInvitationRejected    = errors.New("pairing invitation credentials were rejected")
+	ErrInvitationInUse       = errors.New("pairing invitation already has an active flow")
 )
 
 type descriptorSource interface {
@@ -58,8 +59,15 @@ type Manager struct {
 }
 
 type activeInvitation struct {
-	invitation *vibebridgev1.PairingInvitation
-	secret     []byte
+	invitation  *vibebridgev1.PairingInvitation
+	secret      []byte
+	reservation *Reservation
+}
+
+// Reservation is an opaque, process-local capability for one authenticated pairing flow.
+// It never contains the bootstrap secret.
+type Reservation struct {
+	manager *Manager
 }
 
 // Status deliberately omits the bootstrap secret.
@@ -68,6 +76,7 @@ type Status struct {
 	CreatedAt        time.Time
 	ExpiresAt        time.Time
 	VerificationCode string
+	Reserved         bool
 }
 
 func New(config Config) (*Manager, error) {
@@ -161,7 +170,80 @@ func (manager *Manager) ActiveStatus() (Status, error) {
 		CreatedAt:        invitation.CreatedAt.AsTime(),
 		ExpiresAt:        invitation.ExpiresAt.AsTime(),
 		VerificationCode: invitation.VerificationCode,
+		Reserved:         manager.active.reservation != nil,
 	}, nil
+}
+
+// Begin authenticates a pairing handshake through a short-lived secret callback and
+// reserves the active invitation for exactly one flow. The callback receives a
+// defensive copy that is cleared before Begin returns and must not re-enter Manager.
+func (manager *Manager) Begin(invitationID []byte, useSecret func([]byte) error) (*Reservation, Status, error) {
+	if useSecret == nil {
+		return nil, Status{}, errors.New("pairing secret callback is required")
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if err := manager.matchInvitationLocked(invitationID); err != nil {
+		return nil, Status{}, err
+	}
+	if manager.active.reservation != nil {
+		return nil, Status{}, ErrInvitationInUse
+	}
+	if err := useSecretCopy(manager.active.secret, useSecret); err != nil {
+		return nil, Status{}, err
+	}
+	reservation := &Reservation{manager: manager}
+	manager.active.reservation = reservation
+	invitation := manager.active.invitation
+	return reservation, Status{
+		InvitationID:     append([]byte(nil), invitation.InvitationId...),
+		CreatedAt:        invitation.CreatedAt.AsTime(),
+		ExpiresAt:        invitation.ExpiresAt.AsTime(),
+		VerificationCode: invitation.VerificationCode,
+		Reserved:         true,
+	}, nil
+}
+
+// Approve runs the durable authorization update while the exact invitation is
+// locked against supersession. The invitation is consumed only after persistence succeeds.
+func (manager *Manager) Approve(reservation *Reservation, persist func() error) error {
+	if persist == nil {
+		return errors.New("pairing approval persistence callback is required")
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if err := manager.validateReservationLocked(reservation); err != nil {
+		return err
+	}
+	if err := persist(); err != nil {
+		return err
+	}
+	manager.clearActiveLocked()
+	return nil
+}
+
+// Reject consumes the reserved invitation without authorizing its peer.
+func (manager *Manager) Reject(reservation *Reservation) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if err := manager.validateReservationLocked(reservation); err != nil {
+		return err
+	}
+	manager.clearActiveLocked()
+	return nil
+}
+
+// Release abandons a disconnected or failed flow while keeping the invitation
+// usable until its original expiry.
+func (manager *Manager) Release(reservation *Reservation) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if err := manager.validateReservationLocked(reservation); err != nil {
+		return err
+	}
+	manager.active.reservation = nil
+	reservation.manager = nil
+	return nil
 }
 
 // Authenticate verifies bootstrap credentials without consuming Agent approval state.
@@ -183,6 +265,16 @@ func (manager *Manager) Consume(invitationID []byte, secret []byte) error {
 }
 
 func (manager *Manager) authenticateLocked(invitationID []byte, secret []byte) error {
+	if err := manager.matchInvitationLocked(invitationID); err != nil {
+		return err
+	}
+	if len(secret) != BootstrapSecretBytes || subtle.ConstantTimeCompare(secret, manager.active.secret) != 1 {
+		return ErrInvitationRejected
+	}
+	return nil
+}
+
+func (manager *Manager) matchInvitationLocked(invitationID []byte) error {
 	if manager.active == nil {
 		return ErrInvitationUnavailable
 	}
@@ -190,9 +282,21 @@ func (manager *Manager) authenticateLocked(invitationID []byte, secret []byte) e
 		manager.clearActiveLocked()
 		return ErrInvitationExpired
 	}
-	if len(invitationID) != InvitationIDBytes || len(secret) != BootstrapSecretBytes ||
-		subtle.ConstantTimeCompare(invitationID, manager.active.invitation.InvitationId) != 1 ||
-		subtle.ConstantTimeCompare(secret, manager.active.secret) != 1 {
+	if len(invitationID) != InvitationIDBytes || subtle.ConstantTimeCompare(invitationID, manager.active.invitation.InvitationId) != 1 {
+		return ErrInvitationRejected
+	}
+	return nil
+}
+
+func (manager *Manager) validateReservationLocked(reservation *Reservation) error {
+	if manager.active == nil {
+		return ErrInvitationUnavailable
+	}
+	if !manager.now().Before(manager.active.invitation.ExpiresAt.AsTime()) {
+		manager.clearActiveLocked()
+		return ErrInvitationExpired
+	}
+	if reservation == nil || reservation.manager != manager || manager.active.reservation != reservation {
 		return ErrInvitationRejected
 	}
 	return nil
@@ -211,6 +315,9 @@ func (manager *Manager) clearActiveLocked() {
 	}
 	zero(manager.active.secret)
 	zero(manager.active.invitation.BootstrapSecret)
+	if manager.active.reservation != nil {
+		manager.active.reservation.manager = nil
+	}
 	manager.active = nil
 }
 
@@ -344,6 +451,12 @@ func validateConnectionHints(hints []string) error {
 		seen[hint] = struct{}{}
 	}
 	return nil
+}
+
+func useSecretCopy(secret []byte, callback func([]byte) error) (err error) {
+	copy := append([]byte(nil), secret...)
+	defer zero(copy)
+	return callback(copy)
 }
 
 func zero(value []byte) {

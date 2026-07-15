@@ -71,6 +71,60 @@ func (HandshakeIntent) EnumDescriptor() ([]byte, []int) {
 	return file_vibebridge_v1_handshake_proto_rawDescGZIP(), []int{0}
 }
 
+// PairingApprovalStatus is sent only inside the Noise transport after the
+// handshake completes. It is never a plaintext WebSocket status signal.
+type PairingApprovalStatus int32
+
+const (
+	PairingApprovalStatus_PAIRING_APPROVAL_STATUS_UNSPECIFIED PairingApprovalStatus = 0
+	PairingApprovalStatus_PAIRING_APPROVAL_STATUS_PENDING     PairingApprovalStatus = 1
+	PairingApprovalStatus_PAIRING_APPROVAL_STATUS_APPROVED    PairingApprovalStatus = 2
+	PairingApprovalStatus_PAIRING_APPROVAL_STATUS_REJECTED    PairingApprovalStatus = 3
+)
+
+// Enum value maps for PairingApprovalStatus.
+var (
+	PairingApprovalStatus_name = map[int32]string{
+		0: "PAIRING_APPROVAL_STATUS_UNSPECIFIED",
+		1: "PAIRING_APPROVAL_STATUS_PENDING",
+		2: "PAIRING_APPROVAL_STATUS_APPROVED",
+		3: "PAIRING_APPROVAL_STATUS_REJECTED",
+	}
+	PairingApprovalStatus_value = map[string]int32{
+		"PAIRING_APPROVAL_STATUS_UNSPECIFIED": 0,
+		"PAIRING_APPROVAL_STATUS_PENDING":     1,
+		"PAIRING_APPROVAL_STATUS_APPROVED":    2,
+		"PAIRING_APPROVAL_STATUS_REJECTED":    3,
+	}
+)
+
+func (x PairingApprovalStatus) Enum() *PairingApprovalStatus {
+	p := new(PairingApprovalStatus)
+	*p = x
+	return p
+}
+
+func (x PairingApprovalStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PairingApprovalStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_vibebridge_v1_handshake_proto_enumTypes[1].Descriptor()
+}
+
+func (PairingApprovalStatus) Type() protoreflect.EnumType {
+	return &file_vibebridge_v1_handshake_proto_enumTypes[1]
+}
+
+func (x PairingApprovalStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PairingApprovalStatus.Descriptor instead.
+func (PairingApprovalStatus) EnumDescriptor() ([]byte, []int) {
+	return file_vibebridge_v1_handshake_proto_rawDescGZIP(), []int{1}
+}
+
 // HandshakeContext is deterministic transcript data agreed outside Noise.
 // relay_ticket_hash is SHA-256 over the exact ticket bytes, including an empty
 // byte string when pairing directly. It prevents a valid exchange from being
@@ -445,6 +499,60 @@ func (x *PairingHandshakeFinish) GetNoiseMessage() []byte {
 	return nil
 }
 
+// PairingApproval reports the local Agent approval decision. authorization_version
+// is populated only for an approved, durably persisted client authorization.
+type PairingApproval struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Status               PairingApprovalStatus  `protobuf:"varint,1,opt,name=status,proto3,enum=vibebridge.v1.PairingApprovalStatus" json:"status,omitempty"`
+	AuthorizationVersion uint64                 `protobuf:"varint,2,opt,name=authorization_version,json=authorizationVersion,proto3" json:"authorization_version,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *PairingApproval) Reset() {
+	*x = PairingApproval{}
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PairingApproval) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PairingApproval) ProtoMessage() {}
+
+func (x *PairingApproval) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PairingApproval.ProtoReflect.Descriptor instead.
+func (*PairingApproval) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_handshake_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *PairingApproval) GetStatus() PairingApprovalStatus {
+	if x != nil {
+		return x.Status
+	}
+	return PairingApprovalStatus_PAIRING_APPROVAL_STATUS_UNSPECIFIED
+}
+
+func (x *PairingApproval) GetAuthorizationVersion() uint64 {
+	if x != nil {
+		return x.AuthorizationVersion
+	}
+	return 0
+}
+
 var File_vibebridge_v1_handshake_proto protoreflect.FileDescriptor
 
 const file_vibebridge_v1_handshake_proto_rawDesc = "" +
@@ -470,11 +578,19 @@ const file_vibebridge_v1_handshake_proto_rawDesc = "" +
 	"\x18PairingHandshakeResponse\x12#\n" +
 	"\rnoise_message\x18\x01 \x01(\fR\fnoiseMessage\"=\n" +
 	"\x16PairingHandshakeFinish\x12#\n" +
-	"\rnoise_message\x18\x01 \x01(\fR\fnoiseMessage*{\n" +
+	"\rnoise_message\x18\x01 \x01(\fR\fnoiseMessage\"\x84\x01\n" +
+	"\x0fPairingApproval\x12<\n" +
+	"\x06status\x18\x01 \x01(\x0e2$.vibebridge.v1.PairingApprovalStatusR\x06status\x123\n" +
+	"\x15authorization_version\x18\x02 \x01(\x04R\x14authorizationVersion*{\n" +
 	"\x0fHandshakeIntent\x12 \n" +
 	"\x1cHANDSHAKE_INTENT_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cHANDSHAKE_INTENT_PAIR_DEVICE\x10\x01\x12$\n" +
-	" HANDSHAKE_INTENT_CONTROL_SESSION\x10\x02B?Z=github.com/zzemy/VibeBridge/gen/go/vibebridge/v1;vibebridgev1b\x06proto3"
+	" HANDSHAKE_INTENT_CONTROL_SESSION\x10\x02*\xb1\x01\n" +
+	"\x15PairingApprovalStatus\x12'\n" +
+	"#PAIRING_APPROVAL_STATUS_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fPAIRING_APPROVAL_STATUS_PENDING\x10\x01\x12$\n" +
+	" PAIRING_APPROVAL_STATUS_APPROVED\x10\x02\x12$\n" +
+	" PAIRING_APPROVAL_STATUS_REJECTED\x10\x03B?Z=github.com/zzemy/VibeBridge/gen/go/vibebridge/v1;vibebridgev1b\x06proto3"
 
 var (
 	file_vibebridge_v1_handshake_proto_rawDescOnce sync.Once
@@ -488,31 +604,34 @@ func file_vibebridge_v1_handshake_proto_rawDescGZIP() []byte {
 	return file_vibebridge_v1_handshake_proto_rawDescData
 }
 
-var file_vibebridge_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_vibebridge_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_vibebridge_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_vibebridge_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_vibebridge_v1_handshake_proto_goTypes = []any{
 	(HandshakeIntent)(0),             // 0: vibebridge.v1.HandshakeIntent
-	(*HandshakeContext)(nil),         // 1: vibebridge.v1.HandshakeContext
-	(*PairingInitiatorPayload)(nil),  // 2: vibebridge.v1.PairingInitiatorPayload
-	(*PairingResponderPayload)(nil),  // 3: vibebridge.v1.PairingResponderPayload
-	(*PairingFinishPayload)(nil),     // 4: vibebridge.v1.PairingFinishPayload
-	(*PairingHandshakeStart)(nil),    // 5: vibebridge.v1.PairingHandshakeStart
-	(*PairingHandshakeResponse)(nil), // 6: vibebridge.v1.PairingHandshakeResponse
-	(*PairingHandshakeFinish)(nil),   // 7: vibebridge.v1.PairingHandshakeFinish
-	(*ProtocolVersion)(nil),          // 8: vibebridge.v1.ProtocolVersion
-	(*SignedDeviceDescriptor)(nil),   // 9: vibebridge.v1.SignedDeviceDescriptor
+	(PairingApprovalStatus)(0),       // 1: vibebridge.v1.PairingApprovalStatus
+	(*HandshakeContext)(nil),         // 2: vibebridge.v1.HandshakeContext
+	(*PairingInitiatorPayload)(nil),  // 3: vibebridge.v1.PairingInitiatorPayload
+	(*PairingResponderPayload)(nil),  // 4: vibebridge.v1.PairingResponderPayload
+	(*PairingFinishPayload)(nil),     // 5: vibebridge.v1.PairingFinishPayload
+	(*PairingHandshakeStart)(nil),    // 6: vibebridge.v1.PairingHandshakeStart
+	(*PairingHandshakeResponse)(nil), // 7: vibebridge.v1.PairingHandshakeResponse
+	(*PairingHandshakeFinish)(nil),   // 8: vibebridge.v1.PairingHandshakeFinish
+	(*PairingApproval)(nil),          // 9: vibebridge.v1.PairingApproval
+	(*ProtocolVersion)(nil),          // 10: vibebridge.v1.ProtocolVersion
+	(*SignedDeviceDescriptor)(nil),   // 11: vibebridge.v1.SignedDeviceDescriptor
 }
 var file_vibebridge_v1_handshake_proto_depIdxs = []int32{
-	8, // 0: vibebridge.v1.HandshakeContext.protocol_version:type_name -> vibebridge.v1.ProtocolVersion
-	0, // 1: vibebridge.v1.HandshakeContext.intent:type_name -> vibebridge.v1.HandshakeIntent
-	9, // 2: vibebridge.v1.PairingInitiatorPayload.client:type_name -> vibebridge.v1.SignedDeviceDescriptor
-	9, // 3: vibebridge.v1.PairingResponderPayload.agent:type_name -> vibebridge.v1.SignedDeviceDescriptor
-	1, // 4: vibebridge.v1.PairingHandshakeStart.context:type_name -> vibebridge.v1.HandshakeContext
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	10, // 0: vibebridge.v1.HandshakeContext.protocol_version:type_name -> vibebridge.v1.ProtocolVersion
+	0,  // 1: vibebridge.v1.HandshakeContext.intent:type_name -> vibebridge.v1.HandshakeIntent
+	11, // 2: vibebridge.v1.PairingInitiatorPayload.client:type_name -> vibebridge.v1.SignedDeviceDescriptor
+	11, // 3: vibebridge.v1.PairingResponderPayload.agent:type_name -> vibebridge.v1.SignedDeviceDescriptor
+	2,  // 4: vibebridge.v1.PairingHandshakeStart.context:type_name -> vibebridge.v1.HandshakeContext
+	1,  // 5: vibebridge.v1.PairingApproval.status:type_name -> vibebridge.v1.PairingApprovalStatus
+	6,  // [6:6] is the sub-list for method output_type
+	6,  // [6:6] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_vibebridge_v1_handshake_proto_init() }
@@ -527,8 +646,8 @@ func file_vibebridge_v1_handshake_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vibebridge_v1_handshake_proto_rawDesc), len(file_vibebridge_v1_handshake_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   7,
+			NumEnums:      2,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

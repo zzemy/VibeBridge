@@ -307,6 +307,16 @@ func AcceptPairingStart(config PairingResponderConfig, start *vibebridgev1.Pairi
 		proto.Clone(client).(*vibebridgev1.SignedDeviceDescriptor), nil
 }
 
+// Close clears an incomplete responder's static key material.
+func (responder *PairingResponder) Close() {
+	if responder == nil {
+		return
+	}
+	if responder.state != responderComplete {
+		responder.fail()
+	}
+}
+
 func (responder *PairingResponder) Finish(finish *vibebridgev1.PairingHandshakeFinish) (*PairingResult, error) {
 	if responder == nil || responder.state != responderAwaitingFinish || responder.handshake == nil {
 		return nil, ErrHandshakeState
@@ -457,7 +467,7 @@ func unmarshalBounded(encoded []byte, message proto.Message) error {
 	if len(encoded) == 0 || len(encoded) > maxNoiseMessageBytes {
 		return ErrInvalidHandshake
 	}
-	if err := (proto.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(encoded, message); err != nil {
+	if err := (proto.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(encoded, message); err != nil || protocol.HasUnknownFields(message) {
 		return ErrInvalidHandshake
 	}
 	return nil

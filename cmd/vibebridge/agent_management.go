@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -10,16 +11,21 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 	"github.com/zzemy/VibeBridge/internal/deviceidentity"
 	"github.com/zzemy/VibeBridge/internal/pairing"
+	"github.com/zzemy/VibeBridge/internal/pairingflow"
 	"rsc.io/qr"
 )
 
 const (
-	localPairingPath = "/agent/pair"
-	localRevokePath  = "/agent/devices/revoke"
+	localPairingPath        = "/agent/pair"
+	localPairingStatusPath  = "/agent/pairing/status"
+	localPairingApprovePath = "/agent/pairing/approve"
+	localPairingRejectPath  = "/agent/pairing/reject"
+	localRevokePath         = "/agent/devices/revoke"
 )
 
 var pairingPageTemplate = template.Must(template.New("pairing").Parse(`<!doctype html>
@@ -42,6 +48,9 @@ section { margin-top: 2rem; border-top: 1px solid #27272a; padding-top: 1.5rem; 
 .device { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .9rem 0; border-bottom: 1px solid #27272a; }
 .device p { margin: .2rem 0; }
 button { border: 1px solid #7f1d1d; border-radius: .5rem; color: #fecaca; background: #450a0a; padding: .55rem .8rem; cursor: pointer; }
+button.allow { border-color: #166534; color: #bbf7d0; background: #052e16; }
+.actions { display: flex; justify-content: center; gap: .75rem; }
+.approval { border: 1px solid #3f3f46; border-radius: 1rem; padding: 1.25rem; background: #18181b; }
 .badge { color: #86efac; }
 .badge.revoked { color: #a1a1aa; }
 details { margin-top: 1rem; }
@@ -50,13 +59,20 @@ details { margin-top: 1rem; }
 <body><main>
 <div class="hero">
 <h1>Pair a phone</h1>
-{{if .QRCode}}<img src="data:image/png;base64,{{.QRCode}}" alt="VibeBridge phone pairing QR code">
+{{if .Pending}}
+<div class="approval"><h2>Approve {{.Pending.Name}}</h2><p>{{.Pending.Platform}} is requesting access to this Agent.</p>
+<p>Confirm this code matches the phone</p><div class="verification">{{.Pending.SAS}}</div>
+{{if .Pending.CanDecide}}<div class="actions">
+<form method="post" action="/agent/pairing/approve?token={{.Token}}"><input type="hidden" name="flow_id" value="{{.Pending.FlowID}}"><button class="allow" type="submit">Allow</button></form>
+<form method="post" action="/agent/pairing/reject?token={{.Token}}"><input type="hidden" name="flow_id" value="{{.Pending.FlowID}}"><button type="submit">Reject</button></form>
+</div>{{else}}<p>Completing encrypted handshake...</p>{{end}}</div>
+{{else if .QRCode}}<img src="data:image/png;base64,{{.QRCode}}" alt="VibeBridge phone pairing QR code">
 <p>Connect the phone to the same trusted network, then scan this single-use code before <strong>{{.ExpiresAt}}</strong>.</p>
 <p>Agent fingerprint <code>{{.AgentFingerprint}}</code></p>
 <p>Verification code</p><div class="verification">{{.VerificationCode}}</div>
 <details><summary>Copy pairing link</summary><code>{{.Target}}</code></details>
 {{else}}<p>No private-network address is available. Connect this computer to your trusted network and try again.</p>{{end}}
-<p>The QR secret is valid for five minutes and is never a permanent credential. Final trust is stored only after the encrypted pairing handshake and explicit approval on this computer.</p>
+{{if not .Pending}}<p>The QR secret is valid for five minutes and is never a permanent credential. Final trust is stored only after the encrypted pairing handshake and explicit approval on this computer.</p>{{end}}
 </div>
 <section><h2>Paired devices</h2>
 {{if .Devices}}
@@ -74,6 +90,25 @@ type pairingPageData struct {
 	AgentFingerprint string
 	Token            string
 	Devices          []pairingDeviceRow
+	Pending          *pairingPendingRow
+}
+
+type pairingPendingRow struct {
+	FlowID    string
+	Name      string
+	Platform  string
+	SAS       string
+	ExpiresAt string
+	CanDecide bool
+}
+
+type localPairingStatus struct {
+	State       string `json:"state"`
+	FlowID      string `json:"flow_id,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	Platform    string `json:"platform,omitempty"`
+	SAS         string `json:"sas,omitempty"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
 }
 
 type pairingDeviceRow struct {
@@ -90,26 +125,31 @@ type agentManagement struct {
 	pairingBase string
 	pairing     *pairing.Manager
 	identity    *deviceidentity.Store
+	flows       *pairingflow.Coordinator
 }
 
-func newAgentHTTPHandler(application http.Handler, listenAddress string, token string, pairingManager *pairing.Manager, identity *deviceidentity.Store) (http.Handler, error) {
+func newAgentHTTPHandler(application http.Handler, listenAddress string, token string, pairingManager *pairing.Manager, identity *deviceidentity.Store, flows *pairingflow.Coordinator) (http.Handler, error) {
 	if application == nil {
 		return nil, errors.New("application handler must not be nil")
 	}
 	if token == "" {
 		return nil, errors.New("Agent management token must not be empty")
 	}
-	if pairingManager == nil || identity == nil {
+	if pairingManager == nil || identity == nil || flows == nil {
 		return nil, errors.New("Agent pairing dependencies must not be nil")
 	}
 	pairingBase, err := phonePairingBaseURL(listenAddress)
 	if err != nil {
 		return nil, err
 	}
-	management := &agentManagement{token: token, pairingBase: pairingBase, pairing: pairingManager, identity: identity}
+	management := &agentManagement{token: token, pairingBase: pairingBase, pairing: pairingManager, identity: identity, flows: flows}
 	mux := http.NewServeMux()
 	mux.Handle(localPairingPath, management.pairingPageHandler())
+	mux.Handle(localPairingStatusPath, management.pairingStatusHandler())
+	mux.Handle(localPairingApprovePath, management.pairingDecisionHandler(true))
+	mux.Handle(localPairingRejectPath, management.pairingDecisionHandler(false))
 	mux.Handle(localRevokePath, management.revokeDeviceHandler())
+	mux.Handle(pairingTransportPath, management.pairingTransportHandler())
 	mux.Handle("/", application)
 	return mux, nil
 }
@@ -127,6 +167,16 @@ func (management *agentManagement) pairingPageHandler() http.Handler {
 		}
 
 		data := pairingPageData{Token: url.QueryEscape(management.token)}
+		if pending, ok := management.flows.Current(); ok {
+			data.Pending = &pairingPendingRow{
+				FlowID:    pending.FlowID,
+				Name:      pending.DisplayName,
+				Platform:  pending.Platform,
+				SAS:       pending.SAS,
+				ExpiresAt: pending.ExpiresAt.Local().Format("15:04:05"),
+				CanDecide: pending.State == pairingflow.StatePending,
+			}
+		}
 		descriptor, err := management.identity.Descriptor()
 		if err != nil {
 			http.Error(writer, "could not read Agent identity", http.StatusInternalServerError)
@@ -142,7 +192,7 @@ func (management *agentManagement) pairingPageHandler() http.Handler {
 			http.Error(writer, "could not read paired devices", http.StatusInternalServerError)
 			return
 		}
-		if management.pairingBase != "" {
+		if management.pairingBase != "" && data.Pending == nil {
 			connectionHint := strings.TrimSuffix(management.pairingBase, "/") + "/pairing/v1"
 			invitation, createErr := management.pairing.Create([]string{connectionHint})
 			if createErr != nil {
@@ -165,6 +215,72 @@ func (management *agentManagement) pairingPageHandler() http.Handler {
 		}
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = pairingPageTemplate.Execute(writer, data)
+	})
+}
+
+func (management *agentManagement) pairingStatusHandler() http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		setManagementHeaders(writer, false)
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !authorizeLocalManagement(writer, request, management.token) {
+			return
+		}
+		status := localPairingStatus{State: "idle"}
+		if pending, ok := management.flows.Current(); ok {
+			status = localPairingStatus{
+				State:       string(pending.State),
+				FlowID:      pending.FlowID,
+				DisplayName: pending.DisplayName,
+				Platform:    pending.Platform,
+				SAS:         pending.SAS,
+				ExpiresAt:   pending.ExpiresAt.UTC().Format(time.RFC3339),
+			}
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(status)
+	})
+}
+
+func (management *agentManagement) pairingDecisionHandler(approve bool) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		setManagementHeaders(writer, true)
+		if request.Method != http.MethodPost {
+			writer.Header().Set("Allow", http.MethodPost)
+			http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !authorizeLocalManagement(writer, request, management.token) {
+			return
+		}
+		request.Body = http.MaxBytesReader(writer, request.Body, 4096)
+		if err := request.ParseForm(); err != nil {
+			http.Error(writer, "invalid pairing decision", http.StatusBadRequest)
+			return
+		}
+		flowID := request.PostForm.Get("flow_id")
+		decoded, err := base64.RawURLEncoding.DecodeString(flowID)
+		if err != nil || len(decoded) != deviceidentity.DeviceIDBytes {
+			http.Error(writer, "invalid pairing flow ID", http.StatusBadRequest)
+			return
+		}
+		if approve {
+			err = management.flows.Approve(flowID)
+		} else {
+			err = management.flows.Reject(flowID)
+		}
+		if err != nil {
+			if errors.Is(err, pairingflow.ErrFlowUnavailable) || errors.Is(err, pairingflow.ErrFlowState) {
+				http.Error(writer, "pairing flow is no longer available", http.StatusConflict)
+				return
+			}
+			http.Error(writer, "could not persist pairing decision", http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(writer, request, localPairingPath+"?token="+url.QueryEscape(management.token), http.StatusSeeOther)
 	})
 }
 

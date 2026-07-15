@@ -151,11 +151,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+
+test("renders a cleared invalid pairing route instead of opening a terminal socket", async () => {
+  render(<App pairingEntry={{ kind: "invalid", message: "Pairing link payload is invalid" }} />);
+
+  expect(await screen.findByText("This code cannot be used")).toBeTruthy();
+  expect(screen.getByText("Pairing link payload is invalid")).toBeTruthy();
+  expect(FakeWebSocket.instances).toHaveLength(0);
+});
+
 test("requires confirmation before ending a session", async () => {
   const user = userEvent.setup();
   render(<App />);
 
-  await user.click(screen.getByRole("button", { name: "End" }));
+  await user.click(await screen.findByRole("button", { name: "End" }));
   expect(screen.getByRole("heading", { name: "End this terminal session?" })).toBeTruthy();
 
   await user.click(screen.getByRole("button", { name: "Keep session" }));
