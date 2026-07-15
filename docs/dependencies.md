@@ -49,7 +49,7 @@ The generated protocol package uses `google.golang.org/protobuf` `v1.36.11` (BSD
 | `clsx`, `tailwind-merge` | Class composition | MIT |
 | `@bufbuild/protobuf` | Generated Protocol V1 TypeScript runtime | Apache-2.0 AND BSD-3-Clause |
 
-`@bufbuild/buf` `1.71.0` is an Apache-2.0 development-only schema lint and generation tool. Its platform-specific official binary installer is the only dependency build script allowlisted in `web/pnpm-workspace.yaml`; Go and TypeScript generator plugin versions are pinned in `buf.gen.yaml`.
+`@playwright/test` `1.61.1` is an Apache-2.0 development-only real-browser pairing test tool. `@bufbuild/buf` `1.71.0` is an Apache-2.0 development-only schema lint and generation tool. Its platform-specific official binary installer is the only dependency build script allowlisted in `web/pnpm-workspace.yaml`; Go and TypeScript generator plugin versions are pinned in `buf.gen.yaml`.
 
 The production web dependency closure currently reports only MIT, ISC, Apache-2.0, and 0BSD license families. Build/test-only dependencies additionally include BSD-3-Clause, CC0-1.0, BlueOak-1.0.0, and MPL-2.0 packages; the MPL-2.0 Lightning CSS tooling is not shipped as source in the generated web bundle.
 
