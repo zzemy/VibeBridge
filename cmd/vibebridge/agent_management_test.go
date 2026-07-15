@@ -17,6 +17,7 @@ import (
 	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 	"github.com/zzemy/VibeBridge/internal/deviceidentity"
 	"github.com/zzemy/VibeBridge/internal/pairing"
+	"github.com/zzemy/VibeBridge/internal/pairingflow"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -175,7 +176,12 @@ func testAgentHTTPHandler(t *testing.T, application http.Handler, address string
 		t.Fatalf("create pairing manager: %v", err)
 	}
 	t.Cleanup(pairingManager.Close)
-	handler, err := newAgentHTTPHandler(application, address, "secret-token", pairingManager, identity)
+	flows, err := pairingflow.New(pairingflow.Config{Invitations: pairingManager, Identity: identity})
+	if err != nil {
+		identity.Close()
+		t.Fatalf("create pairing flow coordinator: %v", err)
+	}
+	handler, err := newAgentHTTPHandler(application, address, "secret-token", pairingManager, identity, flows)
 	if err != nil {
 		identity.Close()
 		t.Fatalf("create Agent handler: %v", err)

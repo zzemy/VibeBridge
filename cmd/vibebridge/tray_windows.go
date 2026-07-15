@@ -40,7 +40,15 @@ func runAgentTray(options agentTrayOptions) error {
 		statusItem.Disable()
 		systray.AddSeparator()
 		openItem := systray.AddMenuItem("Open VibeBridge", "Open the local terminal workspace")
-		pairItem := systray.AddMenuItem("Pair a phone…", "Show the local pairing QR code")
+		pairItem := systray.AddMenuItem("Pair a phone...", "Show the local pairing QR code")
+		pairingRequestItem := systray.AddMenuItem("No pairing request", "Authenticated phone awaiting local approval")
+		pairingRequestItem.Disable()
+		pairingCodeItem := systray.AddMenuItem("Verification code · —", "Compare this SAS with the phone")
+		pairingCodeItem.Disable()
+		allowPairingItem := systray.AddMenuItem("Allow phone", "Authorize the pending phone")
+		allowPairingItem.Disable()
+		rejectPairingItem := systray.AddMenuItem("Reject phone", "Reject and consume the pairing invitation")
+		rejectPairingItem.Disable()
 		systray.AddSeparator()
 		transportItem := systray.AddMenuItem("Remote access · local only", "Relay access is not configured yet")
 		transportItem.Disable()
@@ -54,15 +62,60 @@ func runAgentTray(options agentTrayOptions) error {
 		go func() {
 			ticker := time.NewTicker(options.StatusPeriod)
 			defer ticker.Stop()
+			currentFlowID := ""
+			setPairingIdle := func(title string) {
+				currentFlowID = ""
+				pairingRequestItem.SetTitle(title)
+				pairingCodeItem.SetTitle("Verification code · —")
+				allowPairingItem.Disable()
+				rejectPairingItem.Disable()
+			}
 			refresh := func() {
 				ctx, cancel := context.WithTimeout(context.Background(), trayStatusTimeout)
-				status, err := queryTrayStatus(ctx, options.StatusURL)
+				status, statusErr := queryTrayStatus(ctx, options.StatusURL)
 				cancel()
-				if err != nil {
+				if statusErr != nil {
 					statusItem.SetTitle("Agent unavailable")
+				} else {
+					statusItem.SetTitle(status)
+				}
+
+				ctx, cancel = context.WithTimeout(context.Background(), trayStatusTimeout)
+				pairingStatus, pairingErr := queryTrayPairingStatus(ctx, options.PairingStatusURL)
+				cancel()
+				if pairingErr != nil {
+					setPairingIdle("Pairing status unavailable")
 					return
 				}
-				statusItem.SetTitle(status)
+				switch pairingStatus.State {
+				case "idle":
+					setPairingIdle("No pairing request")
+				case "handshaking":
+					currentFlowID = pairingStatus.FlowID
+					pairingRequestItem.SetTitle("Pairing · " + pairingStatus.DisplayName)
+					pairingCodeItem.SetTitle("Completing encrypted handshake...")
+					allowPairingItem.Disable()
+					rejectPairingItem.Disable()
+				case "pending":
+					currentFlowID = pairingStatus.FlowID
+					pairingRequestItem.SetTitle("Approve · " + pairingStatus.DisplayName)
+					pairingCodeItem.SetTitle("Verification code · " + pairingStatus.SAS)
+					allowPairingItem.Enable()
+					rejectPairingItem.Enable()
+				}
+			}
+			postDecision := func(endpoint string) {
+				if currentFlowID == "" {
+					return
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), trayStatusTimeout)
+				err := postTrayPairingDecision(ctx, endpoint, currentFlowID)
+				cancel()
+				if err != nil {
+					pairingRequestItem.SetTitle("Pairing decision failed")
+					return
+				}
+				refresh()
 			}
 			refresh()
 			for {
@@ -73,6 +126,10 @@ func runAgentTray(options agentTrayOptions) error {
 					_ = openTrayURL(options.AppURL)
 				case <-pairItem.ClickedCh:
 					_ = openTrayURL(options.PairingURL)
+				case <-allowPairingItem.ClickedCh:
+					postDecision(options.PairingApproveURL)
+				case <-rejectPairingItem.ClickedCh:
+					postDecision(options.PairingRejectURL)
 				case <-exitItem.ClickedCh:
 					if confirmAgentExit() {
 						options.RequestStop()

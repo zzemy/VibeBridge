@@ -128,12 +128,15 @@ The durable Agent identity defaults to `%LOCALAPPDATA%\VibeBridge\identity.json`
 
 - Each run creates a cryptographically random session token. WebSocket connections without that token are rejected.
 - The tray pairing page is local-machine-only and requires that per-run management token. Its QR contains a signed Agent descriptor and a 256-bit bootstrap secret only after the URL `#` fragment, so the secret is not sent in an HTTP request target.
+- The phone-facing `/pairing/v1` endpoint performs a binary-Protobuf Noise `XXpsk0` handshake, displays the SAS, and waits for explicit local approval or rejection from the tray/local page. Approval persists the browser descriptor and authorization version on both sides; rejection creates no trust.
 - Only one pairing invitation is active at a time; it expires after five minutes, a newer invitation supersedes it, and successful approval will consume it exactly once. Device authorization and revocation state is persisted with monotonic versions and revocation epochs.
 - Browser WebSocket connections must be same-origin. Native clients without an `Origin` header remain supported.
 - One browser controls a PTY at a time. A short disconnect keeps the session alive for `--reconnect-timeout`.
 - The server sends WebSocket Ping control frames every four minutes. Browsers reply with Pong automatically, preventing idle connections from being closed by the five-minute read deadline.
 - Sending `Ctrl+C` to the VibeBridge process or receiving `SIGTERM` closes the active PTY before the HTTP server exits.
 - `GET /status?token=...` reports the session state, start time, last activity time, and configured timeouts without exposing terminal output or the configured command.
+
+The browser pairing route removes the QR fragment with `history.replaceState` before decoding. Bootstrap material remains memory-only in the browser, is not written to `localStorage` or `sessionStorage`, and is cleared when the pairing attempt ends. Browser device identity and trusted-Agent records currently use IndexedDB; this is an MVP storage boundary and is lower assurance than native hardware-backed key storage.
 
 Terminal bytes and ANSI sequences are preserved in WebSocket binary frames. Negotiated Protocol V1 peers carry terminal input, terminal output, acknowledgements, `AttachSession`, and `SessionStatus` in binary Protobuf envelopes. Every physical WebSocket starts new sequence state; a reconnect supplies the prior session identity, generation, and highest processed Agent sequence. If the exact checkpoint or complete bounded replay is unavailable, the Agent returns `RESYNC_REQUIRED` and the browser clears stale terminal history before showing the retained tail. Peers that negotiate `terminal.resize_end_v1` also send `TerminalResize` and `EndSession` as ordered Protobuf envelopes; dimensions must be integers from 1 through 65,535. Without that capability, resize and explicit end retain their JSON adapter. Peers that negotiate `session.process_exit_v1` receive an ordered `ProcessExit` with only `SUCCESS` or `FAILURE`; the host process error is never sent in that payload. Peers that negotiate `control.error_v1` receive ordered `Error` envelopes containing only an allowlisted code; the browser derives safe user-facing copy from each code. A startup or occupied-session error may arrive before `SessionStatus` with empty session metadata, and it does not bind the resumable stream. Peers that negotiate `control.health_v1` exchange ordered empty `Ping` and `Pong` envelopes after resume-enabled session binding, while non-resumable ordered streams may use them after Hello; the Agent's Pong acknowledgement covers the client Ping. Peers without these capabilities retain safe JSON adapters. Protocol framing, negotiation, sequence, and metadata failures close with WebSocket code `1002`; negotiated controls must not fall back to JSON. Legacy peers continue to use raw binary output and JSON input.
 
@@ -194,9 +197,9 @@ The resulting binary contains the React frontend and does not require `web/dist`
 ## Current Limitations
 
 - One browser client can control a session at a time.
-- Terminal access still uses a per-run bearer token and transport is not encrypted by VibeBridge itself. The new device identity, pairing invitation, and revocation foundations do **not** yet expose the phone-facing encrypted `/pairing/v1` endpoint; scanning the tray invitation is not a completed pairing flow until the E2EE handshake and client UI land.
+- Direct pairing now uses Noise E2EE and local approval, but terminal access still uses the legacy per-run bearer token and is not yet bound to the paired device identity. Relay and encrypted remote control-session transport remain required before public-internet use.
 - The browser does not yet schedule Protocol V1 application health probes.
-- Public relay, native mobile clients, file attachments, and packaged releases are roadmap work, not current features.
+- Public Relay, paired-device terminal authorization, native mobile clients, file attachments, and packaged releases are roadmap work, not current features.
 
 ## License
 
