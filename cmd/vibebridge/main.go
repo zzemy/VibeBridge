@@ -24,6 +24,7 @@ import (
 	"github.com/zzemy/VibeBridge/internal/agentservice"
 	"github.com/zzemy/VibeBridge/internal/deviceidentity"
 	"github.com/zzemy/VibeBridge/internal/pairing"
+	"github.com/zzemy/VibeBridge/internal/pairingflow"
 	"github.com/zzemy/VibeBridge/internal/server"
 )
 
@@ -118,6 +119,10 @@ func runAgent(args []string) error {
 		return fmt.Errorf("initialize pairing manager: %w", err)
 	}
 	defer pairingManager.Close()
+	pairingFlows, err := pairingflow.New(pairingflow.Config{Invitations: pairingManager, Identity: identity})
+	if err != nil {
+		return fmt.Errorf("initialize pairing flow coordinator: %w", err)
+	}
 
 	app := server.New(server.Config{
 		SessionToken:          token,
@@ -140,7 +145,7 @@ func runAgent(args []string) error {
 		return fmt.Errorf("start HTTP listener on %s: %w", options.addr, err)
 	}
 	listenAddress := listener.Addr().String()
-	handler, err := newAgentHTTPHandler(app.Handler(), listenAddress, token, pairingManager, identity)
+	handler, err := newAgentHTTPHandler(app.Handler(), listenAddress, token, pairingManager, identity, pairingFlows)
 	if err != nil {
 		_ = listener.Close()
 		app.Close()
@@ -212,6 +217,10 @@ func runAgent(args []string) error {
 	var result stopResult
 	if *tray {
 		appURL, pairingURL, statusURL, err := trayURLs(listenAddress, token)
+		pairingStatusURL, pairingApproveURL, pairingRejectURL, pairingURLErr := trayPairingURLs(listenAddress, token)
+		if err == nil {
+			err = pairingURLErr
+		}
 		if err != nil {
 			requestStop()
 			result = waitForStop()
@@ -223,11 +232,14 @@ func runAgent(args []string) error {
 				requestAgentTrayQuit()
 			}()
 			trayErr := runAgentTray(agentTrayOptions{
-				AppURL:       appURL,
-				PairingURL:   pairingURL,
-				StatusURL:    statusURL,
-				RequestStop:  requestStop,
-				StatusPeriod: 2 * time.Second,
+				AppURL:            appURL,
+				PairingURL:        pairingURL,
+				StatusURL:         statusURL,
+				PairingStatusURL:  pairingStatusURL,
+				PairingApproveURL: pairingApproveURL,
+				PairingRejectURL:  pairingRejectURL,
+				RequestStop:       requestStop,
+				StatusPeriod:      2 * time.Second,
 			})
 			if trayErr != nil {
 				requestStop()

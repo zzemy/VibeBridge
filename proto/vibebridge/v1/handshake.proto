@@ -58,3 +58,19 @@ message PairingHandshakeResponse {
 message PairingHandshakeFinish {
   bytes noise_message = 1;
 }
+
+// PairingApprovalStatus is sent only inside the Noise transport after the
+// handshake completes. It is never a plaintext WebSocket status signal.
+enum PairingApprovalStatus {
+  PAIRING_APPROVAL_STATUS_UNSPECIFIED = 0;
+  PAIRING_APPROVAL_STATUS_PENDING = 1;
+  PAIRING_APPROVAL_STATUS_APPROVED = 2;
+  PAIRING_APPROVAL_STATUS_REJECTED = 3;
+}
+
+// PairingApproval reports the local Agent approval decision. authorization_version
+// is populated only for an approved, durably persisted client authorization.
+message PairingApproval {
+  PairingApprovalStatus status = 1;
+  uint64 authorization_version = 2;
+}
