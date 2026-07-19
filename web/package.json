@@ -15,9 +15,9 @@
     "test:e2e:pairing": "pnpm build && playwright test e2e/pairing.spec.ts"
   },
   "devDependencies": {
-    "@bufbuild/buf": "1.71.0",
+    "@bufbuild/buf": "1.72.0",
     "@playwright/test": "1.61.1",
-    "@tailwindcss/vite": "^4.3.2",
+    "@tailwindcss/vite": "^4.3.3",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "26.1.1",
@@ -26,9 +26,9 @@
     "@vitejs/plugin-react": "^6.0.3",
     "fake-indexeddb": "6.2.5",
     "jsdom": "^29.1.1",
-    "tailwindcss": "^4.3.2",
+    "tailwindcss": "^4.3.3",
     "typescript": "~7.0.2",
-    "vite": "^8.1.4",
+    "vite": "^8.1.5",
     "vitest": "^4.1.10"
   },
   "dependencies": {
@@ -41,7 +41,7 @@
     "@xterm/xterm": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.24.0",
+    "lucide-react": "^1.25.0",
     "noise-handshake": "4.2.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
