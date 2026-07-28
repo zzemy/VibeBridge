@@ -1,0 +1,127 @@
+# Single-node docker-compose for the VibeBridge relay (viberelay).
+#
+# Layout:
+#   viberelay      required - the WebSocket switchboard + control plane
+#   caddy          optional - reverse proxy that terminates TLS in front
+#                            of the relay. Uncomment the service and the
+#                            matching volume mounts to enable.
+#
+# Quick start:
+#   1. Create a .env file next to this compose file:
+#        VIBERELAY_ADMIN_TOKEN=$(openssl rand -hex 32)
+#        # If you enable the caddy service:
+#        # CADDY_DOMAIN=relay.example.com
+#   2. `docker compose up -d viberelay`
+#   3. `docker compose logs viberelay` and copy the printed issuer
+#      public key. Hand that key to whoever mints tickets (the agent,
+#      or a separate control plane).
+#   4. Open the WebSocket port (8788) on the host firewall so peers
+#      can reach the relay.
+#
+# The relay's issuer key is persisted in the named volume
+# `relay-data` so a container restart does not generate a new key
+# (which would invalidate every outstanding ticket).
+
+services:
+  viberelay:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vibebridge/viberelay:local
+    container_name: viberelay
+    restart: unless-stopped
+
+    # The relay default is 0.0.0.0:8788. We bind to the host's LAN
+    # interface by mapping 8788 directly. The agent side needs no
+    # change: it already speaks to viberelay on 8788.
+    ports:
+      - "8788:8788"
+      # The ticket issuance control plane is bound to host
+      # loopback only; exposing it on the LAN would let any
+      # network resident mint tickets. Override the bind address
+      # below if you intentionally want a network-reachable
+      # control plane (you almost certainly do not).
+      - "127.0.0.1:8789:8789"
+
+    # Flags are spelled out instead of relying on env vars so the
+    # operator can see exactly what the container runs. Adjust
+    # --allowed-origin to the URL your agent reaches the relay
+    # under; repeat the flag for multiple origins.
+    command:
+      - --addr=0.0.0.0:8788
+      - --admin-addr=0.0.0.0:8789
+      - --issuer-key=/data/issuer.key
+      - --allowed-origin=https://agent.example.com
+
+    environment:
+      # The compose runtime resolves this from the .env file. The
+      # `:?` operator forces the operator to set it before the
+      # container can start, which is the right place to fail.
+      VIBERELAY_ADMIN_TOKEN: ${VIBERELAY_ADMIN_TOKEN:?set VIBERELAY_ADMIN_TOKEN in .env}
+
+    volumes:
+      # The named volume holds the Ed25519 issuer key. Back this up
+      # the same way you would back up a TLS private key: losing it
+      # means every issued ticket becomes unverifiable.
+      - relay-data:/data
+
+    # Defensive resource caps. viberelay is a small Go binary; even
+    # 256 MB of memory is generous for thousands of concurrent
+    # routes. The reservation gives the scheduler a stable floor
+    # so the container does not get cold-swapped.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+        reservations:
+          cpus: "0.2"
+          memory: 64M
+
+    healthcheck:
+      # The relay has no dedicated /health endpoint, so we ask it
+      # to print its resolved config and exit 0. `--diagnose`
+      # reads the issuer key and validates the bind addresses
+      # without actually serving traffic, so it is a cheap proxy
+      # for "is the binary and the key still healthy".
+      test: ["CMD", "/usr/local/bin/viberelay", "--diagnose",
+             "--addr=0.0.0.0:8788", "--admin-addr=0.0.0.0:8789",
+             "--issuer-key=/data/issuer.key"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      # JSON-line driver so the log shipper of your choice can
+      # pick the relay's structured events up without parsing
+      # free-form text.
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional reverse proxy. Uncomment to terminate TLS in front of
+  # the relay; the relay itself only speaks plaintext WebSocket.
+  #
+  # caddy:
+  #   image: caddy:2-alpine
+  #   container_name: viberelay-caddy
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy-data:/data
+  #     - caddy-config:/config
+  #   environment:
+  #     CADDY_DOMAIN: ${CADDY_DOMAIN:?set CADDY_DOMAIN in .env when enabling caddy}
+  #   depends_on:
+  #     viberelay:
+  #       condition: service_healthy
+
+volumes:
+  relay-data:
+  # caddy-data:
+  # caddy-config:

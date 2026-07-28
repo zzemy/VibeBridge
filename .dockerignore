@@ -1,0 +1,51 @@
+# Files excluded from the Docker build context. viberelay only needs
+# the Go module, the gen/ tree, and internal/ + cmd/. Everything below
+# is either unused at build time, generated at build time, or
+# sensitive to leak via a published image layer.
+
+# Local VibeBridge agent build artifacts. The agent is a separate
+# binary; copying it into the relay image is wasted bandwidth.
+/vibebridge.exe
+/vibebridge
+/bin/
+/dist/
+
+# Web UI sources and build artifacts. viberelay serves no UI.
+/web/
+/web/dist/
+
+# Operator-local state and configuration. The .vibebridge directory
+# is what the bare-metal agent uses for the per-user store; the
+# container has its own /data volume.
+/.vibibebridge/
+/.vibebridge/
+/config.local.json
+/data/
+
+# VCS, CI, editor scratch. Not needed in the image and they grow the
+# build context significantly when present.
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# Test outputs and profiling traces.
+/coverage.out
+/cover.out
+*.test
+*.out
+*.prof
+/.vibebridge-test/
+
+# Documentation and meta files. The relay image does not need them
+# and they would only bloat the build context.
+/README.md
+/LICENSE
+/SECURITY.md
+/CONTRIBUTING.md
+/docs/
+/proto/
+
+# Generated protobuf code is needed (the relay imports the
+# vibebridgev1 package), so /gen is NOT excluded. Tests and the
+# web/ folders that share /gen are excluded via the rules above.
