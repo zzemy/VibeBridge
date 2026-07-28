@@ -553,6 +553,269 @@ func (x *PairingApproval) GetAuthorizationVersion() uint64 {
 	return 0
 }
 
+// SessionInitiatorPayload is encrypted by IK message one. It carries the
+// client signed descriptor, the revocation epoch the client last saw, and
+// the capabilities it intends to use. The Agent verifies the peer static key
+// against the stored authorized record and rejects revoked, unknown, or
+// regressed devices.
+type SessionInitiatorPayload struct {
+	state                protoimpl.MessageState  `protogen:"open.v1"`
+	Client               *SignedDeviceDescriptor `protobuf:"bytes,1,opt,name=client,proto3" json:"client,omitempty"`
+	KnownRevocationEpoch uint64                  `protobuf:"varint,2,opt,name=known_revocation_epoch,json=knownRevocationEpoch,proto3" json:"known_revocation_epoch,omitempty"`
+	Capabilities         []string                `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *SessionInitiatorPayload) Reset() {
+	*x = SessionInitiatorPayload{}
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionInitiatorPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionInitiatorPayload) ProtoMessage() {}
+
+func (x *SessionInitiatorPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionInitiatorPayload.ProtoReflect.Descriptor instead.
+func (*SessionInitiatorPayload) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_handshake_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *SessionInitiatorPayload) GetClient() *SignedDeviceDescriptor {
+	if x != nil {
+		return x.Client
+	}
+	return nil
+}
+
+func (x *SessionInitiatorPayload) GetKnownRevocationEpoch() uint64 {
+	if x != nil {
+		return x.KnownRevocationEpoch
+	}
+	return 0
+}
+
+func (x *SessionInitiatorPayload) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+// SessionResponderPayload is encrypted by IK message two. It carries the
+// Agent signed descriptor and the current revocation epoch so the client
+// can detect a later epoch than it knew about.
+type SessionResponderPayload struct {
+	state           protoimpl.MessageState  `protogen:"open.v1"`
+	Agent           *SignedDeviceDescriptor `protobuf:"bytes,1,opt,name=agent,proto3" json:"agent,omitempty"`
+	RevocationEpoch uint64                  `protobuf:"varint,2,opt,name=revocation_epoch,json=revocationEpoch,proto3" json:"revocation_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SessionResponderPayload) Reset() {
+	*x = SessionResponderPayload{}
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionResponderPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionResponderPayload) ProtoMessage() {}
+
+func (x *SessionResponderPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionResponderPayload.ProtoReflect.Descriptor instead.
+func (*SessionResponderPayload) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_handshake_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SessionResponderPayload) GetAgent() *SignedDeviceDescriptor {
+	if x != nil {
+		return x.Agent
+	}
+	return nil
+}
+
+func (x *SessionResponderPayload) GetRevocationEpoch() uint64 {
+	if x != nil {
+		return x.RevocationEpoch
+	}
+	return 0
+}
+
+// SessionHandshakeStart is the bounded phone-to-Agent transport frame.
+type SessionHandshakeStart struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Context       *HandshakeContext      `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
+	NoiseMessage  []byte                 `protobuf:"bytes,2,opt,name=noise_message,json=noiseMessage,proto3" json:"noise_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionHandshakeStart) Reset() {
+	*x = SessionHandshakeStart{}
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionHandshakeStart) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionHandshakeStart) ProtoMessage() {}
+
+func (x *SessionHandshakeStart) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionHandshakeStart.ProtoReflect.Descriptor instead.
+func (*SessionHandshakeStart) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_handshake_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *SessionHandshakeStart) GetContext() *HandshakeContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
+func (x *SessionHandshakeStart) GetNoiseMessage() []byte {
+	if x != nil {
+		return x.NoiseMessage
+	}
+	return nil
+}
+
+// SessionHandshakeResponse is the bounded Agent-to-phone transport frame.
+type SessionHandshakeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NoiseMessage  []byte                 `protobuf:"bytes,1,opt,name=noise_message,json=noiseMessage,proto3" json:"noise_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionHandshakeResponse) Reset() {
+	*x = SessionHandshakeResponse{}
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionHandshakeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionHandshakeResponse) ProtoMessage() {}
+
+func (x *SessionHandshakeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionHandshakeResponse.ProtoReflect.Descriptor instead.
+func (*SessionHandshakeResponse) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_handshake_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SessionHandshakeResponse) GetNoiseMessage() []byte {
+	if x != nil {
+		return x.NoiseMessage
+	}
+	return nil
+}
+
+// SessionHandshakeFinish is the final phone-to-Agent transport frame.
+type SessionHandshakeFinish struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NoiseMessage  []byte                 `protobuf:"bytes,1,opt,name=noise_message,json=noiseMessage,proto3" json:"noise_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionHandshakeFinish) Reset() {
+	*x = SessionHandshakeFinish{}
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionHandshakeFinish) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionHandshakeFinish) ProtoMessage() {}
+
+func (x *SessionHandshakeFinish) ProtoReflect() protoreflect.Message {
+	mi := &file_vibebridge_v1_handshake_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionHandshakeFinish.ProtoReflect.Descriptor instead.
+func (*SessionHandshakeFinish) Descriptor() ([]byte, []int) {
+	return file_vibebridge_v1_handshake_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SessionHandshakeFinish) GetNoiseMessage() []byte {
+	if x != nil {
+		return x.NoiseMessage
+	}
+	return nil
+}
+
 var File_vibebridge_v1_handshake_proto protoreflect.FileDescriptor
 
 const file_vibebridge_v1_handshake_proto_rawDesc = "" +
@@ -581,7 +844,21 @@ const file_vibebridge_v1_handshake_proto_rawDesc = "" +
 	"\rnoise_message\x18\x01 \x01(\fR\fnoiseMessage\"\x84\x01\n" +
 	"\x0fPairingApproval\x12<\n" +
 	"\x06status\x18\x01 \x01(\x0e2$.vibebridge.v1.PairingApprovalStatusR\x06status\x123\n" +
-	"\x15authorization_version\x18\x02 \x01(\x04R\x14authorizationVersion*{\n" +
+	"\x15authorization_version\x18\x02 \x01(\x04R\x14authorizationVersion\"\xb2\x01\n" +
+	"\x17SessionInitiatorPayload\x12=\n" +
+	"\x06client\x18\x01 \x01(\v2%.vibebridge.v1.SignedDeviceDescriptorR\x06client\x124\n" +
+	"\x16known_revocation_epoch\x18\x02 \x01(\x04R\x14knownRevocationEpoch\x12\"\n" +
+	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\"\x81\x01\n" +
+	"\x17SessionResponderPayload\x12;\n" +
+	"\x05agent\x18\x01 \x01(\v2%.vibebridge.v1.SignedDeviceDescriptorR\x05agent\x12)\n" +
+	"\x10revocation_epoch\x18\x02 \x01(\x04R\x0frevocationEpoch\"w\n" +
+	"\x15SessionHandshakeStart\x129\n" +
+	"\acontext\x18\x01 \x01(\v2\x1f.vibebridge.v1.HandshakeContextR\acontext\x12#\n" +
+	"\rnoise_message\x18\x02 \x01(\fR\fnoiseMessage\"?\n" +
+	"\x18SessionHandshakeResponse\x12#\n" +
+	"\rnoise_message\x18\x01 \x01(\fR\fnoiseMessage\"=\n" +
+	"\x16SessionHandshakeFinish\x12#\n" +
+	"\rnoise_message\x18\x01 \x01(\fR\fnoiseMessage*{\n" +
 	"\x0fHandshakeIntent\x12 \n" +
 	"\x1cHANDSHAKE_INTENT_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cHANDSHAKE_INTENT_PAIR_DEVICE\x10\x01\x12$\n" +
@@ -605,7 +882,7 @@ func file_vibebridge_v1_handshake_proto_rawDescGZIP() []byte {
 }
 
 var file_vibebridge_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_vibebridge_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_vibebridge_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_vibebridge_v1_handshake_proto_goTypes = []any{
 	(HandshakeIntent)(0),             // 0: vibebridge.v1.HandshakeIntent
 	(PairingApprovalStatus)(0),       // 1: vibebridge.v1.PairingApprovalStatus
@@ -617,21 +894,29 @@ var file_vibebridge_v1_handshake_proto_goTypes = []any{
 	(*PairingHandshakeResponse)(nil), // 7: vibebridge.v1.PairingHandshakeResponse
 	(*PairingHandshakeFinish)(nil),   // 8: vibebridge.v1.PairingHandshakeFinish
 	(*PairingApproval)(nil),          // 9: vibebridge.v1.PairingApproval
-	(*ProtocolVersion)(nil),          // 10: vibebridge.v1.ProtocolVersion
-	(*SignedDeviceDescriptor)(nil),   // 11: vibebridge.v1.SignedDeviceDescriptor
+	(*SessionInitiatorPayload)(nil),  // 10: vibebridge.v1.SessionInitiatorPayload
+	(*SessionResponderPayload)(nil),  // 11: vibebridge.v1.SessionResponderPayload
+	(*SessionHandshakeStart)(nil),    // 12: vibebridge.v1.SessionHandshakeStart
+	(*SessionHandshakeResponse)(nil), // 13: vibebridge.v1.SessionHandshakeResponse
+	(*SessionHandshakeFinish)(nil),   // 14: vibebridge.v1.SessionHandshakeFinish
+	(*ProtocolVersion)(nil),          // 15: vibebridge.v1.ProtocolVersion
+	(*SignedDeviceDescriptor)(nil),   // 16: vibebridge.v1.SignedDeviceDescriptor
 }
 var file_vibebridge_v1_handshake_proto_depIdxs = []int32{
-	10, // 0: vibebridge.v1.HandshakeContext.protocol_version:type_name -> vibebridge.v1.ProtocolVersion
+	15, // 0: vibebridge.v1.HandshakeContext.protocol_version:type_name -> vibebridge.v1.ProtocolVersion
 	0,  // 1: vibebridge.v1.HandshakeContext.intent:type_name -> vibebridge.v1.HandshakeIntent
-	11, // 2: vibebridge.v1.PairingInitiatorPayload.client:type_name -> vibebridge.v1.SignedDeviceDescriptor
-	11, // 3: vibebridge.v1.PairingResponderPayload.agent:type_name -> vibebridge.v1.SignedDeviceDescriptor
+	16, // 2: vibebridge.v1.PairingInitiatorPayload.client:type_name -> vibebridge.v1.SignedDeviceDescriptor
+	16, // 3: vibebridge.v1.PairingResponderPayload.agent:type_name -> vibebridge.v1.SignedDeviceDescriptor
 	2,  // 4: vibebridge.v1.PairingHandshakeStart.context:type_name -> vibebridge.v1.HandshakeContext
 	1,  // 5: vibebridge.v1.PairingApproval.status:type_name -> vibebridge.v1.PairingApprovalStatus
-	6,  // [6:6] is the sub-list for method output_type
-	6,  // [6:6] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	16, // 6: vibebridge.v1.SessionInitiatorPayload.client:type_name -> vibebridge.v1.SignedDeviceDescriptor
+	16, // 7: vibebridge.v1.SessionResponderPayload.agent:type_name -> vibebridge.v1.SignedDeviceDescriptor
+	2,  // 8: vibebridge.v1.SessionHandshakeStart.context:type_name -> vibebridge.v1.HandshakeContext
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_vibebridge_v1_handshake_proto_init() }
@@ -647,7 +932,7 @@ func file_vibebridge_v1_handshake_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vibebridge_v1_handshake_proto_rawDesc), len(file_vibebridge_v1_handshake_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   8,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -74,3 +74,39 @@ message PairingApproval {
   PairingApprovalStatus status = 1;
   uint64 authorization_version = 2;
 }
+
+// SessionInitiatorPayload is encrypted by IK message one. It carries the
+// client signed descriptor, the revocation epoch the client last saw, and
+// the capabilities it intends to use. The Agent verifies the peer static key
+// against the stored authorized record and rejects revoked, unknown, or
+// regressed devices.
+message SessionInitiatorPayload {
+  SignedDeviceDescriptor client = 1;
+  uint64 known_revocation_epoch = 2;
+  repeated string capabilities = 3;
+}
+
+// SessionResponderPayload is encrypted by IK message two. It carries the
+// Agent signed descriptor and the current revocation epoch so the client
+// can detect a later epoch than it knew about.
+message SessionResponderPayload {
+  SignedDeviceDescriptor agent = 1;
+  uint64 revocation_epoch = 2;
+}
+
+// SessionHandshakeStart is the bounded phone-to-Agent transport frame.
+message SessionHandshakeStart {
+  HandshakeContext context = 1;
+  bytes noise_message = 2;
+}
+
+// SessionHandshakeResponse is the bounded Agent-to-phone transport frame.
+message SessionHandshakeResponse {
+  bytes noise_message = 1;
+}
+
+// SessionHandshakeFinish is the final phone-to-Agent transport frame.
+message SessionHandshakeFinish {
+  bytes noise_message = 1;
+}
+
