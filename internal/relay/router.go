@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"time"
 
 	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 )
@@ -49,14 +50,67 @@ type Peer interface {
 // to fill.
 const pendingBufferSlots = 4
 
-// route is the per-route slot held inside Router. A route tracks the
-// two peer ends and the small outbound buffer the server uses to
-// pass bytes between them.
+// defaultRouteIdleTimeout is how long a half-joined route is
+// allowed to sit waiting for its other peer before the sweeper
+// reaps it. A route that never gets a second peer is an orphan:
+// the issuer has handed out a ticket but the recipient never
+// showed up, and the relay is wasting memory holding the slot.
+const defaultRouteIdleTimeout = 5 * time.Minute
+
+// defaultRouteMaxLifetime is the hard ceiling on how long a
+// route can live, even if both peers stay busy. Tickets are
+// already short-lived; capping the relay's view of the route at
+// the same order of magnitude keeps the relay's table small even
+// under reconnect storms or runaway clients.
+const defaultRouteMaxLifetime = 30 * time.Minute
+
+// defaultSweepInterval is how often the sweeper scans the route
+// table. The interval is well under the smallest timeout so a
+// reaped route is closed within a small bounded delay.
+const defaultSweepInterval = 30 * time.Second
+
+// RouterConfig tunes the lifecycle policy of a Router. The zero
+// value is valid and produces a router with the package defaults.
+type RouterConfig struct {
+	// IdleTimeout drops a route that has been silent for at
+	// least this long. A route counts as silent from the moment
+	// it is created until both peers have joined; once both
+	// peers are present the timer is reset on every successful
+	// Forward. A zero value falls back to
+	// defaultRouteIdleTimeout.
+	IdleTimeout time.Duration
+	// MaxLifetime caps the absolute age of a route. A zero
+	// value falls back to defaultRouteMaxLifetime. Set to a
+	// negative value to disable the cap.
+	MaxLifetime time.Duration
+	// SweepInterval controls how often the background sweeper
+	// runs. A zero value falls back to defaultSweepInterval.
+	SweepInterval time.Duration
+	// Now is the clock used for all expiry decisions. Tests
+	// inject a fake clock; production leaves it nil and gets
+	// time.Now.
+	Now func() time.Time
+}
+
+// SweepResult is the count of routes the sweeper closed during a
+// single Sweep call. It is exposed so tests and observability
+// hooks can observe reaper activity without polling internals.
+type SweepResult struct {
+	IdleClosed    int
+	ExpiredClosed int
+}
+
+// route is the per-route slot held inside Router. A route tracks
+// the two peer ends, the small outbound buffer the server uses to
+// pass bytes between them, and the timestamps the sweeper uses to
+// reap orphan or expired routes.
 type route struct {
 	id            string
 	connectionCap uint32
 	agent         Peer
 	client        Peer
+	createdAt     time.Time
+	lastActivity  time.Time
 }
 
 func (r *route) occupied() int {
@@ -83,21 +137,122 @@ func (r *route) otherOf(peer Peer) Peer {
 	return nil
 }
 
-// Router joins verified Peers to a shared route and forwards bytes
-// between them. The router is safe for concurrent use.
+// Router joins verified Peers to a shared route and forwards
+// bytes between them. The router is safe for concurrent use.
 type Router struct {
-	mu      sync.Mutex
-	routes  map[string]*route
-	stopped bool
+	mu       sync.Mutex
+	routes   map[string]*route
+	stopped  bool
+	idle     time.Duration
+	maxLife  time.Duration
+	sweepInt time.Duration
+	now      func() time.Time
 }
 
-// NewRouter returns an empty Router.
+// NewRouter returns an empty Router using the package defaults
+// for idle timeout, max lifetime, and sweep interval. Equivalent
+// to NewRouterWithConfig(RouterConfig{}).
 func NewRouter() *Router {
-	return &Router{routes: make(map[string]*route)}
+	return NewRouterWithConfig(RouterConfig{})
+}
+
+// NewRouterWithConfig returns a Router whose lifecycle policy is
+// driven by cfg. The router is safe for concurrent use; no
+// background goroutines run until StartSweeper is called.
+func NewRouterWithConfig(cfg RouterConfig) *Router {
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
+	idle := cfg.IdleTimeout
+	if idle <= 0 {
+		idle = defaultRouteIdleTimeout
+	}
+	maxLife := cfg.MaxLifetime
+	if maxLife == 0 {
+		maxLife = defaultRouteMaxLifetime
+	}
+	sweepInt := cfg.SweepInterval
+	if sweepInt <= 0 {
+		sweepInt = defaultSweepInterval
+	}
+	return &Router{
+		routes:   make(map[string]*route),
+		idle:     idle,
+		maxLife:  maxLife,
+		sweepInt: sweepInt,
+		now:      now,
+	}
+}
+
+// StartSweeper launches a background goroutine that periodically
+// calls Sweep to reap orphan and expired routes. The goroutine
+// exits when the returned stop function is called. StartSweeper
+// is a no-op if the router is already stopped.
+func (router *Router) StartSweeper() (stop func()) {
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(router.sweepInt)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				router.Sweep()
+			}
+		}
+	}()
+	return func() {
+		select {
+		case <-done:
+		default:
+			close(done)
+		}
+	}
+}
+
+// Sweep walks the route table and closes any route that has been
+// idle for longer than the configured IdleTimeout or that has
+// lived longer than the configured MaxLifetime. The result counts
+// the closed routes by reason. Safe to call concurrently with
+// Join, Leave, and Forward.
+func (router *Router) Sweep() SweepResult {
+	router.mu.Lock()
+	if router.stopped {
+		router.mu.Unlock()
+		return SweepResult{}
+	}
+	now := router.now()
+	var toClose []*route
+	for _, rt := range router.routes {
+		switch {
+		case router.maxLife > 0 && now.Sub(rt.createdAt) >= router.maxLife:
+			toClose = append(toClose, rt)
+		case router.idle > 0 && now.Sub(rt.lastActivity) >= router.idle:
+			toClose = append(toClose, rt)
+		}
+	}
+	for _, rt := range toClose {
+		delete(router.routes, rt.id)
+	}
+	router.mu.Unlock()
+	var result SweepResult
+	for _, rt := range toClose {
+		if router.maxLife > 0 && now.Sub(rt.createdAt) >= router.maxLife {
+			result.ExpiredClosed++
+		} else {
+			result.IdleClosed++
+		}
+		router.closeRoute(rt)
+	}
+	return result
 }
 
 // Stop closes every peer in every route and prevents future joins.
-// Idempotent.
+// Idempotent. If a sweeper is running its stop function should be
+// called before Stop so the goroutine exits before the map is
+// cleared.
 func (router *Router) Stop() {
 	router.mu.Lock()
 	if router.stopped {
@@ -148,9 +303,12 @@ func (router *Router) Join(ticket *Ticket, peer Peer) (*Route, Peer, error) {
 		if cap < 2 {
 			cap = 2
 		}
+		now := router.now()
 		rt = &route{
 			id:            routeID,
 			connectionCap: cap,
+			createdAt:     now,
+			lastActivity:  now,
 		}
 		router.routes[routeID] = rt
 	}
@@ -287,6 +445,7 @@ func (route *Route) Forward(plaintext []byte) error {
 		route.router.mu.Unlock()
 		return ErrPeerMissing
 	}
+	rt.lastActivity = route.router.now()
 	route.router.mu.Unlock()
 	// Non-blocking send into the per-route buffer pool. If the
 	// destination is too slow to drain it, close the route so the
