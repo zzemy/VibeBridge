@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -36,12 +37,18 @@ type privacyHarness struct {
 
 // captureLogger is a relay.Logger that records every Event the
 // server emits. Tests use it to assert that no payload byte ever
-// leaks into a log entry.
+// leaks into a log entry. The mutex protects the events slice from
+// concurrent Log calls issued by server goroutines; without it the
+// race detector flags the slice header and backing array during
+// -race runs.
 type captureLogger struct {
+	mu     sync.Mutex
 	events []Event
 }
 
 func (c *captureLogger) Log(event Event) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.events = append(c.events, event)
 }
 
@@ -49,6 +56,8 @@ func (c *captureLogger) Log(event Event) {
 // field of any captured event contains the given byte sequence
 // as a substring. The privacy contract forbids this.
 func (c *captureLogger) containsBytes(payload []byte) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for _, event := range c.events {
 		if bytes.Contains([]byte(event.Outcome), payload) {
 			return true
@@ -58,6 +67,33 @@ func (c *captureLogger) containsBytes(payload []byte) bool {
 		}
 	}
 	return false
+}
+
+// hasReason reports whether any captured event has the given
+// Reason string. The cap tests use it to assert that the server
+// logged a specific reason without taking a lock at the call site;
+// the lock is taken here so concurrent Log calls from server
+// goroutines stay race-free.
+func (c *captureLogger) hasReason(reason string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, event := range c.events {
+		if event.Reason == reason {
+			return true
+		}
+	}
+	return false
+}
+
+// snapshot returns a copy of the captured events under the lock so
+// callers can format a failure message without racing against
+// concurrent Log calls from server goroutines.
+func (c *captureLogger) snapshot() []Event {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]Event, len(c.events))
+	copy(out, c.events)
+	return out
 }
 
 // newPrivacyHarness constructs a fresh relay with a capture
@@ -278,7 +314,7 @@ func TestServerLogsNeverContainPayloadBytes(t *testing.T) {
 
 	if h.logger.containsBytes(distinctive) {
 		var offending []string
-		for _, event := range h.logger.events {
+		for _, event := range h.logger.snapshot() {
 			offending = append(offending, event.Outcome+"|"+event.Reason)
 		}
 		t.Fatalf("relay log leaked payload bytes; captured events: %v", offending)
