@@ -3,6 +3,8 @@
 [![CI](https://github.com/zzemy/VibeBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/zzemy/VibeBridge/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+![VibeBridge](./.github/banner.jpg)
+
 Control local AI CLI sessions such as Codex and Claude Code from your phone over a trusted LAN. VibeBridge connects a mobile browser to a local PTY without streaming your desktop or sending terminal content through a hosted service.
 
 > [!WARNING]
