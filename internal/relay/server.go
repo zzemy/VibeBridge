@@ -88,6 +88,14 @@ type Server struct {
 	verifier    *Verifier
 	logger      Logger
 	conns       sync.WaitGroup
+	// acceptMu serializes the "check stopping + conns.Add" sequence at
+	// the top of ServeHTTP. Without it, Shutdown's conns.Wait() can race
+	// against a concurrent ServeHTTP that read stopping=false and is
+	// about to call conns.Add(1) — the race detector flags the
+	// WaitGroup's internal state as a data race. The mutex is held only
+	// for the check+Add critical section; upgrader.Upgrade and the rest
+	// of the handler run with the lock released.
+	acceptMu    sync.Mutex
 	stopping    atomic.Bool
 	activeConns atomic.Int64
 	maxConns    int64
@@ -156,15 +164,27 @@ func (server *Server) SweepRoutes() SweepResult {
 // upgrades, validates the presented ticket, and joins the peer to
 // its route. Non-WebSocket requests receive 405.
 func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	// acceptMu pairs with Shutdown: while we hold the lock, Shutdown
+	// cannot reach conns.Wait(). This means every ServeHTTP that
+	// passed the stopping check has already called conns.Add(1) before
+	// the lock is released, and Shutdown's Wait will block on the
+	// matching Done from the corresponding handleConnection.
+	server.acceptMu.Lock()
 	if server.stopping.Load() {
+		server.acceptMu.Unlock()
 		http.Error(writer, "relay is shutting down", http.StatusServiceUnavailable)
 		return
 	}
+	server.conns.Add(1)
+	server.acceptMu.Unlock()
+
 	if !websocket.IsWebSocketUpgrade(request) {
+		server.conns.Done()
 		http.Error(writer, "expected WebSocket upgrade", http.StatusMethodNotAllowed)
 		return
 	}
 	if server.maxConns > 0 && server.activeConns.Add(1) > server.maxConns {
+		server.conns.Done()
 		server.activeConns.Add(-1)
 		server.logger.Log(Event{Outcome: OutcomeFailure, Reason: ReasonAtCapacity})
 		http.Error(writer, "relay is at capacity", http.StatusServiceUnavailable)
@@ -172,11 +192,11 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 	}
 	connection, err := server.upgrader.Upgrade(writer, request, nil)
 	if err != nil {
+		server.conns.Done()
 		server.activeConns.Add(-1)
 		server.logger.Log(Event{Outcome: OutcomeFailure, Reason: ReasonListenerError})
 		return
 	}
-	server.conns.Add(1)
 	go server.handleConnection(request.Context(), connection)
 }
 
@@ -190,6 +210,15 @@ func (server *Server) Shutdown(ctx context.Context) error {
 	if server.stopSweeper != nil {
 		server.stopSweeper()
 	}
+	// Drain any in-flight ServeHTTP that read stopping=false before we
+	// flipped it. acceptMu pairs with the same lock inside ServeHTTP:
+	// once we acquire it here, every ServeHTTP that could Add(1) has
+	// either already Add(1)'d or rejected, and any ServeHTTP that
+	// arrives after the unlock sees stopping=true and returns 503
+	// without ever calling Add(1). From this point the conns counter
+	// is stable and Wait is race-free.
+	server.acceptMu.Lock()
+	server.acceptMu.Unlock()
 	server.conns.Wait()
 	if server.ownsRouter {
 		server.router.Stop()
