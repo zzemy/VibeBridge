@@ -41,6 +41,12 @@ const (
 	// peer to present a valid ticket after the WebSocket
 	// handshake completes.
 	handshakeDeadline = 10 * time.Second
+	// defaultMaxConnections is the global concurrency ceiling
+	// the server applies when Config.MaxConnections is left
+	// zero. Tuned for a community relay serving many phones
+	// through a single Go process; self-hosted deployments
+	// can raise the cap via Config.
+	defaultMaxConnections = 4096
 )
 
 // Config configures a Server. The Verifier is required; the Router
@@ -51,8 +57,12 @@ type Config struct {
 	// be safe for concurrent use.
 	Verifier *Verifier
 	// Router is the route table the server joins peers into. If
-	// nil, the server constructs a fresh one.
+	// nil, the server constructs a fresh one using RouterConfig.
 	Router *Router
+	// RouterConfig is forwarded to NewRouterWithConfig when the
+	// server constructs a default Router. Ignored if Router is
+	// supplied.
+	RouterConfig RouterConfig
 	// Logger receives relay lifecycle events. nil is treated as
 	// a discard logger.
 	Logger Logger
@@ -61,18 +71,28 @@ type Config struct {
 	// empty list is interpreted as no allowed origins (every
 	// upgrade rejected).
 	AllowedOrigins []string
+	// MaxConnections caps the number of concurrent WebSocket
+	// connections the server will accept. A zero value falls
+	// back to defaultMaxConnections. Negative values disable
+	// the cap (use with care; the server has no other global
+	// concurrency limit).
+	MaxConnections int
 }
 
 // Server is the HTTP entry point for the relay. Its zero value is
 // not usable; construct one with New.
 type Server struct {
-	config   Config
-	upgrader websocket.Upgrader
-	router   *Router
-	verifier *Verifier
-	logger   Logger
-	conns    sync.WaitGroup
-	stopping atomic.Bool
+	config      Config
+	upgrader    websocket.Upgrader
+	router      *Router
+	verifier    *Verifier
+	logger      Logger
+	conns       sync.WaitGroup
+	stopping    atomic.Bool
+	activeConns atomic.Int64
+	maxConns    int64
+	ownsRouter  bool
+	stopSweeper func()
 }
 
 // New returns a Server with the supplied configuration. The
@@ -83,22 +103,32 @@ func New(config Config) (*Server, error) {
 		return nil, errors.New("relay server requires a Verifier")
 	}
 	if config.Router == nil {
-		config.Router = NewRouter()
+		config.Router = NewRouterWithConfig(config.RouterConfig)
 	}
 	if config.Logger == nil {
 		config.Logger = discardLogger{}
 	}
-	return &Server{
-		config:   config,
-		verifier: config.Verifier,
-		router:   config.Router,
-		logger:   config.Logger,
+	max := int64(config.MaxConnections)
+	if max == 0 {
+		max = defaultMaxConnections
+	}
+	server := &Server{
+		config:     config,
+		verifier:   config.Verifier,
+		router:     config.Router,
+		logger:     config.Logger,
+		maxConns:   max,
+		ownsRouter: config.Router == nil,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  4096,
 			WriteBufferSize: 4096,
 			CheckOrigin:     buildOriginChecker(config.AllowedOrigins),
 		},
-	}, nil
+	}
+	// Always start a sweeper so orphan and expired routes get
+	// reaped. stopSweeper is wired into Shutdown.
+	server.stopSweeper = server.router.StartSweeper()
+	return server, nil
 }
 
 // Router returns the router the server hands connections to. It is
@@ -106,6 +136,20 @@ func New(config Config) (*Server, error) {
 // across multiple servers.
 func (server *Server) Router() *Router {
 	return server.router
+}
+
+// ActiveConnections returns the number of WebSocket connections the
+// server is currently servicing. Exposed for observability hooks
+// and quota tests.
+func (server *Server) ActiveConnections() int {
+	return int(server.activeConns.Load())
+}
+
+// SweepRoutes runs an immediate sweep of the route table and
+// returns the result. Exposed for tests and for external schedulers
+// that want to drive the sweeper off the background ticker.
+func (server *Server) SweepRoutes() SweepResult {
+	return server.router.Sweep()
 }
 
 // ServeHTTP implements http.Handler. The server accepts WebSocket
@@ -120,8 +164,15 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		http.Error(writer, "expected WebSocket upgrade", http.StatusMethodNotAllowed)
 		return
 	}
+	if server.maxConns > 0 && server.activeConns.Add(1) > server.maxConns {
+		server.activeConns.Add(-1)
+		server.logger.Log(Event{Outcome: OutcomeFailure, Reason: ReasonAtCapacity})
+		http.Error(writer, "relay is at capacity", http.StatusServiceUnavailable)
+		return
+	}
 	connection, err := server.upgrader.Upgrade(writer, request, nil)
 	if err != nil {
+		server.activeConns.Add(-1)
 		server.logger.Log(Event{Outcome: OutcomeFailure, Reason: ReasonListenerError})
 		return
 	}
@@ -136,8 +187,13 @@ func (server *Server) Shutdown(ctx context.Context) error {
 	if !server.stopping.CompareAndSwap(false, true) {
 		return nil
 	}
+	if server.stopSweeper != nil {
+		server.stopSweeper()
+	}
 	server.conns.Wait()
-	server.router.Stop()
+	if server.ownsRouter {
+		server.router.Stop()
+	}
 	return nil
 }
 
@@ -161,6 +217,7 @@ func (server *Server) ListenAndServe(address string) error {
 
 func (server *Server) handleConnection(ctx context.Context, connection *websocket.Conn) {
 	defer server.conns.Done()
+	defer server.activeConns.Add(-1)
 	defer connection.Close()
 	connection.SetReadLimit(readLimit)
 	_ = connection.SetReadDeadline(time.Now().Add(handshakeDeadline))
@@ -203,7 +260,6 @@ func (server *Server) handleConnection(ctx context.Context, connection *websocke
 	_ = connection.SetReadDeadline(time.Time{})
 	_ = ctx
 	_ = other
-	_ = joined
 	server.runPeer(ctx, connection, peer, joined)
 }
 
@@ -402,12 +458,15 @@ const (
 	OutcomeSuccess = "success"
 
 	ReasonAgentShutdown    = "agent_shutdown"
+	ReasonAtCapacity       = "at_capacity"
 	ReasonExplicitEnd      = "explicit_end"
 	ReasonIdleTimeout      = "idle_timeout"
 	ReasonListenerClosed   = "listener_closed"
 	ReasonListenerError    = "listener_error"
 	ReasonProcessExit      = "process_exit"
 	ReasonReconnectExpired = "reconnect_expired"
+	ReasonRouteIdleTimeout = "route_idle_timeout"
+	ReasonRouteMaxLifetime = "route_max_lifetime"
 	ReasonSignal           = "signal"
 	ReasonSuperseded       = "superseded"
 )
