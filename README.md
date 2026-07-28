@@ -5,6 +5,8 @@
 
 ![VibeBridge](./.github/banner.jpg)
 
+<p align="center"><a href="https://larkcommunity.feishu.cn/page/UM0Om3xphdgjIxatBUicWvMwnoh">▶ Watch the 40-second brand film</a></p>
+
 Control local AI CLI sessions such as Codex and Claude Code from your phone over a trusted LAN. VibeBridge connects a mobile browser to a local PTY without streaming your desktop or sending terminal content through a hosted service.
 
 > [!WARNING]
@@ -202,6 +204,10 @@ The resulting binary contains the React frontend and does not require `web/dist`
 - Direct pairing now uses Noise E2EE and local approval, but terminal access still uses the legacy per-run bearer token and is not yet bound to the paired device identity. Relay and encrypted remote control-session transport remain required before public-internet use.
 - The browser does not yet schedule Protocol V1 application health probes.
 - Public Relay, paired-device terminal authorization, native mobile clients, file attachments, and packaged releases are roadmap work, not current features.
+
+## Brand
+
+Brand assets (light and dark icon sets in 16–1024, ICO, maskable, and a README banner) live in [`brand/`](brand/). The 40-second brand film is [hosted on Feishu](https://larkcommunity.feishu.cn/page/UM0Om3xphdgjIxatBUicWvMwnoh).
 
 ## License
 
