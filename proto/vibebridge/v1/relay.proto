@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package vibebridge.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1;vibebridgev1";
+
+// RelayEndpoint identifies which side of a route a ticket is issued for.
+// The relay rejects a ticket presented on the wrong side.
+enum RelayEndpoint {
+  RELAY_ENDPOINT_UNSPECIFIED = 0;
+  RELAY_ENDPOINT_AGENT = 1;
+  RELAY_ENDPOINT_CLIENT = 2;
+}
+
+// RelayTicket authorizes exactly one Agent or Client to present itself at one
+// relay route. Tickets are short-lived, single-use, and bound to a route_id.
+// The issuer_signature covers every other field under the deterministic
+// protobuf encoding; the relay verifies it with a configured issuer public key
+// and never inspects or persists plaintext payload bytes.
+message RelayTicket {
+  uint32 version = 1;
+  bytes ticket_id = 2;
+  bytes route_id = 3;
+  RelayEndpoint endpoint = 4;
+  bytes device_id = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  uint32 max_connections = 7;
+  bytes nonce = 8;
+  // issuer_signature is Ed25519 over the deterministic protobuf encoding of
+  // every other field. The relay rejects a ticket whose signature does not
+  // verify under its configured issuer key.
+  bytes issuer_signature = 9;
+}
