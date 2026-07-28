@@ -1,12 +1,30 @@
-# VibeBridge
+<p align="center">
+  <img src="./.github/banner.jpg" alt="VibeBridge" width="900">
+</p>
 
-[![CI](https://github.com/zzemy/VibeBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/zzemy/VibeBridge/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/zzemy/VibeBridge/actions/workflows/ci.yml"><img src="https://github.com/zzemy/VibeBridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  &nbsp;
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
+</p>
 
-![VibeBridge](./.github/banner.jpg)
+<p align="center"><strong>Control local AI CLI sessions from your phone, over a trusted LAN.</strong><br>Codex, Claude Code, or any PTY-based agent — without streaming your desktop or sending terminal content through a hosted service.</p>
 
-<p align="center"><a href="https://larkcommunity.feishu.cn/page/UM0Om3xphdgjIxatBUicWvMwnoh">▶ Watch the 40-second brand film</a></p>
+<p align="center">
+  <a href="https://larkcommunity.feishu.cn/page/UM0Om3xphdgjIxatBUicWvMwnoh">
+    <img src="./.github/brand-film-poster.png" alt="Watch the 42-second brand film" width="560">
+  </a>
+</p>
 
+<p align="center">
+  <a href="https://larkcommunity.feishu.cn/page/UM0Om3xphdgjIxatBUicWvMwnoh">▶ Watch the 42-second brand film</a>
+  &nbsp;·&nbsp;
+  <a href="docs/index.md">Docs</a>
+  &nbsp;·&nbsp;
+  <a href="docs/roadmap.md">Roadmap</a>
+</p>
+
+---
 Control local AI CLI sessions such as Codex and Claude Code from your phone over a trusted LAN. VibeBridge connects a mobile browser to a local PTY without streaming your desktop or sending terminal content through a hosted service.
 
 > [!WARNING]
@@ -207,7 +225,7 @@ The resulting binary contains the React frontend and does not require `web/dist`
 
 ## Brand
 
-Brand assets (light and dark icon sets in 16–1024, ICO, maskable, and a README banner) live in [`brand/`](brand/). The 40-second brand film is [hosted on Feishu](https://larkcommunity.feishu.cn/page/UM0Om3xphdgjIxatBUicWvMwnoh).
+Brand assets (light and dark icon sets in 16–1024, ICO, maskable, and a README banner) live in [`brand/`](brand/). The 42-second brand film is [hosted on Feishu](https://larkcommunity.feishu.cn/page/UM0Om3xphdgjIxatBUicWvMwnoh).
 
 ## License
 
