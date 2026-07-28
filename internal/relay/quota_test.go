@@ -260,18 +260,9 @@ func TestRouterSweeperGoroutineStops(t *testing.T) {
 	}
 }
 
-// containsReasonEvent is a small inline helper around
-// captureLogger that reports whether any captured event has the
-// supplied reason. It lives here instead of in privacy_test.go
-// because the cap tests are the only callers.
-func containsReasonEvent(events []Event, reason string) bool {
-	for _, event := range events {
-		if event.Reason == reason {
-			return true
-		}
-	}
-	return false
-}
+// containsReasonEvent was removed in favor of captureLogger.hasReason,
+// which holds the logger's mutex and is therefore safe to call from
+// the test goroutine while server goroutines may still be logging.
 
 // TestServerRejectsBeyondMaxConnections drives the global cap:
 // with MaxConnections=1 the second upgrade must return 503 and
@@ -317,8 +308,8 @@ func TestServerRejectsBeyondMaxConnections(t *testing.T) {
 	if response.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 on second upgrade, got %d", response.StatusCode)
 	}
-	if !containsReasonEvent(logger.events, ReasonAtCapacity) {
-		t.Fatalf("expected ReasonAtCapacity in log, got %+v", logger.events)
+	if !logger.hasReason(ReasonAtCapacity) {
+		t.Fatalf("expected ReasonAtCapacity in log, got %+v", logger.snapshot())
 	}
 }
 
