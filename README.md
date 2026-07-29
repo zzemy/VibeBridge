@@ -11,13 +11,11 @@
 <p align="center"><strong>Control local AI CLI sessions from your phone, over a trusted LAN.</strong><br>Codex, Claude Code, or any PTY-based agent — without streaming your desktop or sending terminal content through a hosted service.</p>
 
 <p align="center">
-  <a href="./.github/brand-film.mp4">
-    <img src="./.github/brand-film-poster.png" alt="Watch the 42-second brand film" width="560">
-  </a>
+  <video src="https://raw.githubusercontent.com/zzemy/VibeBridge/main/.github/brand-film.mp4" poster="https://raw.githubusercontent.com/zzemy/VibeBridge/main/.github/brand-film-poster.png" controls muted preload="metadata" width="560"></video>
 </p>
 
 <p align="center">
-  <a href="./.github/brand-film.mp4">▶ Watch the 42-second brand film</a>
+  <a href="https://github.com/zzemy/VibeBridge/blob/main/.github/brand-film.mp4">▶ Download the 42-second brand film (MP4)</a>
   &nbsp;·&nbsp;
   <a href="docs/index.md">Docs</a>
   &nbsp;·&nbsp;
@@ -225,7 +223,7 @@ The resulting binary contains the React frontend and does not require `web/dist`
 
 ## Brand
 
-Brand assets (light and dark icon sets in 16–1024, ICO, maskable, and a README banner) live in [`brand/`](brand/). The 42-second brand film is [hosted on Feishu](./.github/brand-film.mp4).
+Brand assets (light and dark icon sets in 16–1024, ICO, maskable, and a README banner) live in [`brand/`](brand/). The 42-second brand film is embedded above and also lives in the repo at [`./.github/brand-film.mp4`](./.github/brand-film.mp4).
 
 ## License
 
