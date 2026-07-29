@@ -65,14 +65,25 @@ func run(args []string) error {
 	flags.Var(&allowedOrigins, "allowed-origin", "origin the relay will accept WebSocket upgrades from; repeat the flag for multiple origins (default: same-origin only)")
 	adminAddr := flags.String("admin-addr", defaultAdminAddr, "listen address for the ticket issuance control plane; empty disables the control plane")
 	adminToken := flags.String("admin-token", "", "bearer token required by the control plane; empty disables auth (rely on the listener bind address as the trust boundary)")
-	requireRevocationCheck := flags.Bool("require-revocation-check", false, "reject tickets whose backing device was revoked after mint (ADR-0006); defaults to off until client rollout completes")
-	identityStorePath := flags.String("identity-store", "", "path to the Agent device-identity file the relay reads to enforce the revocation gate; required when --require-revocation-check is on")
+	requireRevocationCheck := flags.Bool("require-revocation-check", true, "reject tickets whose backing device was revoked after mint (ADR-0006); disable explicitly with --require-revocation-check=false")
+	identityStorePath := flags.String("identity-store", "", "path to the Agent device-identity file the relay reads to enforce the revocation gate (default: the Agent standard identity path)")
 	diagnose := flags.Bool("diagnose", false, "validate configuration and exit without starting the listener")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *requireRevocationCheck && *identityStorePath == "" {
-		return errors.New("--identity-store is required when --require-revocation-check is on")
+	// Resolve the identity store path: explicit --identity-store wins,
+	// otherwise fall back to the Agent standard identity path so
+	// co-located deployments work without extra configuration.
+	resolvedIdentityPath := *identityStorePath
+	if resolvedIdentityPath == "" {
+		defaultPath, err := deviceidentity.DefaultPath()
+		if err != nil {
+			if *requireRevocationCheck {
+				return fmt.Errorf("resolve default identity store path: %w", err)
+			}
+		} else {
+			resolvedIdentityPath = defaultPath
+		}
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments: %v", flags.Args())
@@ -102,18 +113,18 @@ func run(args []string) error {
 		gateEnabled     bool
 	)
 	if *requireRevocationCheck {
-		store, err := openIdentityStore(*identityStorePath)
+		store, err := openIdentityStore(resolvedIdentityPath)
 		if err != nil {
-			return fmt.Errorf("load device identity for revocation gate: %w", err)
+			return fmt.Errorf("load device identity for revocation gate: %w (provide --identity-store or disable with --require-revocation-check=false)", err)
 		}
 		revocationStore = store
 		verifier.SetAuthorizer(relay.StoreAuthorizer(store))
 		gateEnabled = true
-		fmt.Fprintf(os.Stderr, "relay revocation gate: on (store=%s, epoch=%d)\n", *identityStorePath, store.RevocationEpoch())
+		fmt.Fprintf(os.Stderr, "relay revocation gate: on (store=%s, epoch=%d)\n", resolvedIdentityPath, store.RevocationEpoch())
 	}
 
 	if *diagnose {
-		return runDiagnostics(*addr, *adminAddr, keyPath, issuer.PublicKey(), gateEnabled, *identityStorePath)
+		return runDiagnostics(*addr, *adminAddr, keyPath, issuer.PublicKey(), gateEnabled, resolvedIdentityPath)
 	}
 
 	server, err := relay.New(relay.Config{
