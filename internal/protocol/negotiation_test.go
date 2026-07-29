@@ -165,7 +165,7 @@ func TestAcceptClientHelloRejectsWrongRoleAndMalformedRange(t *testing.T) {
 
 func TestNewAgentHelloUsesNegotiatedVersion(t *testing.T) {
 	sentAt := time.Date(2026, time.July, 13, 10, 0, 0, 0, time.UTC)
-	envelope, err := NewAgentHello([]byte("0123456789abcdef"), 1, 0, sentAt)
+	envelope, err := NewAgentHello([]byte("0123456789abcdef"), 1, 0, sentAt, nil)
 	if err != nil {
 		t.Fatalf("create Agent Hello: %v", err)
 	}
@@ -195,6 +195,59 @@ func TestNewAgentHelloUsesNegotiatedVersion(t *testing.T) {
 		if !found {
 			t.Fatalf("Agent Hello capabilities = %v, missing %q", envelope.GetHello().GetCapabilities(), want)
 		}
+	}
+	hello := envelope.GetHello()
+	if len(hello.GetDeviceId()) != 0 || hello.GetPublicKeyFingerprint() != "" || hello.GetRevocationEpoch() != 0 {
+		t.Fatalf("Hello must not advertise identity when caller passes nil, got device_id=%x fingerprint=%q epoch=%d",
+			hello.GetDeviceId(), hello.GetPublicKeyFingerprint(), hello.GetRevocationEpoch())
+	}
+}
+
+func TestNewAgentHelloAdvertisesDeviceIdentity(t *testing.T) {
+	sentAt := time.Date(2026, time.July, 13, 10, 0, 0, 0, time.UTC)
+	identity := &AgentIdentity{
+		DeviceID:             []byte("0123456789abcdef"),
+		PublicKeyFingerprint: "AB12CD34EF",
+		RevocationEpoch:      7,
+	}
+	envelope, err := NewAgentHello([]byte("0123456789abcdef"), 1, 0, sentAt, identity)
+	if err != nil {
+		t.Fatalf("create Agent Hello: %v", err)
+	}
+	hello := envelope.GetHello()
+	if string(hello.GetDeviceId()) != string(identity.DeviceID) {
+		t.Fatalf("device id = %x, want %x", hello.GetDeviceId(), identity.DeviceID)
+	}
+	if hello.GetPublicKeyFingerprint() != identity.PublicKeyFingerprint {
+		t.Fatalf("fingerprint = %q, want %q", hello.GetPublicKeyFingerprint(), identity.PublicKeyFingerprint)
+	}
+	if hello.GetRevocationEpoch() != identity.RevocationEpoch {
+		t.Fatalf("revocation epoch = %d, want %d", hello.GetRevocationEpoch(), identity.RevocationEpoch)
+	}
+}
+
+func TestNewAgentHelloRejectsPartialIdentity(t *testing.T) {
+	sentAt := time.Date(2026, time.July, 13, 10, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name     string
+		identity AgentIdentity
+	}{
+		{
+			name:     "missing device id",
+			identity: AgentIdentity{PublicKeyFingerprint: "AB12CD34EF", RevocationEpoch: 1},
+		},
+		{
+			name:     "missing fingerprint",
+			identity: AgentIdentity{DeviceID: []byte("0123456789abcdef"), RevocationEpoch: 1},
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := NewAgentHello([]byte("0123456789abcdef"), 1, 0, sentAt, &testCase.identity)
+			if err == nil {
+				t.Fatal("partial Agent identity was accepted")
+			}
+		})
 	}
 }
 

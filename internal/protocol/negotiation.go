@@ -120,28 +120,59 @@ func AcceptClientHello(encoded []byte) (NegotiatedHello, error) {
 	}, nil
 }
 
-func NewAgentHello(connectionID []byte, major, minor uint32, sentAt time.Time) (*vibebridgev1.Envelope, error) {
+// AgentIdentity binds a signed descriptor to the revocation epoch the Agent
+// observed at upgrade time. Fields are emitted in the Agent Hello envelope so
+// clients can route locally and invalidate cached state without an extra
+// round-trip (ADR-0006). All fields must be populated together when DeviceID
+// is non-empty; a partial identity is rejected.
+type AgentIdentity struct {
+	DeviceID              []byte
+	PublicKeyFingerprint  string
+	RevocationEpoch       uint64
+}
+// NewAgentHello builds the first envelope the Agent sends on a V1 connection.
+// When identity is nil, the Hello carries no Agent-side identity fields. The
+// shape and field numbers are governed by proto/vibebridge/v1/envelope.proto.
+func NewAgentHello(connectionID []byte, major, minor uint32, sentAt time.Time, identity *AgentIdentity) (*vibebridgev1.Envelope, error) {
 	if len(connectionID) != connectionIDBytes {
 		return nil, fmt.Errorf("connection ID must be %d bytes", connectionIDBytes)
 	}
 	if major != CurrentMajor || minor != CurrentMinor {
 		return nil, errors.New("cannot advertise an unsupported negotiated version")
 	}
-
+	hello := &vibebridgev1.Hello{
+		PeerRole: vibebridgev1.PeerRole_PEER_ROLE_AGENT,
+		SupportedVersions: &vibebridgev1.ProtocolVersionRange{
+			Minimum: &vibebridgev1.ProtocolVersion{Major: CurrentMajor, Minor: CurrentMinor},
+			Maximum: &vibebridgev1.ProtocolVersion{Major: CurrentMajor, Minor: CurrentMinor},
+		},
+		Capabilities:     []string{CapabilityTerminalBinaryOutput, CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilitySessionResume, CapabilityControlError, CapabilityControlHealth},
+		MaxEnvelopeBytes: MaxEnvelopeBytes,
+	}
+	if identity != nil {
+		if err := validateAgentIdentity(identity); err != nil {
+			return nil, err
+		}
+		hello.DeviceId = append([]byte(nil), identity.DeviceID...)
+		hello.PublicKeyFingerprint = identity.PublicKeyFingerprint
+		hello.RevocationEpoch = identity.RevocationEpoch
+	}
 	return &vibebridgev1.Envelope{
 		ProtocolMajor: major,
 		ProtocolMinor: minor,
 		ConnectionId:  append([]byte(nil), connectionID...),
 		Sequence:      1,
 		SentAt:        timestamppb.New(sentAt.UTC()),
-		Payload: &vibebridgev1.Envelope_Hello{Hello: &vibebridgev1.Hello{
-			PeerRole: vibebridgev1.PeerRole_PEER_ROLE_AGENT,
-			SupportedVersions: &vibebridgev1.ProtocolVersionRange{
-				Minimum: &vibebridgev1.ProtocolVersion{Major: CurrentMajor, Minor: CurrentMinor},
-				Maximum: &vibebridgev1.ProtocolVersion{Major: CurrentMajor, Minor: CurrentMinor},
-			},
-			Capabilities:     []string{CapabilityTerminalBinaryOutput, CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilitySessionResume, CapabilityControlError, CapabilityControlHealth},
-			MaxEnvelopeBytes: MaxEnvelopeBytes,
-		}},
+		Payload:       &vibebridgev1.Envelope_Hello{Hello: hello},
 	}, nil
+}
+
+func validateAgentIdentity(identity *AgentIdentity) error {
+	if len(identity.DeviceID) == 0 {
+		return errors.New("Agent identity is missing device ID")
+	}
+	if identity.PublicKeyFingerprint == "" {
+		return errors.New("Agent identity is missing public key fingerprint")
+	}
+	return nil
 }

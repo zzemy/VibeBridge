@@ -292,6 +292,13 @@ func (store *Store) RevocationEpoch() uint64 {
 	return store.state.RevocationEpoch
 }
 
+// DeviceID returns a defensive copy of the Agent device identifier.
+func (store *Store) DeviceID() []byte {
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	return append([]byte(nil), store.state.DeviceID...)
+}
+
 // Close clears in-memory private key buffers. The Store must not be reused.
 func (store *Store) Close() {
 	store.mu.Lock()

@@ -461,14 +461,29 @@ func (x *ProtocolVersionRange) GetMaximum() *ProtocolVersion {
 
 // Hello advertises compatibility before any session mutation is accepted.
 // Capability names describe optional behavior and never imply authorization.
+//
+// The Agent-side fields `device_id`, `public_key_fingerprint`, and
+// `revocation_epoch` are populated only when the Agent has a bound device
+// identity (ADR-0006). The Agent advertises them so clients can route locally
+// and invalidate cached state without an extra round-trip. Clients ignore
+// unknown field tags per protobuf compatibility rules.
 type Hello struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	PeerRole          PeerRole               `protobuf:"varint,1,opt,name=peer_role,json=peerRole,proto3,enum=vibebridge.v1.PeerRole" json:"peer_role,omitempty"`
 	SupportedVersions *ProtocolVersionRange  `protobuf:"bytes,2,opt,name=supported_versions,json=supportedVersions,proto3" json:"supported_versions,omitempty"`
 	Capabilities      []string               `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	MaxEnvelopeBytes  uint32                 `protobuf:"varint,4,opt,name=max_envelope_bytes,json=maxEnvelopeBytes,proto3" json:"max_envelope_bytes,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Bound device identifier (16 bytes, ADR-0006). Omitted on the client side.
+	DeviceId []byte `protobuf:"bytes,5,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	// Hex-encoded SHA-256 prefix of the bound device signing public key.
+	// Omitted on the client side.
+	PublicKeyFingerprint string `protobuf:"bytes,6,opt,name=public_key_fingerprint,json=publicKeyFingerprint,proto3" json:"public_key_fingerprint,omitempty"`
+	// Revocation epoch observed at upgrade time. Clients compare against their
+	// cached value and invalidate paired state on any change. Omitted on the
+	// client side.
+	RevocationEpoch uint64 `protobuf:"varint,7,opt,name=revocation_epoch,json=revocationEpoch,proto3" json:"revocation_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Hello) Reset() {
@@ -525,6 +540,27 @@ func (x *Hello) GetCapabilities() []string {
 func (x *Hello) GetMaxEnvelopeBytes() uint32 {
 	if x != nil {
 		return x.MaxEnvelopeBytes
+	}
+	return 0
+}
+
+func (x *Hello) GetDeviceId() []byte {
+	if x != nil {
+		return x.DeviceId
+	}
+	return nil
+}
+
+func (x *Hello) GetPublicKeyFingerprint() string {
+	if x != nil {
+		return x.PublicKeyFingerprint
+	}
+	return ""
+}
+
+func (x *Hello) GetRevocationEpoch() uint64 {
+	if x != nil {
+		return x.RevocationEpoch
 	}
 	return 0
 }
@@ -2135,12 +2171,15 @@ const file_vibebridge_v1_envelope_proto_rawDesc = "" +
 	"\x05minor\x18\x02 \x01(\rR\x05minor\"\x8a\x01\n" +
 	"\x14ProtocolVersionRange\x128\n" +
 	"\aminimum\x18\x01 \x01(\v2\x1e.vibebridge.v1.ProtocolVersionR\aminimum\x128\n" +
-	"\amaximum\x18\x02 \x01(\v2\x1e.vibebridge.v1.ProtocolVersionR\amaximum\"\xe3\x01\n" +
+	"\amaximum\x18\x02 \x01(\v2\x1e.vibebridge.v1.ProtocolVersionR\amaximum\"\xe1\x02\n" +
 	"\x05Hello\x124\n" +
 	"\tpeer_role\x18\x01 \x01(\x0e2\x17.vibebridge.v1.PeerRoleR\bpeerRole\x12R\n" +
 	"\x12supported_versions\x18\x02 \x01(\v2#.vibebridge.v1.ProtocolVersionRangeR\x11supportedVersions\x12\"\n" +
 	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\x12,\n" +
-	"\x12max_envelope_bytes\x18\x04 \x01(\rR\x10maxEnvelopeBytes\"#\n" +
+	"\x12max_envelope_bytes\x18\x04 \x01(\rR\x10maxEnvelopeBytes\x12\x1b\n" +
+	"\tdevice_id\x18\x05 \x01(\fR\bdeviceId\x124\n" +
+	"\x16public_key_fingerprint\x18\x06 \x01(\tR\x14publicKeyFingerprint\x12)\n" +
+	"\x10revocation_epoch\x18\a \x01(\x04R\x0frevocationEpoch\"#\n" +
 	"\rTerminalInput\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"$\n" +
 	"\x0eTerminalOutput\x12\x12\n" +
