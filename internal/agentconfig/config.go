@@ -34,8 +34,6 @@ type File struct {
 	WebDirectory          string                 `json:"web_directory,omitempty"`
 	ReconnectTimeout      string                 `json:"reconnect_timeout,omitempty"`
 	IdleTimeout           string                 `json:"idle_timeout,omitempty"`
-	DisableLegacyProtocol bool                   `json:"disable_legacy_protocol,omitempty"`
-	RequirePairedSession  bool                   `json:"require_paired_session,omitempty"`
 	Workspaces            []workspace.Definition `json:"workspaces,omitempty"`
 	DefaultProfile        string                 `json:"default_profile"`
 	Profiles              []LaunchProfile        `json:"profiles"`

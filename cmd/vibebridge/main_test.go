@@ -189,7 +189,6 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 		"web_directory": "custom-web",
 		"reconnect_timeout": "2m",
 		"idle_timeout": "0s",
-		"disable_legacy_protocol": true,
 		"workspaces": [{"id":"repo","label":"Repository","root":"` + filepath.ToSlash(workspace) + `"}],
 		"default_profile": "codex",
 		"profiles": [{
@@ -240,9 +239,6 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 	if options.reconnectTimeout != 2*time.Minute || options.idleTimeout != 0 {
 		t.Fatalf("configured timeouts = %v/%v", options.reconnectTimeout, options.idleTimeout)
 	}
-	if !options.disableLegacyProtocol {
-		t.Fatal("configured disable_legacy_protocol was not applied")
-	}
 	if !reflect.DeepEqual(options.environment, []string{"PATH=test-path"}) {
 		t.Fatalf("environment = %q, want allowlisted existing value", options.environment)
 	}
@@ -250,7 +246,7 @@ func TestResolveStartupOptionsUsesStructuredProfile(t *testing.T) {
 
 func TestResolveStartupOptionsPreservesExplicitCLIOverrides(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	content := `{"version":1,"listen_address":"127.0.0.1:9000","web_directory":"configured-web","reconnect_timeout":"2m","idle_timeout":"0s","disable_legacy_protocol":true,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`
+	content := `{"version":1,"listen_address":"127.0.0.1:9000","web_directory":"configured-web","reconnect_timeout":"2m","idle_timeout":"0s","default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`
 	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -261,7 +257,6 @@ func TestResolveStartupOptionsPreservesExplicitCLIOverrides(t *testing.T) {
 		commandLine:           "custom --arg",
 		reconnectTimeout:      time.Minute,
 		idleTimeout:           15 * time.Minute,
-		disableLegacyProtocol: false,
 	}, configPath, "", map[string]bool{
 		"addr": true, "web-dir": true, "cmd": true, "reconnect-timeout": true, "idle-timeout": true, "disable-legacy-protocol": true,
 	}, os.LookupEnv)
@@ -274,9 +269,6 @@ func TestResolveStartupOptionsPreservesExplicitCLIOverrides(t *testing.T) {
 	if options.reconnectTimeout != time.Minute || options.idleTimeout != 15*time.Minute {
 		t.Fatalf("CLI timeout overrides = %v/%v", options.reconnectTimeout, options.idleTimeout)
 	}
-	if options.disableLegacyProtocol {
-		t.Fatal("explicit CLI false did not override disable_legacy_protocol")
-	}
 	if !reflect.DeepEqual(options.command, []string{"custom", "--arg"}) {
 		t.Fatalf("CLI command override = %q", options.command)
 	}
@@ -285,50 +277,7 @@ func TestResolveStartupOptionsPreservesExplicitCLIOverrides(t *testing.T) {
 	}
 }
 
-func TestResolveStartupOptionsAppliesRequirePairedSessionFromConfig(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	content := `{"version":1,"require_paired_session":true,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`
-	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
 
-	options, err := resolveStartupOptions(startupOptions{
-		commandLine: "pwsh -NoLogo",
-	}, configPath, "", nil, os.LookupEnv)
-	if err != nil {
-		t.Fatalf("resolve options: %v", err)
-	}
-	if !options.requirePairedSession {
-		t.Fatal("configured require_paired_session was not applied")
-	}
-}
-
-func TestResolveStartupOptionsPreservesExplicitRequirePairedSessionOverride(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	content := `{"version":1,"require_paired_session":true,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`
-	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	options, err := resolveStartupOptions(startupOptions{
-		commandLine:          "custom --arg",
-		requirePairedSession: false,
-	}, configPath, "", map[string]bool{
-		"cmd": true, "require-paired-session": true,
-	}, os.LookupEnv)
-	if err != nil {
-		t.Fatalf("resolve options: %v", err)
-	}
-	if options.requirePairedSession {
-		t.Fatal("explicit CLI false did not override require_paired_session")
-	}
-	if !reflect.DeepEqual(options.command, []string{"custom", "--arg"}) {
-		t.Fatalf("CLI command override = %q", options.command)
-	}
-	if options.profileID != "" || options.environment != nil {
-		t.Fatalf("legacy command unexpectedly used profile state: profile=%q environment=%q", options.profileID, options.environment)
-	}
-}
 
 func TestResolveStartupOptionsSelectsRequestedProfile(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
