@@ -11,13 +11,13 @@
 <p align="center"><strong>Control local AI CLI sessions from your phone, over a trusted LAN.</strong><br>Codex, Claude Code, or any PTY-based agent — without streaming your desktop or sending terminal content through a hosted service.</p>
 
 <p align="center">
-  <a href="https://larkcommunity.feishu.cn/page/UM0Om3xphdgjIxatBUicWvMwnoh">
+  <a href="./.github/brand-film.mp4">
     <img src="./.github/brand-film-poster.png" alt="Watch the 42-second brand film" width="560">
   </a>
 </p>
 
 <p align="center">
-  <a href="https://larkcommunity.feishu.cn/page/UM0Om3xphdgjIxatBUicWvMwnoh">▶ Watch the 42-second brand film</a>
+  <a href="./.github/brand-film.mp4">▶ Watch the 42-second brand film</a>
   &nbsp;·&nbsp;
   <a href="docs/index.md">Docs</a>
   &nbsp;·&nbsp;
@@ -225,7 +225,7 @@ The resulting binary contains the React frontend and does not require `web/dist`
 
 ## Brand
 
-Brand assets (light and dark icon sets in 16–1024, ICO, maskable, and a README banner) live in [`brand/`](brand/). The 42-second brand film is [hosted on Feishu](https://larkcommunity.feishu.cn/page/UM0Om3xphdgjIxatBUicWvMwnoh).
+Brand assets (light and dark icon sets in 16–1024, ICO, maskable, and a README banner) live in [`brand/`](brand/). The 42-second brand film is [hosted on Feishu](./.github/brand-film.mp4).
 
 ## License
 

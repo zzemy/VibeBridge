@@ -1,28 +1,139 @@
-# VibeBridge Brand Assets
+# VibeBridge — Brand Guidelines
 
-Two approved logo variants (flat, muted; bridge + terminal-prompt mark):
+This page is the single source of truth for VibeBridge visual identity. If you
+are producing UI, marketing material, screenshots, or any other surface that
+will be seen by users, follow the tokens and rules below. When in doubt, match
+what the [brand film](../blob/main/.github/brand-film.mp4) does.
 
-- `dark/` — 深色版：深石板底 (43,60,74) + 米白线条。用于深色场景、Windows 托盘、深色终端 UI。
-- `light/` — 浅色版：米白底 (254,250,235) + 石板蓝线条。用于浅色场景、README、文档、商店 listing。
+## The mark
 
-Each variant contains:
+The mark is a flat, muted arch bridge with a terminal prompt at its base — a
+literal picture of "your local terminal, reachable from across the room". It is
+deliberately not a polished product shot; the project is technical and
+early-stage, and the brand should look the part.
 
-- `icon-16/24/32/48/64/128/192/256/512/1024.png` — 通用 PNG 各尺寸
-- `icon.ico` — Windows 多尺寸 ICO（16/24/32/48/256），托盘与安装器用
-- `maskable-512.png` — PWA maskable 图标（80% 安全区）
+- **Two approved variants** — `brand/light/` (cream background, slate strokes)
+  and `brand/dark/` (slate background, cream strokes). Always use the variant
+  that matches the surface.
+- **Never** recolour the strokes, add gradients, drop shadows, bevels, or
+  rotate the mark. Flat muted only.
+- **Minimum size** 16px square (favicon). Below that, drop to a single-colour
+  monogram. Do not render the full mark under 24px on screen.
 
-Plus:
+## Colour
 
-- `readme-banner.png` — 1600x800 README 头图
+All colours are tokenised. Do not introduce one-off hex values in product
+surfaces — reference the same five tokens everywhere.
 
-## 用途对照
+| Token        | Hex       | Role                                                    |
+| ---          | ---       | ---                                                     |
+| `cream`      | `#FEFAEB` | Primary surface, light backgrounds, document chrome     |
+| `cream-deep` | `#F3ECD8` | Subtle surface lift, scene backgrounds in the film      |
+| `ink`        | `#2B3C4A` | Primary text, logo strokes on light surfaces            |
+| `ink-soft`   | `#6B7A8A` | Secondary text, captions, supporting copy               |
+| `ink-faint`  | `#B9C1C9` | Tertiary — dotted patterns, hairline rules, dividers    |
+| `accent`     | `#C2643A` | The single warm accent. Use sparingly, max once per view (CTA, play button, key data point) |
 
-| 场景 | 文件 |
-|---|---|
-| Windows 托盘 / 安装器 | `dark/icon.ico`（托盘建议 dark 版） |
-| PWA manifest icons | `light/icon-192.png`, `light/icon-512.png`, `light/maskable-512.png` |
-| iOS App Store master | `icon-1024.png`（按场景选 dark/light） |
-| Android adaptive icon | background 用底色，foreground 可从 1024 裁 |
-| README 头图 | `readme-banner.png` |
+The accent is the only non-cool colour in the system. It exists so the eye has
+exactly one place to land on. Adding a second accent breaks the system.
 
-生成日期：2026-07-29，源稿为 Seedream 生成 + PIL 裁切缩放。
+## Typography
+
+Three families, three roles, no overlap.
+
+| Family            | Role     | Weights used | Notes                                      |
+| ---               | ---      | ---          | ---                                        |
+| **Sora**          | Display  | 500 / 600 / 700 | Headlines, the wordmark, film titles       |
+| **Inter**         | Body     | 400 / 500 / 600 | UI, body copy, captions                    |
+| **JetBrains Mono**| Mono     | 400 / 500 / 600 | Code, file paths, terminal text, version   |
+
+All three are loaded from `miaoda.feishu.cn/fonts` in the brand film. For
+offline use, vendor the WOFF2 files alongside the document.
+
+Tracking: display titles sit at `letter-spacing: -0.032em`. Body text stays at
+the family default. Do not set monospace tighter than `-0.02em`.
+
+## Voice
+
+VibeBridge is a developer tool for people who care how their CLI behaves. The
+voice mirrors that:
+
+- **Reserved, not cold.** No marketing adjectives in product copy.
+- **Direct.** Short sentences. Verbs over nouns. Show, don't sell.
+- **Honest about state.** "Early-stage software for trusted private networks"
+  is the kind of line we keep. Hype is not.
+- **Concrete numbers, not feelings.** Bytes, seconds, version strings.
+
+Bad: *"Revolutionise your AI workflow from anywhere."*
+Good: *"Control local AI CLI sessions from your phone, over a trusted LAN."*
+
+## Logo usage
+
+**Clear space.** Keep at least the height of the bridge arch in empty space on
+all four sides of the mark. No text, no other marks, no border decorations
+inside that zone.
+
+**Backgrounds.** Light surfaces → `brand/light/`. Dark surfaces → `brand/dark/`.
+Never place the mark on a busy photograph. Never place the light mark on cream
+or the dark mark on slate — the strokes vanish.
+
+**Don't.**
+
+- Don't outline, glow, emboss, or animate the mark's strokes.
+- Don't substitute a different bridge, terminal cursor, or monogram.
+- Don't write "VibeBridge" in a different typeface next to the mark.
+- Don't place the mark inside a coloured chip or pill — its background is the
+  surface it sits on.
+
+## Asset inventory
+
+Light and dark icon sets in 16–1024, ICO, and maskable, plus a README banner
+and the brand film poster:
+
+| Asset                                     | Where to use it                                |
+| ---                                       | ---                                            |
+| `brand/light/icon-{16..1024}.png`         | Light-surface icons (README, docs, store)      |
+| `brand/light/icon.ico`                    | Windows installers, light-surface tray         |
+| `brand/light/maskable-512.png`            | PWA manifest (light)                           |
+| `brand/dark/icon-{16..1024}.png`          | Dark-surface icons (Windows tray, dark UI)     |
+| `brand/dark/icon.ico`                     | Windows tray, installers on dark chrome        |
+| `brand/dark/maskable-512.png`             | PWA manifest (dark)                            |
+| `brand/banner.jpg`                        | README header (1600×800)                       |
+| `.github/brand-film-poster.png`           | README brand-film thumbnail (1280×720)         |
+| `.github/brand-film.mp4`                  | Brand film — 42 seconds, 1920×1080, H.264      |
+
+Each icon set was generated from a single source mark via Seedream and resized
+with PIL, with the cream / slate backgrounds re-applied per variant. See the
+`Seedream + PIL` notes at the bottom of this document for the workflow.
+
+## Banner & film
+
+- **`brand/banner.jpg`** — 1600×800, cream background, arch mark left,
+  wordmark right. Lives in the README hero.
+- **`.github/brand-film-poster.png`** — 1280×720, the brand film frozen on a
+  representative frame with a play affordance. Used as the clickable thumbnail
+  that opens the film.
+- **`.github/brand-film.mp4`** — the brand film itself, 42 seconds, 1920×1080,
+  30fps, H.264. Committed to the repo so it renders natively in GitHub's
+  README / blob viewer with no external dependency.
+
+If you re-render the film, keep the same palette and typography tokens. Do not
+add a soundtrack unless it is committed under a permissive licence and noted in
+the provenance section.
+
+## For contributors: regenerating assets
+
+The icon set and the film both originate from a single source mark plus a
+single design system. The reproducibility loop is:
+
+1. Update the mark source (Seedream batch with the same prompt) only if the
+   design system changes.
+2. Re-apply the colour tokens per variant (light / dark) and export at every
+   required size.
+3. Re-render the brand film from the React scene graph in
+   `vibeforge-brand-video-wahkrkg/index.html`; seek per-frame and stitch with
+   ffmpeg (`libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -movflags +faststart`).
+
+Provenance — icon set generated 2026-07-29 from Seedream source + PIL resize;
+brand film rendered 2026-07-29 from the React engine; no third-party assets
+are embedded beyond the licensed typefaces.
