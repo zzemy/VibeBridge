@@ -139,9 +139,14 @@ beforeEach(() => {
   terminalState.resets = 0;
   terminalState.resize = undefined;
   vi.stubGlobal("WebSocket", FakeWebSocket);
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => ({ state: "idle", reconnect_timeout_seconds: 90, idle_timeout_seconds: 0 }),
+  vi.stubGlobal("fetch", vi.fn().mockImplementation((input: string) => {
+    if (typeof input === "string" && input.includes("/pairing/web-session")) {
+      return Promise.resolve({ ok: false, status: 503 });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: async () => ({ state: "idle", reconnect_timeout_seconds: 90, idle_timeout_seconds: 0 }),
+    });
   }));
 });
 

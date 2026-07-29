@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"bytes"
+
 	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 	"github.com/zzemy/VibeBridge/internal/deviceidentity"
 )
@@ -20,6 +22,9 @@ const (
 	pairedDeviceHeader         = "VibeBridge-Device"
 	pairedDeviceSignatureHeader = "VibeBridge-Device-Signature"
 	pairedSessionNonceHeader    = "VibeBridge-Session-Nonce"
+	pairedDeviceQuery           = "vb-device"
+	pairedSessionNonceQuery     = "vb-nonce"
+	pairedDeviceSignatureQuery  = "vb-sig"
 	sessionNonceBytes          = 32
 	sessionNonceDefaultTTL     = 30 * time.Second
 	sessionSignatureDomain     = "VibeBridge session upgrade v1\x00"
@@ -141,13 +146,24 @@ type pairedSessionResult struct {
 	Epoch       uint64
 }
 
+// pairedCredential reads a paired-session credential from the request. It checks
+// the HTTP header first (for native clients like the CLI that set custom headers
+// on WebSocket upgrades) and falls back to the URL query parameter (for browser
+// clients whose WebSocket API cannot set custom headers).
+func pairedCredential(r *http.Request, header, queryParam string) string {
+	if v := r.Header.Get(header); v != "" {
+		return v
+	}
+	return r.URL.Query().Get(queryParam)
+}
+
 func (g *pairedSessionGate) verify(r *http.Request) (*pairedSessionResult, error) {
 	if g == nil || g.devices == nil || g.nonces == nil {
 		return nil, errPairedHeadersMissing
 	}
-	deviceHex := r.Header.Get(pairedDeviceHeader)
-	nonceHex := r.Header.Get(pairedSessionNonceHeader)
-	signatureB64 := r.Header.Get(pairedDeviceSignatureHeader)
+	deviceHex := pairedCredential(r, pairedDeviceHeader, pairedDeviceQuery)
+	nonceHex := pairedCredential(r, pairedSessionNonceHeader, pairedSessionNonceQuery)
+	signatureB64 := pairedCredential(r, pairedDeviceSignatureHeader, pairedDeviceSignatureQuery)
 	if deviceHex == "" || nonceHex == "" || signatureB64 == "" {
 		return nil, errPairedHeadersMissing
 	}
@@ -198,6 +214,66 @@ func sessionSignatureMessage(nonceHex string) []byte {
 	return message
 }
 
+// verifyWebSession validates Agent-signed credentials issued by the
+// /pairing/web-session endpoint for browser clients. Unlike verify, which
+// checks a paired client's signature against the authorized-device list, this
+// path verifies the signature against the Agent's own signing key — the Agent
+// vouches for the local web client's session. The device-ID check happens
+// before nonce consumption so a non-Agent device falls through to the paired
+// gate without burning the nonce.
+func (g *pairedSessionGate) verifyWebSession(r *http.Request) (*pairedSessionResult, error) {
+	if g == nil || g.devices == nil || g.nonces == nil {
+		return nil, errPairedHeadersMissing
+	}
+	deviceHex := r.URL.Query().Get(pairedDeviceQuery)
+	nonceHex := r.URL.Query().Get(pairedSessionNonceQuery)
+	signatureB64 := r.URL.Query().Get(pairedDeviceSignatureQuery)
+	if deviceHex == "" || nonceHex == "" || signatureB64 == "" {
+		return nil, errPairedHeadersMissing
+	}
+	deviceID, err := hex.DecodeString(deviceHex)
+	if err != nil || len(deviceID) != deviceidentity.DeviceIDBytes {
+		return nil, errPairedDeviceMalformed
+	}
+	// Reject early if the device ID is not the Agent's own — the nonce is
+	// not consumed so the paired-session gate can still use it.
+	agentID := g.devices.DeviceID()
+	if !bytes.Equal(deviceID, agentID) {
+		return nil, errPairedDeviceUnknown
+	}
+	if len(nonceHex) != sessionNonceBytes*2 {
+		return nil, errPairedNonceMalformed
+	}
+	if _, err := hex.DecodeString(nonceHex); err != nil {
+		return nil, errPairedNonceMalformed
+	}
+	signature, err := base64.StdEncoding.DecodeString(signatureB64)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return nil, errPairedSignatureMalformed
+	}
+	if err := g.nonces.consume(nonceHex, r.RemoteAddr); err != nil {
+		return nil, err
+	}
+	descriptor, err := g.devices.Descriptor()
+	if err != nil {
+		return nil, errPairedSignatureInvalid
+	}
+	publicKey := descriptor.DeviceDescriptor.SigningPublicKey
+	message := sessionSignatureMessage(nonceHex)
+	if !ed25519.Verify(publicKey, message, signature) {
+		return nil, errPairedSignatureInvalid
+	}
+	fingerprint, err := deviceidentity.Fingerprint(descriptor)
+	if err != nil {
+		return nil, errPairedSignatureInvalid
+	}
+	return &pairedSessionResult{
+		DeviceID:    append([]byte(nil), deviceID...),
+		Fingerprint: fingerprint,
+		Epoch:       g.devices.RevocationEpoch(),
+	}, nil
+}
+
 // handleSessionNonce issues a 30s single-use nonce bound to the upgrade remote address.
 func (s *Server) handleSessionNonce(w http.ResponseWriter, r *http.Request) {
 	if s.gate == nil || s.gate.nonces == nil {
@@ -211,6 +287,36 @@ func (s *Server) handleSessionNonce(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"nonce":      nonce,
+		"expires_in": int64(expiresIn.Seconds()),
+	})
+}
+
+// handleWebSession issues pre-signed session credentials for browser clients.
+// Browser WebSocket API cannot set custom HTTP headers, so the Agent signs the
+// nonce on behalf of the local web client and returns device_id + nonce +
+// signature as JSON. The web client passes these as query parameters on the
+// WebSocket upgrade URL. Requires a valid legacy URL token so the endpoint is
+// not callable by unauthenticated parties.
+func (s *Server) handleWebSession(w http.ResponseWriter, r *http.Request) {
+	if s.gate == nil || s.gate.devices == nil || s.gate.nonces == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "paired session is not configured"})
+		return
+	}
+	if !s.validToken(r) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid session token"})
+		return
+	}
+	nonce, expiresIn, err := s.gate.nonces.issue(r.RemoteAddr)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		return
+	}
+	deviceID := s.gate.devices.DeviceID()
+	signature := s.gate.devices.Sign(sessionSignatureMessage(nonce))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"device_id":  hex.EncodeToString(deviceID),
+		"nonce":     nonce,
+		"signature": base64.StdEncoding.EncodeToString(signature),
 		"expires_in": int64(expiresIn.Seconds()),
 	})
 }
