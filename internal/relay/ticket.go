@@ -56,7 +56,28 @@ var (
 	ErrTicketUnspecified = errors.New("relay ticket endpoint is unspecified")
 	ErrTicketReplayed    = errors.New("relay ticket has already been used")
 	ErrTicketIssued      = errors.New("relay ticket is not yet issuable")
+	// ErrTicketRevoked is returned by Verify when an Authorizer is
+	// configured and the ticket's issuer_epoch is below the live
+	// RevocationEpoch (ADR-0006 revocation gate). The ticket itself is
+	// well-formed; the underlying device was revoked after the ticket
+	// was signed.
+	ErrTicketRevoked = errors.New("relay ticket backing device has been revoked")
 )
+
+// Authorizer is the optional callback the Verifier consults after
+// signature and replay checks to confirm a ticket's backing device is
+// still authorized (ADR-0006). The default value is nil, in which case
+// no revocation check is performed and the Verifier accepts every
+// well-formed ticket the issuer signs.
+//
+// The callback receives the device id and issuer epoch the ticket was
+// minted under. It must return nil to allow the ticket, or a non-nil
+// error to reject it; the Verifier rewrites any non-nil return to
+// ErrTicketRevoked so callers do not have to map bespoke error
+// strings. Implementations should be quick (sub-millisecond): the
+// Verifier holds a replay-set entry open for the duration of the call
+// and a slow Authorizer would let a flood of bad tickets fill memory.
+type Authorizer func(deviceID []byte, issuerEpoch uint64) error
 
 // Ticket is the in-memory wrapper around a verified RelayTicket. It is
 // produced by Verifier.Verify and consumed by Router.Join.
@@ -105,6 +126,13 @@ func (t *Ticket) ExpiresAt() time.Time {
 // exact key that signed the ticket.
 func (t *Ticket) Issuer() ed25519.PublicKey {
 	return t.issuer
+}
+
+// IssuerEpoch returns the Agent-side revocation epoch the issuer stamped
+// on the ticket at mint time (ADR-0006). A zero value means the ticket
+// was issued without an epoch stamp.
+func (t *Ticket) IssuerEpoch() uint64 {
+	return t.wire.IssuerEpoch
 }
 
 // Issuer signs RelayTickets. The relay itself is the Verifier; the
@@ -185,6 +213,7 @@ func (issuer *Issuer) Issue(input IssueInput) (*vibebridgev1.RelayTicket, error)
 		ExpiresAt:      timestamppbNew(expires),
 		MaxConnections: input.MaxConnections,
 		Nonce:          nonce,
+		IssuerEpoch:    input.IssuerEpoch,
 	}
 	signature, err := signTicket(issuer.private, ticket)
 	if err != nil {
@@ -198,6 +227,12 @@ func (issuer *Issuer) Issue(input IssueInput) (*vibebridgev1.RelayTicket, error)
 // ticket. Either ExpiresAt or Lifetime should be set; if Lifetime is
 // positive, it is added to the current time. If both are zero a
 // default 2-minute lifetime is used.
+//
+// IssuerEpoch is the Agent-side device-identity revocation epoch the
+// issuer observed at mint time (ADR-0006). A zero value means the
+// ticket was issued without an epoch stamp; a relay with a revocation
+// Authorizer configured will treat such tickets as unauthorized. The
+// Agent passes the current store.RevocationEpoch() here when minting.
 type IssueInput struct {
 	RouteID        []byte
 	DeviceID       []byte
@@ -205,6 +240,7 @@ type IssueInput struct {
 	MaxConnections uint32
 	Lifetime       time.Duration
 	ExpiresAt      time.Time
+	IssuerEpoch    uint64
 }
 
 func (issuer *Issuer) randomBytes(n int) ([]byte, error) {
@@ -222,12 +258,35 @@ func (issuer *Issuer) randomBytes(n int) ([]byte, error) {
 // ticket cannot be presented twice. It accepts tickets signed by any
 // public key in the configured allow list. A zero Verifier rejects
 // every ticket.
+//
+// An optional Authorizer (SetAuthorizer) plugs a revocation gate on top
+// of the signature check (ADR-0006). When set, every accepted ticket
+// must also pass Authorizer; otherwise the wire is consulted only for
+// shape, signature, and replay.
 type Verifier struct {
 	issuers     map[string]ed25519.PublicKey
 	now         func() time.Time
 	replay      map[string]time.Time
 	replayMu    sync.Mutex
 	replayClock func() time.Time
+	authorizer  Authorizer
+}
+
+// SetAuthorizer wires an optional revocation gate on top of the
+// signature check (ADR-0006). The callback runs after every signature
+// and replay check; passing nil disables the gate and reverts to the
+// legacy wire-only verification policy. The Verifier is not safe for
+// concurrent use with SetAuthorizer while a Verify call is in flight;
+// wire the authorizer once at construction and treat the resulting
+// Verifier as immutable.
+func (verifier *Verifier) SetAuthorizer(authorizer Authorizer) {
+	verifier.authorizer = authorizer
+}
+
+// Authorizer reports the active revocation gate, or nil when no gate
+// is configured. The accessor is exposed for tests and observability.
+func (verifier *Verifier) Authorizer() Authorizer {
+	return verifier.authorizer
 }
 
 // NewVerifier returns a Verifier that accepts tickets signed by any
@@ -317,6 +376,15 @@ func (verifier *Verifier) Verify(wire *vibebridgev1.RelayTicket) (*Ticket, error
 		// but the rollback is cheap).
 		verifier.forgetReplay(wire.TicketId)
 		return nil, err
+	}
+	if verifier.authorizer != nil {
+		if authErr := verifier.authorizer(wire.DeviceId, wire.IssuerEpoch); authErr != nil {
+			// Same rollback as signature failure: a rejected ticket
+			// must not burn the ticket id. A future, well-formed ticket
+			// with a different nonce/route must still be accepted.
+			verifier.forgetReplay(wire.TicketId)
+			return nil, ErrTicketRevoked
+		}
 	}
 	return &Ticket{
 		wire:    proto.Clone(wire).(*vibebridgev1.RelayTicket),

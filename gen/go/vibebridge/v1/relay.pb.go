@@ -78,6 +78,14 @@ func (RelayEndpoint) EnumDescriptor() ([]byte, []int) {
 // The issuer_signature covers every other field under the deterministic
 // protobuf encoding; the relay verifies it with a configured issuer public key
 // and never inspects or persists plaintext payload bytes.
+//
+// issuer_epoch is the Agent-side device-identity revocation epoch the issuer
+// observed at mint time (ADR-0006). It is the single source of truth for
+// "the device was still authorized at the moment this ticket was signed":
+// the relay's Authorizer compares it against the live RevocationEpoch to
+// reject tickets whose backing device was revoked after mint. A zero value
+// means the issuer did not stamp an epoch; the relay treats this as "not
+// authorized" whenever a gate is configured.
 type RelayTicket struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Version        uint32                 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
@@ -92,8 +100,12 @@ type RelayTicket struct {
 	// every other field. The relay rejects a ticket whose signature does not
 	// verify under its configured issuer key.
 	IssuerSignature []byte `protobuf:"bytes,9,opt,name=issuer_signature,json=issuerSignature,proto3" json:"issuer_signature,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// issuer_epoch is the Agent's device-identity revocation epoch at mint time.
+	// When a relay Authorizer is configured, tickets whose issuer_epoch is below
+	// the live RevocationEpoch are rejected (ADR-0006 revocation gate).
+	IssuerEpoch   uint64 `protobuf:"varint,10,opt,name=issuer_epoch,json=issuerEpoch,proto3" json:"issuer_epoch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RelayTicket) Reset() {
@@ -189,11 +201,18 @@ func (x *RelayTicket) GetIssuerSignature() []byte {
 	return nil
 }
 
+func (x *RelayTicket) GetIssuerEpoch() uint64 {
+	if x != nil {
+		return x.IssuerEpoch
+	}
+	return 0
+}
+
 var File_vibebridge_v1_relay_proto protoreflect.FileDescriptor
 
 const file_vibebridge_v1_relay_proto_rawDesc = "" +
 	"\n" +
-	"\x19vibebridge/v1/relay.proto\x12\rvibebridge.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xdb\x02\n" +
+	"\x19vibebridge/v1/relay.proto\x12\rvibebridge.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfe\x02\n" +
 	"\vRelayTicket\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\x1b\n" +
 	"\tticket_id\x18\x02 \x01(\fR\bticketId\x12\x19\n" +
@@ -204,7 +223,9 @@ const file_vibebridge_v1_relay_proto_rawDesc = "" +
 	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12'\n" +
 	"\x0fmax_connections\x18\a \x01(\rR\x0emaxConnections\x12\x14\n" +
 	"\x05nonce\x18\b \x01(\fR\x05nonce\x12)\n" +
-	"\x10issuer_signature\x18\t \x01(\fR\x0fissuerSignature*d\n" +
+	"\x10issuer_signature\x18\t \x01(\fR\x0fissuerSignature\x12!\n" +
+	"\fissuer_epoch\x18\n" +
+	" \x01(\x04R\vissuerEpoch*d\n" +
 	"\rRelayEndpoint\x12\x1e\n" +
 	"\x1aRELAY_ENDPOINT_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14RELAY_ENDPOINT_AGENT\x10\x01\x12\x19\n" +
