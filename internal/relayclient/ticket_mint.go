@@ -37,6 +37,13 @@ type PairInput struct {
 	// IssuedAt overrides the issue timestamp for testing. Zero
 	// means "now" in the Issuer's clock.
 	IssuedAt time.Time
+	// IssuerEpoch is the device-identity revocation epoch stamped
+	// onto each ticket at mint time (ADR-0006). Zero means the
+	// tickets are legacy and will be rejected by relays that have
+	// --require-revocation-check enabled. Non-zero values must come
+	// from deviceidentity.Store.RevocationEpoch() at the moment of
+	// minting so the relay can detect post-mint revocations.
+	IssuerEpoch uint64
 }
 
 // Pair mints matched Agent and Client tickets for the same route.
@@ -90,6 +97,7 @@ func Pair(issuer *relay.Issuer, in PairInput) (agentTicket, clientTicket *vibebr
 			MaxConnections: maxConn,
 			Lifetime:       in.Lifetime,
 			ExpiresAt:      expiresAt,
+			IssuerEpoch:    in.IssuerEpoch,
 		})
 	}
 	agentTicket, err = mint(vibebridgev1.RelayEndpoint_RELAY_ENDPOINT_AGENT, in.AgentID)
