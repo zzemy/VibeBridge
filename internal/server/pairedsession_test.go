@@ -315,7 +315,7 @@ func TestPairedSessionRejectsMissingHeaders(t *testing.T) {
 	}
 }
 
-func TestPairedSessionAcceptsLegacyToken(t *testing.T) {
+func TestPairedSessionRejectsLegacyToken(t *testing.T) {
 	server, _ := newPairedTestServer(t, true)
 	testServer := httptest.NewServer(server.Handler())
 	defer testServer.Close()
@@ -325,11 +325,11 @@ func TestPairedSessionAcceptsLegacyToken(t *testing.T) {
 	if conn != nil {
 		_ = conn.Close()
 	}
-	if err != nil {
-		t.Fatalf("legacy token dial failed: %v", err)
+	if err == nil {
+		t.Fatal("legacy token dial succeeded, want rejection")
 	}
-	if response.StatusCode != http.StatusSwitchingProtocols {
-		t.Fatalf("legacy token status = %d, want 101", response.StatusCode)
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("legacy token status = %d, want 401", response.StatusCode)
 	}
 }
 
