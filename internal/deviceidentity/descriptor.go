@@ -69,6 +69,15 @@ func newSignedDescriptor(options DescriptorOptions, signingKey ed25519.PrivateKe
 	return &vibebridgev1.SignedDeviceDescriptor{DeviceDescriptor: descriptor, Signature: ed25519.Sign(signingKey, message)}, nil
 }
 
+// NewSignedDescriptor builds a SignedDeviceDescriptor with the caller-supplied
+// Ed25519 signing key. It exists so external packages (for example the paired-
+// session verifier in the server package) can construct descriptors with the
+// same canonical signing rules used by Agent and client identity creation.
+// signingKey must match options.SigningPublicKey.
+func NewSignedDescriptor(options DescriptorOptions, signingKey ed25519.PrivateKey) (*vibebridgev1.SignedDeviceDescriptor, error) {
+	return newSignedDescriptor(options, signingKey)
+}
+
 // VerifySignedDescriptor validates all public bounds and its Ed25519 signature.
 func VerifySignedDescriptor(signed *vibebridgev1.SignedDeviceDescriptor) error {
 	if signed == nil || signed.DeviceDescriptor == nil {

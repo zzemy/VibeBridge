@@ -19,7 +19,7 @@ Treat the paired device identity as the authorization root for terminal sessions
 
 Concretely:
 
-- Every terminal WebSocket upgrade MUST include a `VibeBridge-Device` header carrying the device ID (32 bytes, hex) and a `VibeBridge-Device-Signature` header carrying an Ed25519 signature over a server-issued per-upgrade nonce. The nonce is delivered by the Agent immediately before the upgrade through a short-lived JSON endpoint, and is single-use, bound to the upgrade's remote address, and expires in 30 seconds.
+- Every terminal WebSocket upgrade MUST include a `VibeBridge-Device` header carrying the device ID (16 bytes / 32 hex characters; the wire format is hex-encoded) and a `VibeBridge-Device-Signature` header carrying an Ed25519 signature over a server-issued per-upgrade nonce. The nonce is delivered by the Agent immediately before the upgrade through a short-lived JSON endpoint, and is single-use, bound to the host that fetched it (port-agnostic so the same browser can open a fresh TCP connection for the upgrade), and expires in 30 seconds.
 - The server verifies the signature against the public signing key inside the `SignedDeviceDescriptor` recorded by `deviceidentity.Store.Authorize` and rejects the upgrade if the device is not in `DEVICE_AUTHORIZATION_STATE_AUTHORIZED` or if `RevocationEpoch()` has moved past the device's record.
 - On the `vibebridge.v1` subprotocol the binding is enforced unconditionally. On the legacy path (`DisableLegacyProtocol == false`) the Agent also accepts the paired-device challenge; the URL bearer token remains accepted as a fallback. Default configuration enables paired-device required for the V1 subprotocol and continues to accept the legacy token until `DisableLegacyProtocol` is set by the operator or by the tray management page.
 - `negotiateProtocolV1` is extended to publish the bound device ID, public key fingerprint, and the revocation epoch observed at upgrade time in its hello envelope. The relay forwards the headers unchanged, so remote sessions are gated by the same challenge.
@@ -61,5 +61,5 @@ Simpler to implement, but rotates less often than devices change, leaves a high-
 
 - IndexedDB key extraction becomes a realistic browser threat and a stronger client key store is required before the migration can advance to step 3.
 - The relay cannot forward custom headers without changes, requiring a second transport or envelope-level device authentication.
-- Cryptographic review finds a flaw in the nonce construction, the binding to the upgrade remote address, or the revocation-epoch check.
+- Cryptographic review finds a flaw in the nonce construction, the host binding, or the revocation-epoch check.
 - Lost-phone recovery proves to be a frequent operational need and warrants a faster in-place recovery path than the legacy token mode currently offers.

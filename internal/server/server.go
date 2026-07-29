@@ -19,6 +19,7 @@ import (
 	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 	"github.com/zzemy/VibeBridge/internal/agentlog"
 	"github.com/zzemy/VibeBridge/internal/attachment"
+	"github.com/zzemy/VibeBridge/internal/deviceidentity"
 	"github.com/zzemy/VibeBridge/internal/promptaction"
 	protocolv1 "github.com/zzemy/VibeBridge/internal/protocol"
 	"github.com/zzemy/VibeBridge/internal/tooladapter"
@@ -46,6 +47,8 @@ type Config struct {
 	ReconnectTimeout      time.Duration
 	IdleTimeout           time.Duration
 	DisableLegacyProtocol bool
+	RequirePairedSession  bool
+	DeviceStore           *deviceidentity.Store
 	Logger                agentlog.Logger
 }
 
@@ -59,6 +62,7 @@ type Server struct {
 	clock                 clock
 	launcher              terminalLauncher
 	logger                agentlog.Logger
+	gate                  *pairedSessionGate
 }
 
 type ClientMessage struct {
@@ -103,6 +107,9 @@ func New(config Config) *Server {
 		},
 	}
 	server.upgrader.CheckOrigin = server.sameOrigin
+	if config.DeviceStore != nil {
+		server.gate = newPairedSessionGate(config.DeviceStore, newNonceStore(nil, sessionNonceDefaultTTL))
+	}
 	return server
 }
 
@@ -111,6 +118,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/status", s.handleStatus)
 	mux.HandleFunc("/ws", s.handleWebSocket)
+	// The nonce endpoint always returns a clear 503 when paired sessions are not
+	// configured so clients see a deterministic contract instead of the static fallback.
+	mux.HandleFunc("/pairing/session-nonce", s.handleSessionNonce)
 	mux.HandleFunc("/", s.handleStatic)
 	return mux
 }
@@ -150,7 +160,7 @@ func (s *Server) sessionStatus() SessionStatus {
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	if !s.validToken(r) {
+	if _, ok := s.authorizedForUpgrade(r); !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid session token"})
 		return
 	}
@@ -1435,6 +1445,27 @@ func (s *Server) handleEmbeddedStatic(w http.ResponseWriter, r *http.Request) {
 func (s *Server) validToken(r *http.Request) bool {
 	token := r.URL.Query().Get("token")
 	return token != "" && token == s.config.SessionToken
+}
+
+// authorizedForUpgrade returns the paired-session binding when present.
+// Either a valid legacy URL token OR a paired-device signed upgrade on the
+// vibebridge.v1 subprotocol satisfies the gate. Failures return ok=false so
+// handleWebSocket can emit a single 401.
+func (s *Server) authorizedForUpgrade(r *http.Request) (*pairedSessionResult, bool) {
+	if s.validToken(r) {
+		return nil, true
+	}
+	if !s.config.RequirePairedSession || s.gate == nil {
+		return nil, false
+	}
+	if !offersWebSocketSubprotocol(r, protocolv1.WebSocketSubprotocol) {
+		return nil, false
+	}
+	result, err := s.gate.verify(r)
+	if err != nil {
+		return nil, false
+	}
+	return result, true
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
