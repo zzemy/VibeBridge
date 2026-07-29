@@ -15,6 +15,7 @@ func TestLoadValidConfigAndResolveProfile(t *testing.T) {
 		"reconnect_timeout": "2m",
 		"idle_timeout": "0s",
 		"disable_legacy_protocol": true,
+		"require_paired_session": true,
 		"default_profile": "codex",
 		"profiles": [{
 			"id": "codex",
@@ -48,6 +49,9 @@ func TestLoadValidConfigAndResolveProfile(t *testing.T) {
 	}
 	if !config.DisableLegacyProtocol {
 		t.Fatal("disable_legacy_protocol was not loaded")
+	}
+	if !config.RequirePairedSession {
+		t.Fatal("require_paired_session was not loaded")
 	}
 }
 
