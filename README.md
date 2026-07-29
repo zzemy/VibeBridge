@@ -11,7 +11,7 @@
 <p align="center"><strong>Control local AI CLI sessions from your phone, over a trusted LAN.</strong><br>Codex, Claude Code, or any PTY-based agent — without streaming your desktop or sending terminal content through a hosted service.</p>
 
 <p align="center">
-  <video src="https://raw.githubusercontent.com/zzemy/VibeBridge/main/.github/brand-film.mp4" poster="https://raw.githubusercontent.com/zzemy/VibeBridge/main/.github/brand-film-poster.png" controls muted preload="metadata" width="560"></video>
+  <img src="./.github/brand-film.gif" alt="VibeBridge — 42-second brand film" width="640">
 </p>
 
 <p align="center">
