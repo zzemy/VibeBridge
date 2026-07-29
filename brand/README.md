@@ -99,8 +99,9 @@ and the brand film poster:
 | `brand/dark/icon.ico`                     | Windows tray, installers on dark chrome        |
 | `brand/dark/maskable-512.png`             | PWA manifest (dark)                            |
 | `brand/banner.jpg`                        | README header (1600×800)                       |
-| `.github/brand-film-poster.png`           | README brand-film thumbnail (1280×720)         |
-| `.github/brand-film.mp4`                  | Brand film — 42 seconds, 1920×1080, H.264      |
+| `.github/brand-film-poster.png`           | Static fallback thumbnail (1280×720)            |
+| `.github/brand-film.mp4`                  | Master brand film — 42 seconds, 1920×1080, H.264 |
+| `.github/brand-film.gif`                  | Inline preview that autoplays in GitHub README (720×405, 12fps, ~3.4 MB) |
 
 Each icon set was generated from a single source mark via Seedream and resized
 with PIL, with the cream / slate backgrounds re-applied per variant. See the
@@ -111,11 +112,16 @@ with PIL, with the cream / slate backgrounds re-applied per variant. See the
 - **`brand/banner.jpg`** — 1600×800, cream background, arch mark left,
   wordmark right. Lives in the README hero.
 - **`.github/brand-film-poster.png`** — 1280×720, the brand film frozen on a
-  representative frame with a play affordance. Used as the clickable thumbnail
-  that opens the film.
-- **`.github/brand-film.mp4`** — the brand film itself, 42 seconds, 1920×1080,
-  30fps, H.264. Committed to the repo so it renders natively in GitHub's
-  README / blob viewer with no external dependency.
+  representative frame with a play affordance. Kept as a static fallback for
+  surfaces that cannot render the animated GIF (RSS, terminal previews, image
+  crawlers).
+- **`.github/brand-film.gif`** — 720×405, 12fps, 42-second loop, palette
+  optimised, ~3.4 MB. The inline preview the README embeds with an 
+  tag; GitHub does not honour  in repo markdown, but it does autoplay
+  animated GIFs, so this is what users actually see.
+- **`.github/brand-film.mp4`** — the master brand film, 42 seconds, 1920×1080,
+  30fps, H.264, ~1.7 MB. Linked from the README as a download for anyone who
+  wants the full-resolution master with audio support if it is later added.
 
 If you re-render the film, keep the same palette and typography tokens. Do not
 add a soundtrack unless it is committed under a permissive licence and noted in
