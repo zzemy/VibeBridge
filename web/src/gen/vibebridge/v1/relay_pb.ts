@@ -13,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file vibebridge/v1/relay.proto.
  */
 export const file_vibebridge_v1_relay: GenFile = /*@__PURE__*/
-  fileDesc("Chl2aWJlYnJpZGdlL3YxL3JlbGF5LnByb3RvEg12aWJlYnJpZGdlLnYxIvgBCgtSZWxheVRpY2tldBIPCgd2ZXJzaW9uGAEgASgNEhEKCXRpY2tldF9pZBgCIAEoDBIQCghyb3V0ZV9pZBgDIAEoDBIuCghlbmRwb2ludBgEIAEoDjIcLnZpYmVicmlkZ2UudjEuUmVsYXlFbmRwb2ludBIRCglkZXZpY2VfaWQYBSABKAwSLgoKZXhwaXJlc19hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFwoPbWF4X2Nvbm5lY3Rpb25zGAcgASgNEg0KBW5vbmNlGAggASgMEhgKEGlzc3Vlcl9zaWduYXR1cmUYCSABKAwqZAoNUmVsYXlFbmRwb2ludBIeChpSRUxBWV9FTkRQT0lOVF9VTlNQRUNJRklFRBAAEhgKFFJFTEFZX0VORFBPSU5UX0FHRU5UEAESGQoVUkVMQVlfRU5EUE9JTlRfQ0xJRU5UEAJCP1o9Z2l0aHViLmNvbS96emVteS9WaWJlQnJpZGdlL2dlbi9nby92aWJlYnJpZGdlL3YxO3ZpYmVicmlkZ2V2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("Chl2aWJlYnJpZGdlL3YxL3JlbGF5LnByb3RvEg12aWJlYnJpZGdlLnYxIo4CCgtSZWxheVRpY2tldBIPCgd2ZXJzaW9uGAEgASgNEhEKCXRpY2tldF9pZBgCIAEoDBIQCghyb3V0ZV9pZBgDIAEoDBIuCghlbmRwb2ludBgEIAEoDjIcLnZpYmVicmlkZ2UudjEuUmVsYXlFbmRwb2ludBIRCglkZXZpY2VfaWQYBSABKAwSLgoKZXhwaXJlc19hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFwoPbWF4X2Nvbm5lY3Rpb25zGAcgASgNEg0KBW5vbmNlGAggASgMEhgKEGlzc3Vlcl9zaWduYXR1cmUYCSABKAwSFAoMaXNzdWVyX2Vwb2NoGAogASgEKmQKDVJlbGF5RW5kcG9pbnQSHgoaUkVMQVlfRU5EUE9JTlRfVU5TUEVDSUZJRUQQABIYChRSRUxBWV9FTkRQT0lOVF9BR0VOVBABEhkKFVJFTEFZX0VORFBPSU5UX0NMSUVOVBACQj9aPWdpdGh1Yi5jb20venplbXkvVmliZUJyaWRnZS9nZW4vZ28vdmliZWJyaWRnZS92MTt2aWJlYnJpZGdldjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * RelayTicket authorizes exactly one Agent or Client to present itself at one
@@ -21,6 +21,14 @@ export const file_vibebridge_v1_relay: GenFile = /*@__PURE__*/
  * The issuer_signature covers every other field under the deterministic
  * protobuf encoding; the relay verifies it with a configured issuer public key
  * and never inspects or persists plaintext payload bytes.
+ * 
+ * issuer_epoch is the Agent-side device-identity revocation epoch the issuer
+ * observed at mint time (ADR-0006). It is the single source of truth for
+ * "the device was still authorized at the moment this ticket was signed":
+ * the relay's Authorizer compares it against the live RevocationEpoch to
+ * reject tickets whose backing device was revoked after mint. A zero value
+ * means the issuer did not stamp an epoch; the relay treats this as "not
+ * authorized" whenever a gate is configured.
  *
  * @generated from message vibebridge.v1.RelayTicket
  */
@@ -73,6 +81,15 @@ export type RelayTicket = Message<"vibebridge.v1.RelayTicket"> & {
    * @generated from field: bytes issuer_signature = 9;
    */
   issuerSignature: Uint8Array;
+
+  /**
+   * issuer_epoch is the Agent's device-identity revocation epoch at mint time.
+   * When a relay Authorizer is configured, tickets whose issuer_epoch is below
+   * the live RevocationEpoch are rejected (ADR-0006 revocation gate).
+   *
+   * @generated from field: uint64 issuer_epoch = 10;
+   */
+  issuerEpoch: bigint;
 };
 
 /**

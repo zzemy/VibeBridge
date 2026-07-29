@@ -39,11 +39,14 @@ type Options struct {
 }
 
 // Store owns one durable Agent identity and its local client authorization graph.
+// Stores opened via Load carry readOnly = true so the mutating methods can fail
+// closed instead of silently creating divergent state on a read-only host.
 type Store struct {
-	mu    sync.RWMutex
-	path  string
-	state persistedState
-	now   func() time.Time
+	mu       sync.RWMutex
+	path     string
+	state    persistedState
+	now      func() time.Time
+	readOnly bool
 }
 
 type persistedState struct {
@@ -68,6 +71,35 @@ type persistedAuthorization struct {
 	AuthorizedAt         time.Time  `json:"authorized_at"`
 	RevokedAt            *time.Time `json:"revoked_at,omitempty"`
 	RevocationEpoch      uint64     `json:"revocation_epoch"`
+}
+
+// Load opens an existing identity in read-only mode and fails closed if the
+// file is missing. The store still permits calls that observe the
+// authorization graph (AuthorizedDevice, RevocationEpoch) but every
+// mutating operation returns an error. The intended caller is the
+// viberelay, which shares the Agent's identity file to enforce the
+// revocation gate and must not create a fresh identity on a host that
+// does not own one.
+//
+// The reader takes the same package-level lock LoadOrCreate does so a
+// concurrent create on another goroutine cannot race with the in-flight
+// read; the lock is released before the function returns and does not
+// hold while the Store is in use.
+func Load(options Options) (*Store, error) {
+	if !filepath.IsAbs(options.Path) {
+		return nil, errors.New("device identity path must be absolute")
+	}
+	loadCreateLock.Lock()
+	defer loadCreateLock.Unlock()
+	state, err := loadState(options.Path)
+	if err != nil {
+		return nil, fmt.Errorf("load device identity: %w", err)
+	}
+	now := options.Now
+	if now == nil {
+		now = time.Now
+	}
+	return &Store{path: options.Path, state: state, now: now, readOnly: true}, nil
 }
 
 // LoadOrCreate opens an existing identity or atomically creates the first one.

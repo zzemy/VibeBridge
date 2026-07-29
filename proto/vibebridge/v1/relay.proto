@@ -19,6 +19,14 @@ enum RelayEndpoint {
 // The issuer_signature covers every other field under the deterministic
 // protobuf encoding; the relay verifies it with a configured issuer public key
 // and never inspects or persists plaintext payload bytes.
+//
+// issuer_epoch is the Agent-side device-identity revocation epoch the issuer
+// observed at mint time (ADR-0006). It is the single source of truth for
+// "the device was still authorized at the moment this ticket was signed":
+// the relay's Authorizer compares it against the live RevocationEpoch to
+// reject tickets whose backing device was revoked after mint. A zero value
+// means the issuer did not stamp an epoch; the relay treats this as "not
+// authorized" whenever a gate is configured.
 message RelayTicket {
   uint32 version = 1;
   bytes ticket_id = 2;
@@ -32,4 +40,8 @@ message RelayTicket {
   // every other field. The relay rejects a ticket whose signature does not
   // verify under its configured issuer key.
   bytes issuer_signature = 9;
+  // issuer_epoch is the Agent's device-identity revocation epoch at mint time.
+  // When a relay Authorizer is configured, tickets whose issuer_epoch is below
+  // the live RevocationEpoch are rejected (ADR-0006 revocation gate).
+  uint64 issuer_epoch = 10;
 }

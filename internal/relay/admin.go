@@ -21,8 +21,9 @@ import (
 // kept separate from the WebSocket listener so the two surfaces do not
 // share a port.
 type Admin struct {
-	issuer *Issuer
-	clock  func() time.Time
+	issuer     *Issuer
+	clock      func() time.Time
+	stampEpoch func() uint64
 }
 
 // NewAdmin returns an Admin backed by the supplied Issuer. The Issuer's
@@ -35,15 +36,33 @@ func NewAdmin(issuer *Issuer) (*Admin, error) {
 	return &Admin{issuer: issuer, clock: time.Now}, nil
 }
 
+// WithStampEpoch wires an optional epoch-stamp policy on the Admin
+// (ADR-0006). When set, every ticket minted through this Admin stamps
+// the value returned by stamp as its IssuerEpoch, ignoring whatever
+// the caller passed. The intended use is a StoreAuthorizer-backed
+// closure so the relay-admin and the relay-verifier consult the same
+// source of truth. Passing nil disables the override and reverts to
+// the caller-provided value (legacy behaviour). The Admin is not safe
+// for concurrent use with WithStampEpoch while a request is in
+// flight; wire the policy once at construction.
+func (admin *Admin) WithStampEpoch(stamp func() uint64) {
+	admin.stampEpoch = stamp
+}
+
 // issueRequest is the JSON body of POST /v1/tickets. Every field is
-// required; an absent or zero value is rejected so the caller can
-// never mint a malformed ticket by accident.
+// required except issuer_epoch; an absent or zero value on the other
+// fields is rejected so the caller can never mint a malformed ticket
+// by accident. issuer_epoch is optional: when the Admin is configured
+// with a stamp policy (WithStampEpoch) the value is taken from there,
+// otherwise the caller must supply a non-zero value so a downstream
+// revocation gate has something to check against.
 type issueRequest struct {
 	RouteID         string `json:"route_id"`
 	DeviceID        string `json:"device_id"`
 	Endpoint        string `json:"endpoint"`
 	MaxConnections  uint32 `json:"max_connections"`
 	LifetimeSeconds int    `json:"lifetime_seconds"`
+	IssuerEpoch     *uint64 `json:"issuer_epoch,omitempty"`
 }
 
 // issueResponse is the JSON body of a successful issue. The ticket is
@@ -116,12 +135,22 @@ func (admin *Admin) handleIssue(token string) http.HandlerFunc {
 			return
 		}
 		lifetime := time.Duration(body.LifetimeSeconds) * time.Second
+		issuerEpoch := uint64(0)
+		if admin.stampEpoch != nil {
+			issuerEpoch = admin.stampEpoch()
+		} else if body.IssuerEpoch != nil {
+			issuerEpoch = *body.IssuerEpoch
+		} else {
+			writeError(writer, http.StatusBadRequest, "invalid_issuer_epoch", "issuer_epoch is required when the relay has no stamp policy configured")
+			return
+		}
 		ticket, err := admin.issuer.Issue(IssueInput{
 			RouteID:        routeID,
 			DeviceID:       deviceID,
 			Endpoint:       endpoint,
 			MaxConnections: body.MaxConnections,
 			Lifetime:       lifetime,
+			IssuerEpoch:    issuerEpoch,
 		})
 		if err != nil {
 			writeError(writer, http.StatusBadRequest, "issue_failed", err.Error())

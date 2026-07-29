@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/zzemy/VibeBridge/internal/agentlog"
+	"github.com/zzemy/VibeBridge/internal/deviceidentity"
 	"github.com/zzemy/VibeBridge/internal/relay"
 )
 
@@ -64,9 +65,14 @@ func run(args []string) error {
 	flags.Var(&allowedOrigins, "allowed-origin", "origin the relay will accept WebSocket upgrades from; repeat the flag for multiple origins (default: same-origin only)")
 	adminAddr := flags.String("admin-addr", defaultAdminAddr, "listen address for the ticket issuance control plane; empty disables the control plane")
 	adminToken := flags.String("admin-token", "", "bearer token required by the control plane; empty disables auth (rely on the listener bind address as the trust boundary)")
+	requireRevocationCheck := flags.Bool("require-revocation-check", false, "reject tickets whose backing device was revoked after mint (ADR-0006); defaults to off until client rollout completes")
+	identityStorePath := flags.String("identity-store", "", "path to the Agent device-identity file the relay reads to enforce the revocation gate; required when --require-revocation-check is on")
 	diagnose := flags.Bool("diagnose", false, "validate configuration and exit without starting the listener")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *requireRevocationCheck && *identityStorePath == "" {
+		return errors.New("--identity-store is required when --require-revocation-check is on")
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments: %v", flags.Args())
@@ -87,8 +93,27 @@ func run(args []string) error {
 	verifier := relay.NewVerifier(issuer.PublicKey())
 	logger := newRelayLogger(eventLogger)
 
+	// Wire the revocation gate (if enabled) before any other
+	// subsystem observes the Verifier. The store is opened in
+	// read-only mode and closed on shutdown so the relay never
+	// advances the Agent's epoch.
+	var (
+		revocationStore *deviceidentity.Store
+		gateEnabled     bool
+	)
+	if *requireRevocationCheck {
+		store, err := openIdentityStore(*identityStorePath)
+		if err != nil {
+			return fmt.Errorf("load device identity for revocation gate: %w", err)
+		}
+		revocationStore = store
+		verifier.SetAuthorizer(relay.StoreAuthorizer(store))
+		gateEnabled = true
+		fmt.Fprintf(os.Stderr, "relay revocation gate: on (store=%s, epoch=%d)\n", *identityStorePath, store.RevocationEpoch())
+	}
+
 	if *diagnose {
-		return runDiagnostics(*addr, *adminAddr, keyPath, issuer.PublicKey())
+		return runDiagnostics(*addr, *adminAddr, keyPath, issuer.PublicKey(), gateEnabled, *identityStorePath)
 	}
 
 	server, err := relay.New(relay.Config{
@@ -97,11 +122,17 @@ func run(args []string) error {
 		AllowedOrigins: buildOriginAllowList(allowedOrigins),
 	})
 	if err != nil {
+		if revocationStore != nil {
+			revocationStore.Close()
+		}
 		return fmt.Errorf("initialize relay server: %w", err)
 	}
 
 	listener, err := net.Listen("tcp", *addr)
 	if err != nil {
+		if revocationStore != nil {
+			revocationStore.Close()
+		}
 		return fmt.Errorf("listen on %s: %w", *addr, err)
 	}
 	listenAddress := listener.Addr().String()
@@ -135,10 +166,23 @@ func run(args []string) error {
 	if *adminAddr != "" {
 		admin, err := relay.NewAdmin(issuer)
 		if err != nil {
+			if revocationStore != nil {
+				revocationStore.Close()
+			}
 			return fmt.Errorf("initialize relay admin: %w", err)
+		}
+		// When the gate is on, force every minted ticket to carry
+		// the live epoch from the device-identity store, which is
+		// the single source of truth. The caller cannot override
+		// the stamp; the value comes from the store.
+		if revocationStore != nil {
+			admin.WithStampEpoch(revocationStore.RevocationEpoch)
 		}
 		adminListener, err := net.Listen("tcp", *adminAddr)
 		if err != nil {
+			if revocationStore != nil {
+				revocationStore.Close()
+			}
 			return fmt.Errorf("listen on admin address %s: %w", *adminAddr, err)
 		}
 		adminListenAddr := adminListener.Addr().String()
@@ -169,6 +213,9 @@ func run(args []string) error {
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopping, Reason: agentlog.ReasonListenerError, Outcome: agentlog.OutcomeFailure})
+			if revocationStore != nil {
+				revocationStore.Close()
+			}
 			return fmt.Errorf("server error: %w", err)
 		}
 		eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopping, Reason: agentlog.ReasonListenerClosed})
@@ -178,12 +225,18 @@ func run(args []string) error {
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopped, Outcome: agentlog.OutcomeFailure})
+		if revocationStore != nil {
+			revocationStore.Close()
+		}
 		return fmt.Errorf("shutdown relay: %w", err)
 	}
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopped, Outcome: agentlog.OutcomeFailure})
+		if revocationStore != nil {
+			revocationStore.Close()
+		}
 		return fmt.Errorf("shutdown http: %w", err)
 	}
 	if adminHTTPServer != nil {
@@ -194,8 +247,23 @@ func run(args []string) error {
 			return fmt.Errorf("shutdown admin: %w", err)
 		}
 	}
+	if revocationStore != nil {
+		revocationStore.Close()
+	}
 	eventLogger.Log(agentlog.Event{Name: agentlog.EventAgentStopped, Outcome: agentlog.OutcomeSuccess})
 	return nil
+}
+
+// openIdentityStore resolves the supplied path to an absolute one and
+// opens the device-identity file in read-only mode. The function is
+// separated from run() so the failure mode (missing file / unreadable
+// state) is isolated and unit-testable.
+func openIdentityStore(input string) (*deviceidentity.Store, error) {
+	resolved, err := filepath.Abs(input)
+	if err != nil {
+		return nil, fmt.Errorf("resolve identity-store path: %w", err)
+	}
+	return deviceidentity.Load(deviceidentity.Options{Path: resolved})
 }
 
 // resolveIssuerKeyPath returns the absolute path the issuer key should
@@ -281,7 +349,7 @@ func buildOriginAllowList(values []string) []string {
 
 // runDiagnostics prints the resolved configuration without binding the
 // listener. It is the --diagnose flag handler.
-func runDiagnostics(addr, adminAddr, keyPath string, public ed25519.PublicKey) error {
+func runDiagnostics(addr, adminAddr, keyPath string, public ed25519.PublicKey, gateEnabled bool, identityStorePath string) error {
 	fmt.Printf("viberelay diagnose\n")
 	fmt.Printf("  listen address:   %s\n", addr)
 	if adminAddr != "" {
@@ -293,6 +361,11 @@ func runDiagnostics(addr, adminAddr, keyPath string, public ed25519.PublicKey) e
 		fmt.Printf("  issuer key:       %s\n", keyPath)
 	}
 	fmt.Printf("  issuer pubkey:    %x\n", public)
+	if gateEnabled {
+		fmt.Printf("  revocation gate:  on (identity store: %s)\n", identityStorePath)
+	} else {
+		fmt.Printf("  revocation gate:  off\n")
+	}
 	return nil
 }
 
