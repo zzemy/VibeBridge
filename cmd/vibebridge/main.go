@@ -54,7 +54,7 @@ func runAgent(args []string) error {
 	reconnectTimeout := flags.Duration("reconnect-timeout", 90*time.Second, "how long to keep a detached PTY session alive")
 	idleTimeout := flags.Duration("idle-timeout", 30*time.Minute, "how long to keep a PTY session alive without input; set 0 to disable")
 	disableLegacyProtocol := flags.Bool("disable-legacy-protocol", false, "require the complete current Protocol V1 capability set")
-	requirePairedSession := flags.Bool("require-paired-session", false, "require WebSocket sessions to present a paired device signature (ADR-0006); defaults to off until client rollout completes")
+	requirePairedSession := flags.Bool("require-paired-session", true, "require WebSocket sessions to present a paired device signature (ADR-0006); legacy URL tokens remain accepted")
 	configPath := flags.String("config", "", "path to a versioned local Agent configuration file")
 	profileID := flags.String("profile", "", "launch profile ID from --config")
 	diagnose := flags.Bool("diagnose", false, "check command, network listener, and frontend assets without starting a session")
