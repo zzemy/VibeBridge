@@ -1453,14 +1453,18 @@ func (s *Server) validToken(r *http.Request) bool {
 }
 
 // authorizedForUpgrade returns the paired-session binding when present.
-// Either a valid legacy URL token OR a paired-device signed upgrade on the
-// vibebridge.v1 subprotocol satisfies the gate. Failures return ok=false so
-// handleWebSocket can emit a single 401.
+// When the paired-session gate is enabled (the default), only a paired-device
+// signed upgrade on the vibebridge.v1 subprotocol is accepted; legacy URL
+// tokens are honored solely as an escape hatch when the gate is explicitly
+// disabled. Failures return ok=false so handleWebSocket can emit a single 401.
 func (s *Server) authorizedForUpgrade(r *http.Request) (*pairedSessionResult, bool) {
-	if s.validToken(r) {
-		return nil, true
+	if !s.config.RequirePairedSession {
+		if s.validToken(r) {
+			return nil, true
+		}
+		return nil, false
 	}
-	if !s.config.RequirePairedSession || s.gate == nil {
+	if s.gate == nil {
 		return nil, false
 	}
 	if !offersWebSocketSubprotocol(r, protocolv1.WebSocketSubprotocol) {
