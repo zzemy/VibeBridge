@@ -121,6 +121,7 @@ func (s *Server) Handler() http.Handler {
 	// The nonce endpoint always returns a clear 503 when paired sessions are not
 	// configured so clients see a deterministic contract instead of the static fallback.
 	mux.HandleFunc("/pairing/session-nonce", s.handleSessionNonce)
+	mux.HandleFunc("/pairing/web-session", s.handleWebSession)
 	mux.HandleFunc("/", s.handleStatic)
 	return mux
 }
@@ -1464,6 +1465,20 @@ func (s *Server) authorizedForUpgrade(r *http.Request) (*pairedSessionResult, bo
 	}
 	if !offersWebSocketSubprotocol(r, protocolv1.WebSocketSubprotocol) {
 		return nil, false
+	}
+	// When query-param credentials are present, try the web-session path
+	// first (Agent-signed, for browser clients). If the device ID does not
+	// match the Agent, verifyWebSession returns errPairedDeviceUnknown
+	// without consuming the nonce, so the paired-session gate can still
+	// verify it as a paired client using query-param transport.
+	if r.URL.Query().Has(pairedDeviceQuery) {
+		result, err := s.gate.verifyWebSession(r)
+		if err == nil {
+			return result, true
+		}
+		if !errors.Is(err, errPairedDeviceUnknown) {
+			return nil, false
+		}
 	}
 	result, err := s.gate.verify(r)
 	if err != nil {

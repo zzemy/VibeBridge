@@ -354,3 +354,150 @@ func TestPairedSessionEndpointUnavailableWithoutDeviceStore(t *testing.T) {
 		t.Fatal("session-nonce endpoint returned 200 without a device store")
 	}
 }
+
+func dialPairedQueryParams(t *testing.T, testServer *httptest.Server, deviceHex, nonceHex, sigB64 string, withSubprotocol bool) (int, error) {
+	t.Helper()
+	params := url.Values{}
+	params.Set(pairedDeviceQuery, deviceHex)
+	params.Set(pairedSessionNonceQuery, nonceHex)
+	params.Set(pairedDeviceSignatureQuery, sigB64)
+	wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws?" + params.Encode()
+	dialer := *websocket.DefaultDialer
+	if withSubprotocol {
+		dialer.Subprotocols = []string{protocolv1.WebSocketSubprotocol}
+	}
+	conn, response, err := dialer.Dial(wsURL, nil)
+	if conn != nil {
+		_ = conn.Close()
+	}
+	status := 0
+	if response != nil {
+		status = response.StatusCode
+	}
+	return status, err
+}
+
+func TestPairedSessionAcceptsQueryParamTransport(t *testing.T) {
+	server, store := newPairedTestServer(t, true)
+	testServer := httptest.NewServer(server.Handler())
+	defer testServer.Close()
+
+	client := newTestClient(t, "Browser", 0x20)
+	if _, err := store.Authorize(client.signed); err != nil {
+		t.Fatalf("authorize client: %v", err)
+	}
+	nonce, _ := fetchNonce(t, testServer.URL)
+	signature, err := signSessionChallenge(client.signingKey, nonce)
+	if err != nil {
+		t.Fatalf("sign session challenge: %v", err)
+	}
+
+	status, err := dialPairedQueryParams(t, testServer,
+		hex.EncodeToString(client.deviceID),
+		nonce,
+		base64.StdEncoding.EncodeToString(signature),
+		true)
+	if err != nil {
+		t.Fatalf("query-param dial failed: %v (status %d)", err, status)
+	}
+}
+
+func TestPairedSessionRejectsQueryParamsWithBadSignature(t *testing.T) {
+	server, store := newPairedTestServer(t, true)
+	testServer := httptest.NewServer(server.Handler())
+	defer testServer.Close()
+
+	client := newTestClient(t, "Browser", 0x21)
+	if _, err := store.Authorize(client.signed); err != nil {
+		t.Fatalf("authorize client: %v", err)
+	}
+	nonce, _ := fetchNonce(t, testServer.URL)
+
+	status, err := dialPairedQueryParams(t, testServer,
+		hex.EncodeToString(client.deviceID),
+		nonce,
+		base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xff}, ed25519.SignatureSize)),
+		true)
+	if err == nil {
+		t.Fatalf("bad signature dial succeeded (status %d)", status)
+	}
+	if status != http.StatusUnauthorized {
+		t.Fatalf("bad signature status = %d, want 401", status)
+	}
+}
+
+func TestWebSessionEndpointIssuesValidCredentials(t *testing.T) {
+	server, store := newPairedTestServer(t, true)
+	testServer := httptest.NewServer(server.Handler())
+	defer testServer.Close()
+
+	// The web-session endpoint requires a valid legacy URL token.
+	resp, err := http.Get(testServer.URL + "/pairing/web-session?token=legacy-token")
+	if err != nil {
+		t.Fatalf("fetch web-session: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("web-session status = %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		DeviceID  string `json:"device_id"`
+		Nonce     string `json:"nonce"`
+		Signature string `json:"signature"`
+		ExpiresIn int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode web-session: %v", err)
+	}
+	if body.DeviceID == "" || body.Nonce == "" || body.Signature == "" {
+		t.Fatalf("web-session response has empty fields: %+v", body)
+	}
+	if body.ExpiresIn != int(sessionNonceDefaultTTL.Seconds()) {
+		t.Fatalf("expires_in = %d, want %d", body.ExpiresIn, int(sessionNonceDefaultTTL.Seconds()))
+	}
+
+	// The device_id returned must match the Agent's store.
+	expectedID := store.DeviceID()
+	if body.DeviceID != hex.EncodeToString(expectedID) {
+		t.Fatalf("device_id = %s, want %s", body.DeviceID, hex.EncodeToString(expectedID))
+	}
+
+	// Use the returned credentials to connect via WebSocket with query params.
+	status, err := dialPairedQueryParams(t, testServer, body.DeviceID, body.Nonce, body.Signature, true)
+	if err != nil {
+		t.Fatalf("web-session credentials dial failed: %v (status %d)", err, status)
+	}
+}
+
+func TestWebSessionEndpointRejectsInvalidToken(t *testing.T) {
+	server, _ := newPairedTestServer(t, true)
+	testServer := httptest.NewServer(server.Handler())
+	defer testServer.Close()
+
+	resp, err := http.Get(testServer.URL + "/pairing/web-session?token=wrong-token")
+	if err != nil {
+		t.Fatalf("fetch web-session: %v", err)
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("invalid token status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestWebSessionEndpointUnavailableWithoutDeviceStore(t *testing.T) {
+	server := New(Config{SessionToken: "token"})
+	testServer := httptest.NewServer(server.Handler())
+	defer testServer.Close()
+
+	resp, err := http.Get(testServer.URL + "/pairing/web-session?token=token")
+	if err != nil {
+		t.Fatalf("fetch web-session: %v", err)
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	// The route is registered but the gate is nil, so it returns 503.
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+}

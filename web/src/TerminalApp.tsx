@@ -138,12 +138,22 @@ export function TerminalApp() {
 
   const token = useMemo(() => new URLSearchParams(window.location.search).get("token") ?? "", []);
 
-  const wsUrl = useMemo(() => {
-    if (!token) {
-      return "";
-    }
+  const buildWsUrl = useCallback(async (): Promise<string> => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+    const base = `${protocol}//${window.location.host}/ws`;
+    try {
+      const resp = await fetch(`/pairing/web-session?token=${encodeURIComponent(token)}`);
+      if (!resp.ok) throw new Error(`status ${resp.status}`);
+      const data = await resp.json();
+      const params = new URLSearchParams({
+        "vb-device": data.device_id,
+        "vb-nonce": data.nonce,
+        "vb-sig": data.signature,
+      });
+      return `${base}?${params}`;
+    } catch {
+      return `${base}?token=${encodeURIComponent(token)}`;
+    }
   }, [token]);
 
   const statusUrl = useMemo(() => token ? `/status?token=${encodeURIComponent(token)}` : "", [token]);
@@ -254,7 +264,7 @@ export function TerminalApp() {
   }, [handleApplicationError, handleProcessExit]);
 
   useEffect(() => {
-    if (!wsUrl) {
+    if (!token) {
       setConnectionState("missing-token");
       setTerminalChunks(["missing session token\r\n"]);
       return;
@@ -280,14 +290,18 @@ export function TerminalApp() {
       }, 1_000);
     };
 
-    const connect = () => {
+    const connect = async () => {
       if (disposed || stopReconnectRef.current) {
         return;
       }
 
       setConnectionState(hasConnectedRef.current ? "reconnecting" : "connecting");
+      const url = await buildWsUrl();
+      if (disposed || stopReconnectRef.current) {
+        return;
+      }
       const connectionId = newProtocolV1ConnectionId();
-      const socket = new WebSocket(wsUrl, [protocolV1WebSocketSubprotocol]);
+      const socket = new WebSocket(url, [protocolV1WebSocketSubprotocol]);
       let protocolNegotiated = false;
       let fatalProtocolError = false;
       let attachmentTransfer = false;
@@ -586,7 +600,7 @@ export function TerminalApp() {
       protocolStreamRef.current = null;
       setAttachmentTransferAvailable(false);
     };
-  }, [attachmentPromptClient, handleApplicationError, handleProcessExit, handleServerMessage, resetAttachmentSessionState, retryTrigger, showNotice, wsUrl]);
+  }, [attachmentPromptClient, buildWsUrl, handleApplicationError, handleProcessExit, handleServerMessage, resetAttachmentSessionState, retryTrigger, showNotice, token]);
 
   const sendAttachments = useCallback(async (
     files: readonly File[],
