@@ -259,7 +259,11 @@ func (s *Server) negotiateProtocolV1(writer *websocketWriter, conn *websocket.Co
 	} else if !negotiated.HasCapability(protocolv1.CapabilityTerminalBinaryOutput) {
 		return fmt.Errorf("client does not support required capability %q", protocolv1.CapabilityTerminalBinaryOutput)
 	}
-	response, err := protocolv1.NewAgentHello(negotiated.ConnectionID, negotiated.Major, negotiated.Minor, s.clock.Now())
+	identity, err := s.agentHelloIdentity()
+	if err != nil {
+		return err
+	}
+	response, err := protocolv1.NewAgentHello(negotiated.ConnectionID, negotiated.Major, negotiated.Minor, s.clock.Now(), identity)
 	if err != nil {
 		return err
 	}
@@ -1496,4 +1500,27 @@ func writeFallback(w http.ResponseWriter) {
   </main>
 </body>
 </html>`))
+}
+
+// agentHelloIdentity returns the bound Agent identity advertised in the V1
+// Hello envelope, or nil when no device store is configured. The fingerprint is
+// recomputed on each upgrade so revoked-and-repaired clients can compare
+// against the cached value and drop stale pairings without a separate call.
+func (s *Server) agentHelloIdentity() (*protocolv1.AgentIdentity, error) {
+	if s.config.DeviceStore == nil {
+		return nil, nil
+	}
+	signed, err := s.config.DeviceStore.Descriptor()
+	if err != nil {
+		return nil, fmt.Errorf("load Agent descriptor: %w", err)
+	}
+	fingerprint, err := deviceidentity.Fingerprint(signed)
+	if err != nil {
+		return nil, fmt.Errorf("compute Agent fingerprint: %w", err)
+	}
+	return &protocolv1.AgentIdentity{
+		DeviceID:             s.config.DeviceStore.DeviceID(),
+		PublicKeyFingerprint: fingerprint,
+		RevocationEpoch:      s.config.DeviceStore.RevocationEpoch(),
+	}, nil
 }

@@ -30,11 +30,26 @@ message ProtocolVersionRange {
 
 // Hello advertises compatibility before any session mutation is accepted.
 // Capability names describe optional behavior and never imply authorization.
+//
+// The Agent-side fields `device_id`, `public_key_fingerprint`, and
+// `revocation_epoch` are populated only when the Agent has a bound device
+// identity (ADR-0006). The Agent advertises them so clients can route locally
+// and invalidate cached state without an extra round-trip. Clients ignore
+// unknown field tags per protobuf compatibility rules.
 message Hello {
   PeerRole peer_role = 1;
   ProtocolVersionRange supported_versions = 2;
   repeated string capabilities = 3;
   uint32 max_envelope_bytes = 4;
+  // Bound device identifier (16 bytes, ADR-0006). Omitted on the client side.
+  bytes device_id = 5;
+  // Hex-encoded SHA-256 prefix of the bound device signing public key.
+  // Omitted on the client side.
+  string public_key_fingerprint = 6;
+  // Revocation epoch observed at upgrade time. Clients compare against their
+  // cached value and invalidate paired state on any change. Omitted on the
+  // client side.
+  uint64 revocation_epoch = 7;
 }
 
 // TerminalInput carries bytes written to the local PTY.
