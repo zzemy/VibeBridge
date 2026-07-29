@@ -285,6 +285,51 @@ func TestResolveStartupOptionsPreservesExplicitCLIOverrides(t *testing.T) {
 	}
 }
 
+func TestResolveStartupOptionsAppliesRequirePairedSessionFromConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	content := `{"version":1,"require_paired_session":true,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`
+	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	options, err := resolveStartupOptions(startupOptions{
+		commandLine: "pwsh -NoLogo",
+	}, configPath, "", nil, os.LookupEnv)
+	if err != nil {
+		t.Fatalf("resolve options: %v", err)
+	}
+	if !options.requirePairedSession {
+		t.Fatal("configured require_paired_session was not applied")
+	}
+}
+
+func TestResolveStartupOptionsPreservesExplicitRequirePairedSessionOverride(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	content := `{"version":1,"require_paired_session":true,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"}]}`
+	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	options, err := resolveStartupOptions(startupOptions{
+		commandLine:          "custom --arg",
+		requirePairedSession: false,
+	}, configPath, "", map[string]bool{
+		"cmd": true, "require-paired-session": true,
+	}, os.LookupEnv)
+	if err != nil {
+		t.Fatalf("resolve options: %v", err)
+	}
+	if options.requirePairedSession {
+		t.Fatal("explicit CLI false did not override require_paired_session")
+	}
+	if !reflect.DeepEqual(options.command, []string{"custom", "--arg"}) {
+		t.Fatalf("CLI command override = %q", options.command)
+	}
+	if options.profileID != "" || options.environment != nil {
+		t.Fatalf("legacy command unexpectedly used profile state: profile=%q environment=%q", options.profileID, options.environment)
+	}
+}
+
 func TestResolveStartupOptionsSelectsRequestedProfile(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	content := `{"version":1,"default_profile":"shell","profiles":[{"id":"shell","label":"Shell","executable":"pwsh"},{"id":"codex","label":"Codex","executable":"codex","args":["--help"]}]}`
