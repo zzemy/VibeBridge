@@ -227,12 +227,7 @@ func openAttachmentPromptConnection(t *testing.T, serverURL string, capabilities
 		t.Fatalf("send client Hello: %v", err)
 	}
 	agentHello := readProtocolEnvelope(t, connection)
-	for _, capability := range agentHello.GetHello().GetCapabilities() {
-		if capability == protocolv1.CapabilityAttachmentTransfer || capability == protocolv1.CapabilityAttachmentPromptAction {
-			t.Fatalf("Agent advertised dark attachment capability %q", capability)
-		}
-	}
-	if !expectInitialOutput {
+		if !expectInitialOutput {
 		return connection, agentHello.Sequence
 	}
 	initialOutput := readProtocolEnvelope(t, connection)

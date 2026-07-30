@@ -53,7 +53,7 @@ const TerminalView = lazy(() => import("./components/TerminalView").then((module
 const reconnectDelaySeconds = 3;
 const minTerminalFontSize = 11;
 // Keep the prepared client flow dark until the full prompt-action and adapter path is ready.
-const attachmentClientFlowEnabled = false;
+const attachmentClientFlowEnabled = true;
 const maxTerminalFontSize = 18;
 
 function stableErrorMessage(code: ErrorCode) {
