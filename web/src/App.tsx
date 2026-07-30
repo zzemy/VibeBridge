@@ -1,6 +1,8 @@
 import { Suspense, lazy } from "react";
 
 import type { PairingEntry } from "./lib/pairing-invitation";
+import { InstallPrompt } from "./components/InstallPrompt";
+import { UpdateBanner } from "./components/UpdateBanner";
 
 const PairingScreen = lazy(() => import("./components/PairingScreen").then((module) => ({ default: module.PairingScreen })));
 const TerminalApp = lazy(() => import("./TerminalApp").then((module) => ({ default: module.TerminalApp })));
@@ -9,6 +11,8 @@ export function App({ pairingEntry }: { pairingEntry?: PairingEntry | null } = {
   return (
     <Suspense fallback={<AppLoading />}>
       {pairingEntry ? <PairingScreen entry={pairingEntry} /> : <TerminalApp />}
+      <InstallPrompt />
+      <UpdateBanner />
     </Suspense>
   );
 }
