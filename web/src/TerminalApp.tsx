@@ -44,6 +44,7 @@ import {
 import { AcknowledgedAttachmentSender, type AcknowledgedAttachmentSenderOptions } from "./lib/attachment-protocol";
 import { AttachmentPromptActionClient } from "./lib/attachment-prompt-action";
 import { terminalKeys } from "./lib/terminalKeys";
+import { connectViaRelay, hexToBase64Url, provisionRelayRoute } from "./lib/relay-client";
 
 type ConnectionState = "missing-token" | "connecting" | "reconnecting" | "connected" | "closed" | "error";
 type TerminalChunk = string | Uint8Array;
@@ -137,6 +138,7 @@ export function TerminalApp() {
   const noticeTimerRef = useRef<number | undefined>(undefined);
 
   const token = useMemo(() => new URLSearchParams(window.location.search).get("token") ?? "", []);
+  const relayMode = useMemo(() => new URLSearchParams(window.location.search).has("relay"), []);
 
   const buildWsUrl = useCallback(async (): Promise<string> => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -157,6 +159,15 @@ export function TerminalApp() {
   }, [token]);
 
   const statusUrl = useMemo(() => token ? `/status?token=${encodeURIComponent(token)}` : "", [token]);
+
+  const connectRelaySocket = useCallback(async (): Promise<WebSocket> => {
+    const sessionResp = await fetch(`/pairing/web-session?token=${encodeURIComponent(token)}`);
+    if (!sessionResp.ok) throw new Error(`web-session failed: ${sessionResp.status}`);
+    const session = await sessionResp.json();
+    const deviceB64Url = hexToBase64Url(session.device_id);
+    const provision = await provisionRelayRoute(token, deviceB64Url);
+    return connectViaRelay(provision.relay_url, provision.client_ticket, protocolV1WebSocketSubprotocol);
+  }, [token]);
 
   const showNotice = useCallback((message: string) => {
     setNotice(message);
@@ -296,12 +307,12 @@ export function TerminalApp() {
       }
 
       setConnectionState(hasConnectedRef.current ? "reconnecting" : "connecting");
-      const url = await buildWsUrl();
+      const url = relayMode ? null : await buildWsUrl();
       if (disposed || stopReconnectRef.current) {
         return;
       }
       const connectionId = newProtocolV1ConnectionId();
-      const socket = new WebSocket(url, [protocolV1WebSocketSubprotocol]);
+      const socket = relayMode ? await connectRelaySocket() : new WebSocket(url!, [protocolV1WebSocketSubprotocol]);
       let protocolNegotiated = false;
       let fatalProtocolError = false;
       let attachmentTransfer = false;
