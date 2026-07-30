@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/zzemy/VibeBridge/internal/relayclient"
@@ -23,8 +24,10 @@ func TestLoadOrCreateIssuerCreatesNewKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat key file: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("expected 0600 perms, got %o", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("expected 0600 perms, got %o", info.Mode().Perm())
+		}
 	}
 	if info.Size() != ed25519.PrivateKeySize {
 		t.Fatalf("expected %d bytes, got %d", ed25519.PrivateKeySize, info.Size())
