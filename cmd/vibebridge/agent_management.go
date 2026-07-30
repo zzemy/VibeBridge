@@ -135,6 +135,7 @@ type agentManagement struct {
 	flows       *pairingflow.Coordinator
 	relayManager  *relayclient.Manager
 	listenAddress string
+	provisionLimiter *rateLimiter
 }
 
 func newAgentHTTPHandler(application http.Handler, listenAddress string, token string, pairingManager *pairing.Manager, identity *deviceidentity.Store, flows *pairingflow.Coordinator, relayManager *relayclient.Manager) (http.Handler, error) {
@@ -151,14 +152,14 @@ func newAgentHTTPHandler(application http.Handler, listenAddress string, token s
 	if err != nil {
 		return nil, err
 	}
-	management := &agentManagement{token: token, pairingBase: pairingBase, pairing: pairingManager, identity: identity, flows: flows, listenAddress: listenAddress, relayManager: relayManager}
+	management := &agentManagement{token: token, pairingBase: pairingBase, pairing: pairingManager, identity: identity, flows: flows, listenAddress: listenAddress, relayManager: relayManager, provisionLimiter: newRateLimiter(10, time.Minute)}
 	mux := http.NewServeMux()
 	mux.Handle(localPairingPath, management.pairingPageHandler())
 	mux.Handle(localPairingStatusPath, management.pairingStatusHandler())
 	mux.Handle(localPairingApprovePath, management.pairingDecisionHandler(true))
 	mux.Handle(localPairingRejectPath, management.pairingDecisionHandler(false))
 	mux.Handle(localRevokePath, management.revokeDeviceHandler())
-	mux.Handle(localRelayProvisionPath, management.relayProvisionHandler())
+	mux.Handle(localRelayProvisionPath, rateLimitMiddleware(management.provisionLimiter, management.relayProvisionHandler()))
 	mux.Handle(localRelayStatusPath, management.relayStatusHandler())
 	mux.Handle(pairingTransportPath, management.pairingTransportHandler())
 	mux.Handle("/", application)

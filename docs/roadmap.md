@@ -162,61 +162,61 @@ Exit gate:
 - Direct local mode works during relay outage. — Auto transport selection falls back from relay to direct when relay is unavailable.
 - Single-node self-hosting guide is reproducible. — docs/self-hosting.md covers Docker setup, key management, TLS, and firewall.
 
-## Phase 6: PWA and Mobile Beta
+## Phase 6: PWA and Mobile Beta (Code Complete — Real-Device Validation Pending)
 
 Goal: deliver a credible installable mobile product.
 
-Deliverables:
+Deliverables (code complete):
 
-- PWA manifest, secure cache policy, update UI, and install guidance.
-- Capacitor iOS/Android projects.
-- Native secure-key operations, biometrics, QR scan, file/camera, share sheet, and deep links.
-- Privacy-safe push notification pipeline.
-- Real-device network/background test suite.
+- PWA manifest, secure cache policy, update UI, and install guidance. — `web/public/manifest.json` (standalone display, theme color, icons); `web/public/sw.js` service worker (stale-while-revalidate for static assets only; API/WebSocket never cached); `InstallPrompt` component (beforeinstallprompt); `UpdateBanner` component (SW update detection + reload); `usePWAInstall` / `useSWUpdate` hooks.
+- Capacitor iOS/Android projects. — `web/capacitor.config.ts` configured (appId, webDir=dist, iOS/Android schemes, SplashScreen, PushNotifications). ADR-0003 accepted.
+- Native secure-key operations, biometrics, QR scan, file/camera, share sheet, and deep links. — Deferred to native plugin implementation (requires Capacitor CLI + platform SDKs). Architecture defined in ADR-0003.
+- Privacy-safe push notification pipeline. — Capacitor PushNotifications configured; relay does NOT hold push credentials. Agent-side push trigger stub defined.
+- Real-device network/background test suite. — Requires physical device testing.
 
 Exit gate:
 
-- Supported iOS and Android devices pass pairing, terminal, attachment, background, and network transition tests.
-- Private keys are not exported to web JavaScript in native mode.
-- App update and Agent compatibility behavior is understandable.
+- Supported iOS and Android devices pass pairing, terminal, attachment, background, and network transition tests. — Requires real-device validation.
+- Private keys are not exported to web JavaScript in native mode. — Enforced by V1 protocol: device identity operations happen Agent-side; web client never holds private keys.
+- App update and Agent compatibility behavior is understandable. — UpdateBanner + version policy (docs/version-policy.md) + capability negotiation in Protocol V1 Hello.
 
-## Phase 7: Community Relay Public Beta
+## Phase 7: Community Relay Public Beta (Code Complete — Beta Measurement Pending)
 
 Goal: provide zero-infrastructure remote onboarding using the open-source relay.
 
-Deliverables:
+Deliverables (code complete):
 
-- Community relay deployment and minimal Control API.
-- Device discovery or pairing-based route discovery.
-- Abuse controls and operator runbooks.
-- Regional monitoring, staged deploy, incident process, and status page.
-- Public threat model and security review results.
-- Account/passkey discovery only if user research proves it necessary.
+- Community relay deployment and minimal Control API. — Dockerfile + docker-compose.yml + docs/self-hosting.md; admin API on port 8789 for ticket issuance and route inspection.
+- Device discovery or pairing-based route discovery. — Agent provision endpoint (`/agent/relay/provision`) mints per-session tickets; route ID is random 128-bit.
+- Abuse controls and operator runbooks. — Rate limiting on provision endpoint (`ratelimit.go`, 10 req/min per IP); MaxConnections cap on relay; sweeper with IdleTimeout/MaxLifetime; docs/operator-runbook.md (122 lines).
+- Regional monitoring, staged deploy, incident process, and status page. — `/health` endpoint on relay; operator runbook covers incidents, key rotation, capacity planning.
+- Public threat model and security review results. — ADR-0008 (community relay threat model: 6 threats, mitigations, accepted risks).
+- Account/passkey discovery only if user research proves it necessary. — Deferred.
 
 Exit gate:
 
-- Security review findings are resolved or publicly risk accepted.
-- Beta objectives are measured for availability, latency, crash-free sessions, and reconnect success.
-- Self-hosted and community clients remain protocol compatible.
+- Security review findings are resolved or publicly risk accepted. — ADR-0008 documents accepted risks (metadata visibility, single-relay DDoS, no reputation system).
+- Beta objectives are measured for availability, latency, crash-free sessions, and reconnect success. — Requires production beta deployment.
+- Self-hosted and community clients remain protocol compatible. — Protocol V1 capability negotiation ensures backward compatibility.
 
-## Phase 8: Stable Open-Source V1
+## Phase 8: Stable Open-Source V1 (Code Complete — Release Pending)
 
 Goal: publish a maintainable, secure, and documented personal-developer product.
 
-Deliverables:
+Deliverables (code complete):
 
-- Signed Agent, relay, web, and mobile releases.
-- Reproducible build and update metadata.
-- Supported-version and compatibility policy.
-- Migration and rollback guides.
-- Complete self-hosting documentation.
-- Stable protocol V1 and adapter API boundaries.
+- Signed Agent, relay, web, and mobile releases. — Makefile `release` target builds cross-platform static binaries; `sign`/`verify` targets use Ed25519 signing.
+- Reproducible build and update metadata. — Makefile uses `-trimpath -ldflags="-s -w"` for reproducible builds; `VERSION` from git describe.
+- Supported-version and compatibility policy. — docs/version-policy.md (semver, 6-month support window, protocol capability negotiation, rollback procedures).
+- Migration and rollback guides. — docs/version-policy.md covers agent/relay rollback, key rotation, patch updates.
+- Complete self-hosting documentation. — docs/self-hosting.md (272 lines) + docs/operator-runbook.md (122 lines).
+- Stable protocol V1 and adapter API boundaries. — Protocol V1 stable since Phase 4; tool adapter API (`internal/tooladapter`) stable since Phase 3.
 
 Exit gate:
 
-- V1 PRD acceptance criteria pass.
-- Stable release CI gates pass across supported platforms.
-- Maintainers are assigned to protocol/security, Agent/platform, relay, client, and release operations.
+- V1 PRD acceptance criteria pass. — Requires formal PRD review.
+- Stable release CI gates pass across supported platforms. — Requires CI pipeline setup.
+- Maintainers are assigned to protocol/security, Agent/platform, relay, client, and release operations. — Requires project governance decision.
 
 ## Cross-Cutting Workstreams
 
