@@ -127,6 +127,10 @@ func runAgent(args []string) error {
 		if err := attachment.CleanupStaleStaging(options.workspaceRoot); err != nil {
 			log.Printf("warning: stale staging cleanup failed: %v", err)
 		}
+	} else {
+		if err := attachment.CleanupStaleSandboxStaging(); err != nil {
+			log.Printf("warning: stale sandbox staging cleanup failed: %v", err)
+		}
 	}
 
 	app := server.New(server.Config{

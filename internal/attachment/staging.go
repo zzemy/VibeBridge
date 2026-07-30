@@ -73,6 +73,17 @@ func (s *SessionStaging) Path() string {
 	}
 	return s.path
 }
+// Root returns the canonical root directory backing this staging area.
+// For workspace staging this is the workspace root; for sandbox staging it
+// is the temporary sandbox root.
+func (s *SessionStaging) Root() string {
+	if s == nil {
+		return ""
+	}
+	return s.workspaceRoot
+}
+
+
 
 // Cleanup removes this session's staging entry without following a replacement
 // symlink. Successful and already-complete cleanup calls are idempotent;
@@ -217,6 +228,50 @@ func (e pathOperationError) Error() string {
 // never exposes the Path field from os.PathError to callers or logs.
 func (e pathOperationError) Unwrap() error {
 	return e.cause
+}
+
+// sandboxDirName is the top-level directory name for no-workspace staging.
+const sandboxDirName = ".vibebridge-sandbox"
+
+// CreateSandboxStaging creates a session staging directory under the OS temp
+// directory. It is used when no workspace is configured so that attachment
+// transfers remain available in workspace-less deployments. The sandbox root
+// is canonicalised before use so that workspace.RevalidateDirectory accepts it.
+func CreateSandboxStaging(sessionID []byte) (*SessionStaging, error) {
+	if len(sessionID) == 0 || len(sessionID) > maxSessionIDBytes {
+		return nil, errors.New("session ID length is invalid for staging")
+	}
+	sandboxRoot := filepath.Join(os.TempDir(), sandboxDirName)
+	if err := os.MkdirAll(sandboxRoot, 0o700); err != nil {
+		return nil, fmt.Errorf("create sandbox staging root: %w", err)
+	}
+	canonical, err := filepath.EvalSymlinks(sandboxRoot)
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize sandbox staging root: %w", err)
+	}
+	return CreateSessionStaging(canonical, sessionID)
+}
+
+// CleanupStaleSandboxStaging removes all orphaned session staging directories
+// from the sandbox root under the OS temp directory. It is safe to call on
+// Agent startup when no workspace is configured.
+func CleanupStaleSandboxStaging() error {
+	sandboxRoot := filepath.Join(os.TempDir(), sandboxDirName)
+	info, err := os.Lstat(sandboxRoot)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return newPathOperationError("inspect sandbox staging root", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("sandbox staging root must be a directory")
+	}
+	canonical, err := filepath.EvalSymlinks(sandboxRoot)
+	if err != nil {
+		return fmt.Errorf("canonicalize sandbox staging root: %w", err)
+	}
+	return CleanupStaleStaging(canonical)
 }
 
 // CleanupStaleStaging removes all orphaned session staging directories beneath a

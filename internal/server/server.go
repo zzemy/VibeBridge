@@ -48,6 +48,7 @@ type Config struct {
 	IdleTimeout           time.Duration
 	DisableLegacyProtocol bool
 	RequirePairedSession  bool
+	MaxAggregateBytes     uint64
 	DeviceStore           *deviceidentity.Store
 	Logger                agentlog.Logger
 }
@@ -63,6 +64,7 @@ type Server struct {
 	launcher              terminalLauncher
 	logger                agentlog.Logger
 	gate                  *pairedSessionGate
+	aggregate             *attachment.AggregateTracker
 }
 
 type ClientMessage struct {
@@ -110,6 +112,11 @@ func New(config Config) *Server {
 	if config.DeviceStore != nil {
 		server.gate = newPairedSessionGate(config.DeviceStore, newNonceStore(nil, sessionNonceDefaultTTL))
 	}
+	maxAggregate := config.MaxAggregateBytes
+	if maxAggregate == 0 {
+		maxAggregate = attachment.DefaultMaxAggregateBytes
+	}
+	server.aggregate = attachment.NewAggregateTracker(maxAggregate)
 	return server
 }
 
@@ -418,6 +425,11 @@ func (s *Server) getOrCreateSession() (*ptySession, bool, error) {
 		if err != nil {
 			return nil, false, fmt.Errorf("create session attachment staging: %w", err)
 		}
+	} else {
+		staging, err = attachment.CreateSandboxStaging(protocolSessionID)
+		if err != nil {
+			return nil, false, fmt.Errorf("create sandbox attachment staging: %w", err)
+		}
 	}
 	session, err := newPTYSession(
 		terminalLaunchRequest{Command: s.config.Command, WorkingDirectory: workingDirectory, Environment: s.config.Environment},
@@ -438,7 +450,11 @@ func (s *Server) getOrCreateSession() (*ptySession, bool, error) {
 	}
 	session.toolAdapter = adapter
 	session.workspaceRoot = s.config.WorkspaceRoot
+	if session.workspaceRoot == "" && staging != nil {
+		session.workspaceRoot = staging.Root()
+	}
 	session.workingDirectory = workingDirectory
+	session.aggregate = s.aggregate
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -641,6 +657,7 @@ type ptySession struct {
 	promptActions      *promptaction.Registry
 	attachmentMu       sync.Mutex
 	attachmentManager  *attachment.Manager
+	aggregate         *attachment.AggregateTracker
 	attachmentsClosed  bool
 	endReason          agentlog.Reason
 }
@@ -933,9 +950,9 @@ func (s *ptySession) transferManager() (*attachment.Manager, error) {
 		return s.attachmentManager, nil
 	}
 	if s.staging == nil {
-		return nil, errors.New("attachment transfers require a workspace session")
+		return nil, errors.New("attachment transfers are not available for this session")
 	}
-	manager, err := attachment.NewManager(s.staging)
+	manager, err := attachment.NewManagerWithAggregate(s.staging, s.aggregate)
 	if err != nil {
 		return nil, fmt.Errorf("initialize attachment transfers: %w", err)
 	}
