@@ -181,7 +181,7 @@ func testAgentHTTPHandler(t *testing.T, application http.Handler, address string
 		identity.Close()
 		t.Fatalf("create pairing flow coordinator: %v", err)
 	}
-	handler, err := newAgentHTTPHandler(application, address, "secret-token", pairingManager, identity, flows)
+	handler, err := newAgentHTTPHandler(application, address, "secret-token", pairingManager, identity, flows, nil)
 	if err != nil {
 		identity.Close()
 		t.Fatalf("create Agent handler: %v", err)

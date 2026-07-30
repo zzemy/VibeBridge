@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"context"
 	"strings"
 	"time"
 
@@ -17,6 +18,8 @@ import (
 	"github.com/zzemy/VibeBridge/internal/deviceidentity"
 	"github.com/zzemy/VibeBridge/internal/pairing"
 	"github.com/zzemy/VibeBridge/internal/pairingflow"
+	"github.com/zzemy/VibeBridge/internal/relayclient"
+	"google.golang.org/protobuf/proto"
 	"rsc.io/qr"
 )
 
@@ -26,6 +29,8 @@ const (
 	localPairingApprovePath = "/agent/pairing/approve"
 	localPairingRejectPath  = "/agent/pairing/reject"
 	localRevokePath         = "/agent/devices/revoke"
+	localRelayProvisionPath = "/agent/relay/provision"
+	localRelayStatusPath    = "/agent/relay/status"
 )
 
 var pairingPageTemplate = template.Must(template.New("pairing").Parse(`<!doctype html>
@@ -126,9 +131,11 @@ type agentManagement struct {
 	pairing     *pairing.Manager
 	identity    *deviceidentity.Store
 	flows       *pairingflow.Coordinator
+	relayManager  *relayclient.Manager
+	listenAddress string
 }
 
-func newAgentHTTPHandler(application http.Handler, listenAddress string, token string, pairingManager *pairing.Manager, identity *deviceidentity.Store, flows *pairingflow.Coordinator) (http.Handler, error) {
+func newAgentHTTPHandler(application http.Handler, listenAddress string, token string, pairingManager *pairing.Manager, identity *deviceidentity.Store, flows *pairingflow.Coordinator, relayManager *relayclient.Manager) (http.Handler, error) {
 	if application == nil {
 		return nil, errors.New("application handler must not be nil")
 	}
@@ -142,13 +149,15 @@ func newAgentHTTPHandler(application http.Handler, listenAddress string, token s
 	if err != nil {
 		return nil, err
 	}
-	management := &agentManagement{token: token, pairingBase: pairingBase, pairing: pairingManager, identity: identity, flows: flows}
+	management := &agentManagement{token: token, pairingBase: pairingBase, pairing: pairingManager, identity: identity, flows: flows, listenAddress: listenAddress, relayManager: relayManager}
 	mux := http.NewServeMux()
 	mux.Handle(localPairingPath, management.pairingPageHandler())
 	mux.Handle(localPairingStatusPath, management.pairingStatusHandler())
 	mux.Handle(localPairingApprovePath, management.pairingDecisionHandler(true))
 	mux.Handle(localPairingRejectPath, management.pairingDecisionHandler(false))
 	mux.Handle(localRevokePath, management.revokeDeviceHandler())
+	mux.Handle(localRelayProvisionPath, management.relayProvisionHandler())
+	mux.Handle(localRelayStatusPath, management.relayStatusHandler())
 	mux.Handle(pairingTransportPath, management.pairingTransportHandler())
 	mux.Handle("/", application)
 	return mux, nil
@@ -343,6 +352,104 @@ func (management *agentManagement) deviceRows() ([]pairingDeviceRow, error) {
 		})
 	}
 	return rows, nil
+}
+
+func (management *agentManagement) relayProvisionHandler() http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		setManagementHeaders(writer, false)
+		if request.Method != http.MethodPost {
+			writer.Header().Set("Allow", http.MethodPost)
+			http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !authorizeLocalManagement(writer, request, management.token) {
+			return
+		}
+		if management.relayManager == nil {
+			http.Error(writer, "relay is not configured", http.StatusServiceUnavailable)
+			return
+		}
+		request.Body = http.MaxBytesReader(writer, request.Body, 4096)
+		var input struct {
+			ClientDeviceID string `json:"client_device_id"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			http.Error(writer, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		clientDeviceID, err := base64.RawURLEncoding.DecodeString(input.ClientDeviceID)
+		if err != nil || len(clientDeviceID) != deviceidentity.DeviceIDBytes {
+			http.Error(writer, "invalid client device ID", http.StatusBadRequest)
+			return
+		}
+		clientTicket, routeID, err := management.relayManager.Provision(clientDeviceID)
+		if err != nil {
+			http.Error(writer, "could not provision relay route", http.StatusInternalServerError)
+			return
+		}
+		ticketBytes, err := proto.Marshal(clientTicket)
+		if err != nil {
+			http.Error(writer, "could not encode client ticket", http.StatusInternalServerError)
+			return
+		}
+		loopbackAddr := management.loopbackDialAddress()
+		go func() {
+			conn, err := net.Dial("tcp", loopbackAddr)
+			if err != nil {
+				return
+			}
+			_ = management.relayManager.Connect(context.Background(), routeID, conn)
+		}()
+		response := struct {
+			RouteID      string `json:"route_id"`
+			ClientTicket string `json:"client_ticket"`
+			RelayURL     string `json:"relay_url"`
+		}{
+			RouteID:      routeID,
+			ClientTicket: base64.StdEncoding.EncodeToString(ticketBytes),
+			RelayURL:     management.relayManager.RelayURL(),
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(response)
+	})
+}
+
+func (management *agentManagement) relayStatusHandler() http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		setManagementHeaders(writer, false)
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !authorizeLocalManagement(writer, request, management.token) {
+			return
+		}
+		status := struct {
+			Configured bool     `json:"configured"`
+			RelayURL   string   `json:"relay_url,omitempty"`
+			Active     []string `json:"active_routes,omitempty"`
+			Pending    []string `json:"pending_routes,omitempty"`
+		}{Configured: management.relayManager != nil}
+		if management.relayManager != nil {
+			status.RelayURL = management.relayManager.RelayURL()
+			status.Active = management.relayManager.ActiveRoutes()
+			status.Pending = management.relayManager.PendingRoutes()
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(status)
+	})
+}
+
+func (management *agentManagement) loopbackDialAddress() string {
+	host, port, err := net.SplitHostPort(management.listenAddress)
+	if err != nil {
+		return management.listenAddress
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }
 
 func setManagementHeaders(writer http.ResponseWriter, allowForms bool) {

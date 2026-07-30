@@ -169,7 +169,7 @@ func testPairingTransportHandler(t *testing.T) (http.Handler, *pairing.Manager, 
 	if err != nil {
 		t.Fatalf("create flow coordinator: %v", err)
 	}
-	handler, err := newAgentHTTPHandler(http.NotFoundHandler(), "127.0.0.1:8787", "local-token", invitations, identity, flows)
+	handler, err := newAgentHTTPHandler(http.NotFoundHandler(), "127.0.0.1:8787", "local-token", invitations, identity, flows, nil)
 	if err != nil {
 		t.Fatalf("create Agent HTTP handler: %v", err)
 	}
