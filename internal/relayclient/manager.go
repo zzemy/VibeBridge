@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/zzemy/VibeBridge/internal/relay"
 	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 )
@@ -208,6 +209,61 @@ func (m *Manager) PendingRoutes() []string {
 		routes = append(routes, routeID)
 	}
 	return routes
+}
+
+// ConnectWebSocket is like Connect but bridges the relay stream to a
+// local WebSocket connection using message-level copy. This preserves
+// WebSocket message boundaries end-to-end, which is required when the
+// local side is a V1 protocol WebSocket server.
+//
+// The caller supplies an already-upgraded WebSocket connection (typically
+// dialed to the local /ws endpoint with paired-session credentials).
+// ConnectWebSocket blocks until the connection closes.
+func (m *Manager) ConnectWebSocket(ctx context.Context, routeIDHex string, localWS *websocket.Conn) error {
+	m.mu.Lock()
+	agentTicket, ok := m.pending[routeIDHex]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("relay manager: no pending ticket for route %s", routeIDHex)
+	}
+	delete(m.pending, routeIDHex)
+	if _, exists := m.active[routeIDHex]; exists {
+		m.mu.Unlock()
+		return fmt.Errorf("relay manager: route %s is already connected", routeIDHex)
+	}
+	connCtx, cancel := context.WithCancel(ctx)
+	conn := &managedConnection{
+		routeID: routeIDHex,
+		cancel:  cancel,
+		done:    make(chan struct{}),
+	}
+	m.active[routeIDHex] = conn
+	m.mu.Unlock()
+
+	go func() {
+		select {
+		case <-connCtx.Done():
+			_ = localWS.Close()
+		case <-conn.done:
+		}
+	}()
+
+	stream, err := m.config.Dialer.Dial(connCtx, m.config.RelayURL, agentTicket)
+	var bridgeErr error
+	if err != nil {
+		bridgeErr = fmt.Errorf("relay manager: dial relay: %w", err)
+	} else {
+		bridgeErr = BridgeWebSocket(localWS, stream)
+		_ = stream.Close()
+	}
+
+	cancel()
+	close(conn.done)
+	m.mu.Lock()
+	delete(m.active, routeIDHex)
+	m.mu.Unlock()
+
+	return bridgeErr
 }
 
 // RelayURL returns the relay server URL the manager is configured to

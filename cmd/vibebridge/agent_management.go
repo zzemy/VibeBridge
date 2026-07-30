@@ -14,8 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/websocket"
 	vibebridgev1 "github.com/zzemy/VibeBridge/gen/go/vibebridge/v1"
 	"github.com/zzemy/VibeBridge/internal/deviceidentity"
+	"github.com/zzemy/VibeBridge/internal/protocol"
 	"github.com/zzemy/VibeBridge/internal/pairing"
 	"github.com/zzemy/VibeBridge/internal/pairingflow"
 	"github.com/zzemy/VibeBridge/internal/relayclient"
@@ -394,11 +396,11 @@ func (management *agentManagement) relayProvisionHandler() http.Handler {
 		}
 		loopbackAddr := management.loopbackDialAddress()
 		go func() {
-			conn, err := net.Dial("tcp", loopbackAddr)
+			wsConn, err := dialLocalAgentWS(loopbackAddr, management.token)
 			if err != nil {
 				return
 			}
-			_ = management.relayManager.Connect(context.Background(), routeID, conn)
+			_ = management.relayManager.ConnectWebSocket(context.Background(), routeID, wsConn)
 		}()
 		response := struct {
 			RouteID      string `json:"route_id"`
@@ -439,6 +441,44 @@ func (management *agentManagement) relayStatusHandler() http.Handler {
 		writer.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(writer).Encode(status)
 	})
+}
+
+// dialLocalAgentWS dials the local Agent /ws endpoint over WebSocket,
+// authenticating via the /pairing/web-session flow used by browser clients.
+// The returned connection speaks the V1 protocol and is ready for bridging
+// to a relay route.
+func dialLocalAgentWS(loopbackAddr, token string) (*websocket.Conn, error) {
+	sessionURL := fmt.Sprintf("http://%s/pairing/web-session?token=%s", loopbackAddr, url.QueryEscape(token))
+	resp, err := http.Get(sessionURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch web-session: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("web-session returned %d", resp.StatusCode)
+	}
+	var session struct {
+		DeviceID  string `json:"device_id"`
+		Nonce     string `json:"nonce"`
+		Signature string `json:"signature"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return nil, fmt.Errorf("decode web-session: %w", err)
+	}
+	wsURL := fmt.Sprintf("ws://%s/ws?vb-device=%s&vb-nonce=%s&vb-sig=%s",
+		loopbackAddr,
+		url.QueryEscape(session.DeviceID),
+		url.QueryEscape(session.Nonce),
+		url.QueryEscape(session.Signature),
+	)
+	dialer := websocket.Dialer{
+		Subprotocols: []string{protocol.WebSocketSubprotocol},
+	}
+	conn, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("dial local ws: %w", err)
+	}
+	return conn, nil
 }
 
 func (management *agentManagement) loopbackDialAddress() string {
