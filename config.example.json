@@ -4,7 +4,6 @@
   "web_directory": "web/dist",
   "reconnect_timeout": "90s",
   "idle_timeout": "30m",
-  "disable_legacy_protocol": false,
   "workspaces": [
     {
       "id": "default",
