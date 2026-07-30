@@ -219,6 +219,65 @@ func (e pathOperationError) Unwrap() error {
 	return e.cause
 }
 
+// CleanupStaleStaging removes all orphaned session staging directories beneath a
+// workspace root. It is safe to call on Agent startup: if no sessions are active,
+// every directory under .vibebridge/uploads/ is a crash-recovery candidate.
+// Symlinks and non-directory entries are rejected; only canonical subdirectories
+// of the validated workspace are removed.
+func CleanupStaleStaging(workspaceRoot string) error {
+	currentRoot, err := workspace.RevalidateDirectory(workspaceRoot, "")
+	if err != nil {
+		return errors.New("validate staging workspace failed")
+	}
+	uploadsDir := filepath.Join(currentRoot, metadataDirectoryName, uploadsDirectoryName)
+	info, err := os.Lstat(uploadsDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return newPathOperationError("inspect uploads directory", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("uploads path must be a directory")
+	}
+	if err := validateCanonicalDirectory(currentRoot, uploadsDir); err != nil {
+		return fmt.Errorf("validate uploads directory boundary: %w", err)
+	}
+	entries, err := os.ReadDir(uploadsDir)
+	if err != nil {
+		return newPathOperationError("read uploads directory", err)
+	}
+	for _, entry := range entries {
+		sessionPath := filepath.Join(uploadsDir, entry.Name())
+		entryInfo, err := os.Lstat(sessionPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return newPathOperationError("inspect stale session staging", err)
+		}
+		if entryInfo.Mode()&os.ModeSymlink != 0 {
+			if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
+				return newPathOperationError("remove stale symlink staging entry", err)
+			}
+			continue
+		}
+		if !entryInfo.IsDir() {
+			if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
+				return newPathOperationError("remove stale non-directory staging entry", err)
+			}
+			continue
+		}
+		if err := validateCanonicalDirectory(currentRoot, sessionPath); err != nil {
+			return fmt.Errorf("validate stale session staging boundary: %w", err)
+		}
+		if err := os.RemoveAll(sessionPath); err != nil {
+			return newPathOperationError("remove stale session staging directory", err)
+		}
+	}
+	return nil
+}
+
 func safePathOperationCause(err error) error {
 	var errno syscall.Errno
 	if errors.As(err, &errno) {

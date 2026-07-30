@@ -22,6 +22,7 @@ import (
 	"github.com/zzemy/VibeBridge/internal/agentconfig"
 	"github.com/zzemy/VibeBridge/internal/agentlog"
 	"github.com/zzemy/VibeBridge/internal/agentservice"
+	"github.com/zzemy/VibeBridge/internal/attachment"
 	"github.com/zzemy/VibeBridge/internal/deviceidentity"
 	"github.com/zzemy/VibeBridge/internal/pairing"
 	"github.com/zzemy/VibeBridge/internal/pairingflow"
@@ -120,6 +121,12 @@ func runAgent(args []string) error {
 	pairingFlows, err := pairingflow.New(pairingflow.Config{Invitations: pairingManager, Identity: identity})
 	if err != nil {
 		return fmt.Errorf("initialize pairing flow coordinator: %w", err)
+	}
+
+	if options.workspaceRoot != "" {
+		if err := attachment.CleanupStaleStaging(options.workspaceRoot); err != nil {
+			log.Printf("warning: stale staging cleanup failed: %v", err)
+		}
 	}
 
 	app := server.New(server.Config{

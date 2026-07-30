@@ -77,8 +77,92 @@ func TestGenericAdapterRejectsUnsafeAttachmentPrompt(t *testing.T) {
 	}
 }
 
+func TestCodexAdapterPreparesInlineAtReferences(t *testing.T) {
+	adapter, err := New(Codex)
+	if err != nil {
+		t.Fatalf("create codex adapter: %v", err)
+	}
+
+	prepared, err := adapter.Prepare(AttachmentPromptRequest{
+		Prompt: "Review these files.",
+		RelativePaths: []string{
+			`.vibebridge/uploads/session/main.go`,
+			`.vibebridge/uploads/session/utils.go`,
+		},
+		Submit: true,
+	})
+	if err != nil {
+		t.Fatalf("prepare attachment prompt: %v", err)
+	}
+
+	const wantPreview = "Review these files. @.vibebridge/uploads/session/main.go @.vibebridge/uploads/session/utils.go"
+	if prepared.Preview != wantPreview {
+		t.Fatalf("preview = %q, want %q", prepared.Preview, wantPreview)
+	}
+	if !bytes.Equal(prepared.TerminalInput, []byte(wantPreview+"\r")) {
+		t.Fatalf("terminal input = %q, want preview plus Enter", prepared.TerminalInput)
+	}
+}
+
+func TestCodexAdapterRejectsAtInPath(t *testing.T) {
+	adapter, err := New(Codex)
+	if err != nil {
+		t.Fatalf("create codex adapter: %v", err)
+	}
+
+	_, err = adapter.Prepare(AttachmentPromptRequest{
+		Prompt:        "Review",
+		RelativePaths: []string{"injected@path.txt"},
+	})
+	if !errors.Is(err, ErrInvalidPromptAction) {
+		t.Fatalf("Prepare() error = %v, want %v", err, ErrInvalidPromptAction)
+	}
+}
+
+func TestClaudeAdapterPreparesSeparateLineAtReferences(t *testing.T) {
+	adapter, err := New(Claude)
+	if err != nil {
+		t.Fatalf("create claude adapter: %v", err)
+	}
+
+	prepared, err := adapter.Prepare(AttachmentPromptRequest{
+		Prompt: "Analyze these files.",
+		RelativePaths: []string{
+			`.vibebridge/uploads/session/data.csv`,
+			`.vibebridge/uploads/session/chart.png`,
+		},
+		Submit: true,
+	})
+	if err != nil {
+		t.Fatalf("prepare attachment prompt: %v", err)
+	}
+
+	const wantPreview = "Analyze these files.\n\n@.vibebridge/uploads/session/data.csv\n@.vibebridge/uploads/session/chart.png"
+	if prepared.Preview != wantPreview {
+		t.Fatalf("preview = %q, want %q", prepared.Preview, wantPreview)
+	}
+	if !bytes.Equal(prepared.TerminalInput, []byte(wantPreview+"\r")) {
+		t.Fatalf("terminal input = %q, want preview plus Enter", prepared.TerminalInput)
+	}
+}
+
+func TestClaudeAdapterRejectsAtInPath(t *testing.T) {
+	adapter, err := New(Claude)
+	if err != nil {
+		t.Fatalf("create claude adapter: %v", err)
+	}
+
+	_, err = adapter.Prepare(AttachmentPromptRequest{
+		Prompt:        "Review",
+		RelativePaths: []string{"bad@reference.txt"},
+	})
+	if !errors.Is(err, ErrInvalidPromptAction) {
+		t.Fatalf("Prepare() error = %v, want %v", err, ErrInvalidPromptAction)
+	}
+}
+
 func TestNewRejectsUnknownAdapter(t *testing.T) {
-	if _, err := New("codex"); !errors.Is(err, ErrUnknownAdapter) {
+	if _, err := New("unknown-tool"); !errors.Is(err, ErrUnknownAdapter) {
 		t.Fatalf("New() error = %v, want %v", err, ErrUnknownAdapter)
 	}
 }
