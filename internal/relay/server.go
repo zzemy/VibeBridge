@@ -190,7 +190,14 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		http.Error(writer, "relay is at capacity", http.StatusServiceUnavailable)
 		return
 	}
-	connection, err := server.upgrader.Upgrade(writer, request, nil)
+	// Echo the client's requested subprotocol verbatim. The relay is a
+	// transparent switchboard; both peers on a route negotiate their own
+	// application-level protocol (e.g. vibebridge.v1) and the relay must
+	// not silently strip the subprotocol, or the client may fall back to
+	// a legacy protocol path.
+	upgrader := server.upgrader
+	upgrader.Subprotocols = websocket.Subprotocols(request)
+	connection, err := upgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		server.conns.Done()
 		server.activeConns.Add(-1)
