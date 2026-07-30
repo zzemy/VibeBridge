@@ -51,7 +51,9 @@ type TerminalChunk = string | Uint8Array;
 type PreparedAttachmentPrompt = { preview: string; appendEnter: boolean };
 
 const TerminalView = lazy(() => import("./components/TerminalView").then((module) => ({ default: module.TerminalView })));
-const reconnectDelaySeconds = 3;
+const reconnectBaseDelaySeconds = 1;
+const reconnectMaxDelaySeconds = 30;
+const reconnectMaxAttempts = 10;
 const minTerminalFontSize = 11;
 // Keep the prepared client flow dark until the full prompt-action and adapter path is ready.
 const attachmentClientFlowEnabled = true;
@@ -291,9 +293,25 @@ export function TerminalApp() {
     let disposed = false;
     let reconnectTimer: number | undefined;
     let countdownTimer: number | undefined;
+    let reconnectAttempts = 0;
 
     const scheduleReconnect = () => {
-      let remaining = reconnectDelaySeconds;
+      if (reconnectAttempts >= reconnectMaxAttempts) {
+        stopReconnectRef.current = true;
+        setConnectionState("error");
+        setTerminalChunks((chunks) => [...chunks, "max reconnect attempts reached; giving up\r\n"]);
+        return;
+      }
+      // Exponential backoff with full jitter: delay is uniform random
+      // in [base * 2^attempts, base * 2^(attempts+1)), capped at max.
+      // Jitter prevents thundering herd when multiple clients lose
+      // connectivity simultaneously (e.g. AP failover).
+      const exp = reconnectBaseDelaySeconds * Math.pow(2, reconnectAttempts);
+      const minDelay = Math.min(exp, reconnectMaxDelaySeconds);
+      const maxDelay = Math.min(exp * 2, reconnectMaxDelaySeconds);
+      const delaySeconds = Math.floor(minDelay + Math.random() * (maxDelay - minDelay));
+      reconnectAttempts++;
+      let remaining = delaySeconds;
       setConnectionState("reconnecting");
       setRetryIn(remaining);
       countdownTimer = window.setInterval(() => {
@@ -371,6 +389,7 @@ export function TerminalApp() {
         }
         hasConnectedRef.current = true;
         disconnectReportedRef.current = false;
+        reconnectAttempts = 0;
         setRetryIn(0);
         setConnectionState("connected");
         setAttachmentTransferAvailable(attachmentTransfer && attachmentPromptAction && attachmentSender !== null && promptTransportConnected);
