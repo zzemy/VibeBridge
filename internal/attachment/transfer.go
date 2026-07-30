@@ -113,6 +113,7 @@ type Manager struct {
 	directory *stagingDirectory
 	staging   *SessionStaging
 	limits    managerLimits
+	aggregate *AggregateTracker
 
 	active         map[string]*activeTransfer
 	completed      map[string]CompletedAttachment
@@ -146,6 +147,31 @@ func NewManager(staging *SessionStaging) (*Manager, error) {
 		maxChunkBytes:   defaultMaxChunkBytes,
 		maxActive:       defaultMaxActive,
 	})
+}
+
+// NewManagerWithAggregate opens the session staging boundary with the default
+// V1 limits and an optional AggregateTracker for cross-session byte limiting.
+// A nil aggregate disables aggregate checking for this manager.
+func NewManagerWithAggregate(staging *SessionStaging, aggregate *AggregateTracker) (*Manager, error) {
+	m, err := newTransferManager(staging, managerLimits{
+		maxFileBytes:    defaultMaxFileBytes,
+		maxSessionBytes: defaultMaxSessionBytes,
+		maxChunkBytes:   defaultMaxChunkBytes,
+		maxActive:       defaultMaxActive,
+	})
+	if err != nil {
+		return nil, err
+	}
+	m.aggregate = aggregate
+	// Account for any completed bytes inherited from a previous manager on
+	// the same staging (crash recovery or manager recreation).
+	if aggregate != nil {
+		if err := aggregate.Reserve(staging.completedBytes()); err != nil {
+			_ = m.Close()
+			return nil, err
+		}
+	}
+	return m, nil
 }
 
 func newTransferManager(staging *SessionStaging, limits managerLimits) (*Manager, error) {
@@ -207,6 +233,9 @@ func (m *Manager) Begin(request BeginRequest) error {
 	}
 	if m.reservedBytes > m.limits.maxSessionBytes || request.TotalSizeBytes > m.limits.maxSessionBytes-m.reservedBytes {
 		return ErrSessionQuotaExceeded
+	}
+	if err := m.aggregate.Reserve(request.TotalSizeBytes); err != nil {
+		return err
 	}
 
 	prefix, partialName, err := m.createPartialLocked()
@@ -525,6 +554,9 @@ func (m *Manager) Close() error {
 	if len(cleanupErrors) > 0 {
 		return errors.Join(cleanupErrors...)
 	}
+	// Release remaining completed bytes from the aggregate. Active bytes were
+	// already released by releaseActiveLocked in the loop above.
+	m.aggregate.Release(m.reservedBytes)
 	err := m.directory.close()
 	releaseTransferManager(m.staging)
 	m.closed = true
@@ -583,6 +615,7 @@ func (m *Manager) releaseCompletedLocked(size uint64) {
 		m.reservedBytes = 0
 	}
 	m.staging.releaseCompletedBytes(size)
+	m.aggregate.Release(size)
 }
 
 func (m *Manager) releaseActiveLocked(key string, transfer *activeTransfer) {
@@ -592,6 +625,7 @@ func (m *Manager) releaseActiveLocked(key string, transfer *activeTransfer) {
 	} else {
 		m.reservedBytes = 0
 	}
+	m.aggregate.Release(transfer.totalSize)
 }
 
 func validTransferID(transferID []byte) bool {
