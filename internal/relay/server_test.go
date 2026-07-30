@@ -287,3 +287,48 @@ func TestServerShutdownStopsAccepting(t *testing.T) {
 	}
 }
 
+
+func TestServerEchoesClientSubprotocol(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	server, err := New(Config{
+		Verifier: NewVerifier(priv.Public().(ed25519.PublicKey)),
+	})
+	if err != nil {
+		t.Fatalf("new relay: %v", err)
+	}
+	httpServer := httptest.NewServer(server)
+	defer httpServer.Close()
+	defer server.Shutdown(nil)
+
+	u, _ := url.Parse(httpServer.URL)
+	wsURL := "ws://" + u.Host + "/v1/relay/ws"
+
+	// Dial with a subprotocol the relay should echo back.
+	dialer := websocket.Dialer{Subprotocols: []string{"vibebridge.v1"}}
+	conn, resp, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if resp.Header.Get("Sec-WebSocket-Protocol") != "vibebridge.v1" {
+		t.Fatalf("expected subprotocol vibebridge.v1, got %q",
+			resp.Header.Get("Sec-WebSocket-Protocol"))
+	}
+
+	// Dial without a subprotocol — relay must not invent one.
+	conn2, resp2, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial without subprotocol: %v", err)
+	}
+	defer conn2.Close()
+
+	if resp2.Header.Get("Sec-WebSocket-Protocol") != "" {
+		t.Fatalf("expected no subprotocol, got %q",
+			resp2.Header.Get("Sec-WebSocket-Protocol"))
+	}
+}
+

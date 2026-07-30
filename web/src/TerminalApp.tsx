@@ -138,7 +138,14 @@ export function TerminalApp() {
   const noticeTimerRef = useRef<number | undefined>(undefined);
 
   const token = useMemo(() => new URLSearchParams(window.location.search).get("token") ?? "", []);
-  const relayMode = useMemo(() => new URLSearchParams(window.location.search).has("relay"), []);
+  const forcedTransport = useMemo<"direct" | "relay" | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("relay")) return "relay";
+    if (params.has("direct")) return "direct";
+    return null;
+  }, []);
+  const transportRef = useRef<"direct" | "relay">(forcedTransport ?? "direct");
+  const relayAttemptedRef = useRef(false);
 
   const buildWsUrl = useCallback(async (): Promise<string> => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -307,12 +314,25 @@ export function TerminalApp() {
       }
 
       setConnectionState(hasConnectedRef.current ? "reconnecting" : "connecting");
-      const url = relayMode ? null : await buildWsUrl();
+      const useRelay = transportRef.current === "relay";
+      const url = useRelay ? null : await buildWsUrl();
       if (disposed || stopReconnectRef.current) {
         return;
       }
       const connectionId = newProtocolV1ConnectionId();
-      const socket = relayMode ? await connectRelaySocket() : new WebSocket(url!, [protocolV1WebSocketSubprotocol]);
+      let socket: WebSocket;
+      try {
+        socket = useRelay ? await connectRelaySocket() : new WebSocket(url!, [protocolV1WebSocketSubprotocol]);
+      } catch (err) {
+        if (!disposed && !stopReconnectRef.current) {
+          if (useRelay) {
+            relayAttemptedRef.current = true;
+            transportRef.current = "direct";
+          }
+          scheduleReconnect();
+        }
+        return;
+      }
       let protocolNegotiated = false;
       let fatalProtocolError = false;
       let attachmentTransfer = false;
@@ -575,6 +595,18 @@ export function TerminalApp() {
           if (attachmentSenderRef.current === attachmentSender) attachmentSenderRef.current = null;
           setConnectionState((current) => current === "error" ? current : "closed");
           return;
+        }
+        if (!protocolNegotiated && !hasConnectedRef.current && forcedTransport === null) {
+          if (transportRef.current === "direct" && !relayAttemptedRef.current) {
+            transportRef.current = "relay";
+            relayAttemptedRef.current = true;
+            showNotice("Trying relay connection...");
+            reconnectTimer = window.setTimeout(connect, 0);
+            return;
+          }
+          if (transportRef.current === "relay") {
+            transportRef.current = "direct";
+          }
         }
         if (!disconnectReportedRef.current) {
           disconnectReportedRef.current = true;
