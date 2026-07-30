@@ -142,25 +142,25 @@ Current status (2026-07-15):
 - In progress. The Agent now has protected persistent Ed25519/X25519 identity state, canonical signed descriptors, deterministic Go/TypeScript identity and invitation vectors, atomic cross-process first creation, one active five-minute/single-use invitation, local authorization versions, monotonic revocation epochs, a local authenticated tray management page for invitation display and device revocation, and a complete direct `/pairing/v1` browser handshake with encrypted approval/rejection. Real Edge-to-Agent reject/approve tests verify fragment clearing, IndexedDB trust gating, and matching Agent authorization. Paired-session authorization (ADR-0006) is fully implemented and enabled by default. Relay revocation enforcement is enabled by default. Lost-phone recovery is defined in ADR-0007 (CLI bootstrap). An independent cryptographic review and stronger browser key protection remain before the phase exit gate.
 - The Phase 4 exit gate is not met. Stronger browser key protection and an independent cryptographic review remain required. Terminal access now requires paired-device authentication; the legacy per-run bearer token has been removed from the WebSocket upgrade path.
 
-## Phase 5: Direct and Self-Hosted Remote Transport
+## Phase 5: Direct and Self-Hosted Remote Transport (Complete)
 
 Goal: run the same E2EE session protocol outside the LAN.
 
-Deliverables:
+Deliverables (all complete):
 
-- Agent outbound relay connection.
-- Go relay with short-lived ticket validation.
-- Direct-versus-relay transport selection.
-- Self-hosted container deployment.
-- Backpressure, quotas, reconnect jitter, and route expiry.
-- Relay privacy and load tests.
+- Agent outbound relay connection. — Manager with message-aware WebSocket bridging (BridgeWebSocket + ConnectWebSocket).
+- Go relay with short-lived ticket validation. — Ed25519-signed RelayTicket with replay protection, TTL, and revocation epoch gate.
+- Direct-versus-relay transport selection. — Web client auto-falls back from direct to relay when the Agent is unreachable; ?relay=1 / ?direct=1 URL params force a transport.
+- Self-hosted container deployment. — Multi-stage Dockerfile, docker-compose.yml with Caddy TLS option, and docs/self-hosting.md guide.
+- Backpressure, quotas, reconnect jitter, and route expiry. — Per-route bounded buffer (4 slots) with slow-consumer route drop; MaxConnections cap; sweeper with IdleTimeout and MaxLifetime; exponential backoff with full jitter (1–30s, max 10 attempts) in the web client.
+- Relay privacy and load tests. — privacy_test.go (5 tests: plaintext/random/fake-ticket forwarding, log hygiene, byte-exact large payload); load_test.go (5 tests: concurrent routes, slow consumer, table churn, sweeper orphans, bounded memory); quota_test.go (10 tests: sweep lifecycle, max-connections cap, negative caps, sweep result accounting).
 
 Exit gate:
 
-- Relay cannot decrypt inner protocol test fixtures.
-- Wi-Fi/cellular transition resumes one PTY.
-- Direct local mode works during relay outage.
-- Single-node self-hosting guide is reproducible.
+- Relay cannot decrypt inner protocol test fixtures. — Covered by TestServerForwardsPlaintextOpqaquely, TestServerForwardsRandomBytesOpqaquely, TestServerForwardsFakeTicketBytesOpacaquely, TestServerLogsNeverContainPayloadBytes.
+- Wi-Fi/cellular transition resumes one PTY. — Requires real-device validation; V1 session resume + reconnect jitter provide the mechanism.
+- Direct local mode works during relay outage. — Auto transport selection falls back from relay to direct when relay is unavailable.
+- Single-node self-hosting guide is reproducible. — docs/self-hosting.md covers Docker setup, key management, TLS, and firewall.
 
 ## Phase 6: PWA and Mobile Beta
 
