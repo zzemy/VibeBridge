@@ -189,13 +189,8 @@ func TestProtocolV1TransfersAttachmentIntoWorkspaceSession(t *testing.T) {
 	if err := connection.WriteMessage(websocket.BinaryMessage, marshalClientHello(t, 1, 0, capabilities)); err != nil {
 		t.Fatalf("send client Hello: %v", err)
 	}
-	agentHello := readProtocolEnvelope(t, connection)
-	for _, capability := range agentHello.GetHello().GetCapabilities() {
-		if capability == protocolv1.CapabilityAttachmentTransfer {
-			t.Fatal("Agent advertised attachment transfer before the client flow is complete")
-		}
-	}
-	initialOutput := readProtocolEnvelope(t, connection)
+	readProtocolEnvelope(t, connection)
+		initialOutput := readProtocolEnvelope(t, connection)
 
 	content := []byte("hello attachment\n")
 	totalHash := sha256.Sum256(content)

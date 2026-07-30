@@ -146,7 +146,7 @@ func NewAgentHello(connectionID []byte, major, minor uint32, sentAt time.Time, i
 			Minimum: &vibebridgev1.ProtocolVersion{Major: CurrentMajor, Minor: CurrentMinor},
 			Maximum: &vibebridgev1.ProtocolVersion{Major: CurrentMajor, Minor: CurrentMinor},
 		},
-		Capabilities:     []string{CapabilityTerminalBinaryOutput, CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilitySessionResume, CapabilityControlError, CapabilityControlHealth},
+		Capabilities:     []string{CapabilityTerminalBinaryOutput, CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilitySessionResume, CapabilityControlError, CapabilityControlHealth, CapabilityAttachmentTransfer, CapabilityAttachmentPromptAction},
 		MaxEnvelopeBytes: MaxEnvelopeBytes,
 	}
 	if identity != nil {

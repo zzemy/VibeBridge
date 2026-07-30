@@ -178,13 +178,8 @@ func TestNewAgentHelloUsesNegotiatedVersion(t *testing.T) {
 	if envelope.Sequence != 1 {
 		t.Fatalf("sequence = %d, want 1", envelope.Sequence)
 	}
-	wantCapabilities := []string{CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilitySessionResume, CapabilityControlError, CapabilityControlHealth}
-	for _, capability := range envelope.GetHello().GetCapabilities() {
-		if capability == CapabilityAttachmentTransfer || capability == CapabilityAttachmentPromptAction {
-			t.Fatalf("Agent advertised dark attachment capability %q", capability)
-		}
-	}
-	for _, want := range wantCapabilities {
+	wantCapabilities := []string{CapabilityTerminalSequencedIO, CapabilityTerminalResizeEnd, CapabilitySessionProcessExit, CapabilitySessionResume, CapabilityControlError, CapabilityControlHealth, CapabilityAttachmentTransfer, CapabilityAttachmentPromptAction}
+		for _, want := range wantCapabilities {
 		found := false
 		for _, capability := range envelope.GetHello().GetCapabilities() {
 			if capability == want {
