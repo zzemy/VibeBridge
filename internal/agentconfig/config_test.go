@@ -224,7 +224,7 @@ func TestLaunchProfileDefaultsAndValidatesToolAdapter(t *testing.T) {
 		{name: "omitted", want: "generic"},
 		{name: "blank", adapterJSON: `,"tool_adapter":"  "`, want: "generic"},
 		{name: "generic", adapterJSON: `,"tool_adapter":"generic"`, want: "generic"},
-		{name: "unknown", adapterJSON: `,"tool_adapter":"codex"`, wantError: true},
+		{name: "unknown", adapterJSON: `,"tool_adapter":"unknown-tool"`, wantError: true},
 	}
 
 	for _, test := range tests {

@@ -9,7 +9,7 @@ func TestSessionRejectsUnknownToolAdapterBeforePTYLaunch(t *testing.T) {
 	launcher := &fakeTerminalLauncher{}
 	server := New(Config{
 		Command:     []string{"fake"},
-		ToolAdapter: "codex",
+		ToolAdapter: "unknown-tool",
 	})
 	server.launcher = launcher
 
