@@ -37,6 +37,7 @@ type File struct {
 	Workspaces            []workspace.Definition `json:"workspaces,omitempty"`
 	DefaultProfile        string                 `json:"default_profile"`
 	Profiles              []LaunchProfile        `json:"profiles"`
+	RelayURL              string                 `json:"relay_url,omitempty"`
 
 	workspacesConfigured bool
 }

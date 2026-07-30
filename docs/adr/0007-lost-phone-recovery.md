@@ -1,6 +1,6 @@
 # ADR-0007: Lost-Phone Recovery via Local CLI Bootstrap
 
-- Status: Proposed
+- Status: Accepted (Implementation Complete)
 - Date: 2026-07-30
 - Related: ADR-0006
 
@@ -53,3 +53,9 @@ A network-accessible recovery endpoint (even one gated by a recovery code) reint
 
 - VibeBridge moves to a hosted/cloud deployment model where the operator does not have local filesystem access.
 - A need emerges for remote recovery without local access (would require a fundamentally different trust model).
+
+## Implementation History
+
+1. **`vibebridge recover` CLI** (`cmd/vibebridge/recover.go`): `--list` / `--revoke-all` / `--authorize-new` subcommands implemented. `--list` uses `deviceidentity.Load` (read-only); `--revoke-all` requires `--yes` confirmation, iterates `AuthorizedDevices(false)` and calls `Revoke` on each; `--authorize-new` starts a minimal HTTP server reusing `newAgentHTTPHandler` with a nil relay manager and polls for new device authorization. Mutual exclusivity enforced; `--identity-store` flag defaults to `deviceidentity.DefaultPath()`.
+2. **Tests** (`cmd/vibebridge/recover_test.go`): 7 tests covering missing store (list + revoke), confirmation requirement, no devices, empty store, mutually exclusive flags, and no action specified.
+3. **ADR status** updated from Proposed to Accepted (Implementation Complete).

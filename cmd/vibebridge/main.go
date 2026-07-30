@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -26,10 +27,17 @@ import (
 	"github.com/zzemy/VibeBridge/internal/deviceidentity"
 	"github.com/zzemy/VibeBridge/internal/pairing"
 	"github.com/zzemy/VibeBridge/internal/pairingflow"
+	"github.com/zzemy/VibeBridge/internal/relayclient"
 	"github.com/zzemy/VibeBridge/internal/server"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "recover" {
+		if err := runRecoverCommand(os.Args[2:]); err != nil && !errors.Is(err, flag.ErrHelp) {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "service" {
 		executable, err := os.Executable()
 		if err != nil {
@@ -61,6 +69,8 @@ func runAgent(args []string) error {
 	tray := flags.Bool("tray", false, "show Windows system tray controls")
 	serviceStatePath := flags.String("service-state", "", "runtime state path used by the background Agent")
 	identityStorePath := flags.String("identity-store", "", "protected persistent device identity path")
+	relayURL := flags.String("relay-url", "", "WebSocket URL of the relay server for remote sessions")
+	relayIssuerKeyPath := flags.String("relay-issuer-key", "", "path to the relay ticket issuer key file (default: alongside identity store)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -82,6 +92,7 @@ func runAgent(args []string) error {
 		commandLine:           *commandLine,
 		reconnectTimeout:      *reconnectTimeout,
 		idleTimeout:           *idleTimeout,
+		relayURL:              *relayURL,
 	}, *configPath, *profileID, explicitFlags, os.LookupEnv)
 	if err != nil {
 		return err
@@ -113,6 +124,31 @@ func runAgent(args []string) error {
 		return fmt.Errorf("initialize device identity: %w", err)
 	}
 	defer identity.Close()
+
+	var relayManager *relayclient.Manager
+	if options.relayURL != "" {
+		resolvedIssuerPath := *relayIssuerKeyPath
+		if resolvedIssuerPath == "" {
+			resolvedIssuerPath = filepath.Join(filepath.Dir(resolvedIdentityPath), "relay-issuer.key")
+		}
+		relayIssuer, err := relayclient.LoadOrCreateIssuer(resolvedIssuerPath)
+		if err != nil {
+			return fmt.Errorf("initialize relay issuer: %w", err)
+		}
+		relayManager, err = relayclient.NewManager(relayclient.ManagerConfig{
+			RelayURL:        options.relayURL,
+			Issuer:          relayIssuer,
+			AgentID:         identity.DeviceID(),
+			RevocationEpoch: identity.RevocationEpoch(),
+		})
+		if err != nil {
+			return fmt.Errorf("initialize relay manager: %w", err)
+		}
+		defer relayManager.Close()
+		relayPubKey := relayclient.IssuerPublicKeyHex(relayIssuer)
+		fmt.Fprintf(os.Stderr, "Relay configured: %s (issuer public key: %s)\n", options.relayURL, relayPubKey)
+	}
+
 	pairingManager, err := pairing.New(pairing.Config{Agent: identity})
 	if err != nil {
 		return fmt.Errorf("initialize pairing manager: %w", err)
@@ -156,7 +192,7 @@ func runAgent(args []string) error {
 		return fmt.Errorf("start HTTP listener on %s: %w", options.addr, err)
 	}
 	listenAddress := listener.Addr().String()
-	handler, err := newAgentHTTPHandler(app.Handler(), listenAddress, token, pairingManager, identity, pairingFlows)
+	handler, err := newAgentHTTPHandler(app.Handler(), listenAddress, token, pairingManager, identity, pairingFlows, relayManager)
 	if err != nil {
 		_ = listener.Close()
 		app.Close()
@@ -304,6 +340,7 @@ type startupOptions struct {
 	workspaceID           string
 	workspaceRoot         string
 	toolAdapter           string
+	relayURL              string
 }
 
 func resolveStartupOptions(options startupOptions, configPath string, requestedProfile string, explicitFlags map[string]bool, lookupEnv func(string) (string, bool)) (startupOptions, error) {
@@ -371,6 +408,9 @@ func resolveStartupOptions(options startupOptions, configPath string, requestedP
 	options.workingDirectory = profile.WorkingDirectory
 	options.environment = resolveEnvironment(profile.EnvironmentAllowlist, lookupEnv)
 	options.toolAdapter = profile.ToolAdapter
+	if !explicitFlags["relay-url"] && config.RelayURL != "" {
+		options.relayURL = config.RelayURL
+	}
 	return options, nil
 }
 
