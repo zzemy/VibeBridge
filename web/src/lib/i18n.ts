@@ -128,7 +128,8 @@ const dict: Dict = {
   "pair.desc.connecting": { zh: "正在打开到 {name} 的私有连接。", en: "Opening a private connection to {name}." },
   "pair.desc.handshaking": { zh: "正在对两台设备进行认证并派生一次性加密密钥。", en: "Authenticating both devices and deriving one-time encryption keys." },
   "pair.desc.pending": { zh: "加密握手已完成。最终批准必须在本地进行。", en: "The encrypted handshake is complete. Final approval must happen locally." },
-  "pair.desc.approved": { zh: "{name} 现在已识别此浏览器。你可以关闭此页面。", en: "{name} now recognizes this browser. You can close this page." },
+  "pair.desc.approved": { zh: "{name} 现在已识别此浏览器，正在进入终端…", en: "{name} now recognizes this browser, entering terminal…" },
+  "pair.redirecting": { zh: "正在进入终端…", en: "Entering terminal…" },
   "pair.desc.rejected": { zh: "{name} 未授权此浏览器。创建新的二维码以重试。", en: "{name} did not authorize this browser. Create a new QR code to try again." },
   "pair.desc.error": { zh: "此浏览器上未创建信任。你可以在二维码邀请仍然有效时重试。", en: "No trust was created on this browser. You can retry while the QR invitation is still valid." },
 

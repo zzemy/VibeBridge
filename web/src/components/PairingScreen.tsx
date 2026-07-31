@@ -21,7 +21,7 @@ type PairingExecution = {
   controller: AbortController;
 };
 
-export function PairingScreen({ entry }: { entry: PairingEntry }) {
+export function PairingScreen({ entry, onComplete }: { entry: PairingEntry; onComplete?: () => void }) {
   const [attempt, setAttempt] = useState(0);
   const [store] = useState(() => new BrowserDeviceStore());
   const [phase, setPhase] = useState<PairingPhase>(() => entry.kind === "invalid"
@@ -32,6 +32,15 @@ export function PairingScreen({ entry }: { entry: PairingEntry }) {
   const lastSasRef = useRef<string | undefined>(undefined);
   const [, setTick] = useState(0);
   useEffect(() => subscribeLang(() => setTick((n) => n + 1)), []);
+
+  // Auto-redirect to terminal 1.5s after pairing is approved.
+  useEffect(() => {
+    if (phase.state !== "approved") return;
+    const timer = setTimeout(() => {
+      onComplete?.();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [phase.state, onComplete]);
 
   useEffect(() => {
     if (entry.kind === "invalid") return;
@@ -68,8 +77,6 @@ export function PairingScreen({ entry }: { entry: PairingEntry }) {
     }
 
     return () => {
-      // React StrictMode replays Effects in development. Defer destructive
-      // cleanup so the immediate replay can retain the one active flow.
       queueMicrotask(() => {
         if (lifecycleRef.current !== lifecycle) return;
         executionRef.current?.controller.abort();
@@ -126,6 +133,15 @@ export function PairingScreen({ entry }: { entry: PairingEntry }) {
       {phase.state === "pending" ? (
         <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-4 text-sm leading-6 text-amber-100">
           {t("pair.confirmSas", { sas: phase.sas })}
+        </div>
+      ) : null}
+
+      {phase.state === "approved" ? (
+        <div className="mt-5 flex flex-col items-center gap-2">
+          <div className="flex items-center gap-2 text-xs text-emerald-300">
+            <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+            {t("pair.redirecting")}
+          </div>
         </div>
       ) : null}
 
