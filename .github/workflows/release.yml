@@ -205,6 +205,26 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Rename artifacts with platform labels
+        working-directory: dist
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          for f in *; do
+            case "$f" in
+              *_x64-setup.exe)
+                mv "$f" "VibeBridge-${VER}-windows-x64-setup.exe" ;;
+              *_aarch64.dmg)
+                mv "$f" "VibeBridge-${VER}-macos-arm64.dmg" ;;
+              *_x64.dmg)
+                mv "$f" "VibeBridge-${VER}-macos-x64.dmg" ;;
+              *_amd64.AppImage)
+                mv "$f" "VibeBridge-${VER}-linux-amd64.AppImage" ;;
+              *_amd64.deb)
+                mv "$f" "VibeBridge-${VER}-linux-amd64.deb" ;;
+            esac
+          done
+          ls -la
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
