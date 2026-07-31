@@ -259,6 +259,22 @@ const dict: Dict = {
   "settings.server": { zh: "服务器", en: "Server" },
   "settings.theme": { zh: "主题", en: "Theme" },
   "settings.themeDark": { zh: "深色", en: "Dark" },
+  "settings.connection": { zh: "连接", en: "Connection" },
+  "settings.autoReconnect": { zh: "自动重连", en: "Auto-reconnect" },
+  "settings.transport": { zh: "传输方式", en: "Transport" },
+  "settings.relayServer": { zh: "中继服务器", en: "Relay server" },
+  "settings.security": { zh: "安全", en: "Security" },
+  "settings.e2ee": { zh: "端到端加密", en: "End-to-end encryption" },
+  "settings.e2eeEnabled": { zh: "已启用", en: "Enabled" },
+  "settings.version": { zh: "版本", en: "Version" },
+  "settings.openSource": { zh: "开源许可", en: "Open source" },
+  "settings.feedback": { zh: "反馈与建议", en: "Feedback" },
+  "settings.tagline": { zh: "让远程终端触手可及", en: "Remote terminal, within reach" },
+  "settings.scrollback": { zh: "回滚行数", en: "Scrollback" },
+  "settings.cursorStyle": { zh: "光标样式", en: "Cursor style" },
+  "settings.cursorBlock": { zh: "方块", en: "Block" },
+  "settings.cursorUnderline": { zh: "下划线", en: "Underline" },
+  "settings.cursorBar": { zh: "竖线", en: "Bar" },
 };
 
 export function t(key: string, params?: Record<string, string | number>): string {

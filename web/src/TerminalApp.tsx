@@ -921,6 +921,8 @@ export function TerminalApp() {
             onFontSize={setTerminalFontSize}
             minSize={minTerminalFontSize}
             maxSize={maxTerminalFontSize}
+            transport={forcedTransport ?? "direct"}
+            relayUrl={null}
           />
         </div>
       ) : null}
