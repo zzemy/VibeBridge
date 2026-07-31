@@ -5,3 +5,4 @@
 /config.local.json
 /.vibebridge/
 dist/
+app/src-tauri/gen/
