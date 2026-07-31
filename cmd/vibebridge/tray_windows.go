@@ -60,11 +60,7 @@ func runAgentTray(options agentTrayOptions) error {
 			_ = openTrayURL(options.AppURL)
 		})
 
-		// Auto-open browser on first launch.
-		go func() {
-			time.Sleep(500 * time.Millisecond)
-			_ = openTrayURL(options.AppURL)
-		}()
+		// Desktop runs as tray-only. No auto-open browser — the terminal UI is for mobile devices.
 
 		go func() {
 			ticker := time.NewTicker(options.StatusPeriod)
