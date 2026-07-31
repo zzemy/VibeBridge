@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"net"
 	"net/http"
+	"runtime"
 	"net/url"
 	"context"
 	"strings"
@@ -36,6 +37,8 @@ const (
 	localInfoPath           = "/agent/info"
 	localPairingCodePath    = "/agent/pairing/code"
 )
+
+var agentStartTime = time.Now()
 
 var pairingPageTemplate = template.Must(template.New("pairing").Parse(`<!doctype html>
 <html lang="en">
@@ -534,9 +537,15 @@ func (management *agentManagement) infoHandler() http.Handler {
 				State:    d.State,
 			})
 		}
+		var memStats runtime.MemStats
+		runtime.ReadMemStats(&memStats)
 		result := map[string]any{
-			"devices":  deviceList,
-			"protocol": "v1",
+			"devices":          deviceList,
+			"protocol":         "v1",
+			"uptime_seconds":   int64(time.Since(agentStartTime).Seconds()),
+			"memory_alloc_mb":  memStats.Alloc / 1024 / 1024,
+			"goroutines":       runtime.NumGoroutine(),
+			"cpu_cores":        runtime.NumCPU(),
 		}
 		if pending, ok := management.flows.Current(); ok {
 			result["pending_pairing"] = map[string]any{
