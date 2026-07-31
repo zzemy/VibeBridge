@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "VibeBridge",
-        "width": 480,
-        "height": 640,
-        "minWidth": 380,
-        "minHeight": 520,
+        "width": 1200,
+        "height": 760,
+        "minWidth": 940,
+        "minHeight": 600,
         "resizable": true,
         "center": true,
         "decorations": true
@@ -24,11 +24,6 @@
     ],
     "security": {
       "csp": null
-    },
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": false,
-      "tooltip": "VibeBridge"
     }
   },
   "bundle": {

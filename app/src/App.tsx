@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import type { ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t, subscribeLang, toggleLang, getLang } from "./lib/i18n";
 
@@ -26,7 +27,70 @@ interface PendingPairing {
   sas: string;
 }
 
-type Section = "status" | "devices" | "pairing" | "settings";
+type Section = "status" | "pairing" | "devices" | "settings";
+
+/* ── SVG icon set (stroke-based, inherits currentColor) ── */
+
+function Icon({ children, size = 18 }: { children: ReactNode; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+const ICONS: Record<Section, ReactNode> = {
+  status: (
+    <>
+      <rect x="3" y="3" width="7" height="9" rx="1.5" />
+      <rect x="14" y="3" width="7" height="5" rx="1.5" />
+      <rect x="14" y="12" width="7" height="9" rx="1.5" />
+      <rect x="3" y="16" width="7" height="5" rx="1.5" />
+    </>
+  ),
+  pairing: (
+    <>
+      <rect x="3" y="3" width="6" height="6" rx="1" />
+      <rect x="15" y="3" width="6" height="6" rx="1" />
+      <rect x="3" y="15" width="6" height="6" rx="1" />
+      <path d="M15 15h2.5v2.5H15z" />
+      <path d="M21 15v2.5" />
+      <path d="M15 21h2.5" />
+      <path d="M18.5 18.5H21V21h-2.5z" />
+    </>
+  ),
+  devices: (
+    <>
+      <rect x="7" y="2" width="10" height="20" rx="2.5" />
+      <path d="M11 18.5h2" />
+    </>
+  ),
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </>
+  ),
+};
+
+function DeviceGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <Icon size={size}>
+      <rect x="7" y="2" width="10" height="20" rx="2.5" />
+      <path d="M11 18.5h2" />
+    </Icon>
+  );
+}
 
 export default function App() {
   const [status, setStatus] = useState<AgentStatus | null>(null);
@@ -82,23 +146,16 @@ export default function App() {
   const pendingPairing: PendingPairing | null = info.pending_pairing ? (info.pending_pairing as PendingPairing) : null;
   const activeDevices = devices.filter((d) => d.state === "Authorized");
 
-  const navItems: { key: Section; icon: string; label: string }[] = [
-    { key: "status", icon: "◉", label: t("nav.status") },
-    { key: "devices", icon: "▢", label: t("nav.devices") },
-    { key: "pairing", icon: "⊕", label: t("nav.pairing") },
-    { key: "settings", icon: "⚙", label: t("nav.settings") },
+  const navItems: { key: Section; label: string }[] = [
+    { key: "status", label: t("nav.status") },
+    { key: "pairing", label: t("nav.pairing") },
+    { key: "devices", label: t("nav.devices") },
+    { key: "settings", label: t("nav.settings") },
   ];
-
-  const platformIcon = (platform: string) => {
-    const p = platform.toLowerCase();
-    if (p.includes("ios") || p.includes("iphone") || p.includes("ipad")) return "";
-    if (p.includes("android")) return "🤖";
-    return "📱";
-  };
 
   return (
     <div className="app-shell">
-      {/* Sidebar */}
+      {/* Sidebar (desktop) / header + bottom tabs (mobile) */}
       <aside className="sidebar">
         <div className="sidebar-brand">
           <img src="/icon.png" alt="VibeBridge" className="sidebar-logo" />
@@ -112,8 +169,10 @@ export default function App() {
               className={`nav-item ${section === item.key ? "active" : ""}`}
               onClick={() => setSection(item.key)}
             >
-              <span className="nav-icon">{item.icon}</span>
-              {item.label}
+              <span className="nav-icon">
+                <Icon>{ICONS[item.key]}</Icon>
+              </span>
+              <span className="nav-label">{item.label}</span>
             </button>
           ))}
         </nav>
@@ -203,76 +262,6 @@ export default function App() {
           </div>
         )}
 
-        {section === "devices" && (
-          <div className="fade-in">
-            <h1 className="page-title">{t("nav.devices")}</h1>
-
-            {pendingPairing && (
-              <div className="card">
-                <div className="card-header">
-                  <span className="card-title">{t("devices.pendingTitle")}</span>
-                </div>
-                <div className="device-item">
-                  <div className="device-icon">{platformIcon(pendingPairing.platform)}</div>
-                  <div className="device-info">
-                    <div className="device-name">{pendingPairing.name}</div>
-                    <div className="device-meta">{pendingPairing.platform}</div>
-                  </div>
-                  <span className="status-badge online">{t("devices.pending")}</span>
-                </div>
-                <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}>
-                  {t("status.pairingHint")}
-                </div>
-              </div>
-            )}
-
-            <div className="card">
-              <div className="card-header">
-                <span className="card-title">{t("devices.paired")}</span>
-                <span className="text-secondary" style={{ fontSize: 12 }}>{devices.length}</span>
-              </div>
-              {devices.length > 0 ? (
-                <div className="device-list">
-                  {devices.map((device) => (
-                    <div key={device.id} className="device-item">
-                      <div className="device-icon">{platformIcon(device.platform)}</div>
-                      <div className="device-info">
-                        <div className="device-name">{device.name || device.id.slice(0, 8)}</div>
-                        <div className="device-meta">
-                          {device.platform || "Unknown"}
-                          {device.state !== "Authorized" ? ` · ${device.state}` : ""}
-                        </div>
-                      </div>
-                      <div className="device-actions">
-                        <span className={`status-badge ${device.state === "Authorized" ? "online" : "offline"}`}>
-                          {device.state === "Authorized" ? t("devices.connected") : t("devices.revoked")}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <div className="empty-state-icon">📱</div>
-                  {t("devices.empty")}
-                </div>
-              )}
-            </div>
-
-            <div className="card">
-              <div className="card-header">
-                <span className="card-title">{t("devices.pairNew")}</span>
-              </div>
-              <div className="text-secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-                {t("devices.pairHint")}
-              </div>
-              <button className="btn btn-primary btn-sm" onClick={() => setSection("pairing")}>
-                {t("devices.goPairing")}
-              </button>
-            </div>
-          </div>
-        )}
-
         {section === "pairing" && (
           <div className="fade-in">
             <h1 className="page-title">{t("pairing.title")}</h1>
@@ -307,6 +296,76 @@ export default function App() {
                   {status?.running ? t("pairing.generating") : t("pairing.agentNotRunning")}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {section === "devices" && (
+          <div className="fade-in">
+            <h1 className="page-title">{t("nav.devices")}</h1>
+
+            {pendingPairing && (
+              <div className="card">
+                <div className="card-header">
+                  <span className="card-title">{t("devices.pendingTitle")}</span>
+                </div>
+                <div className="device-item">
+                  <div className="device-icon"><DeviceGlyph /></div>
+                  <div className="device-info">
+                    <div className="device-name">{pendingPairing.name}</div>
+                    <div className="device-meta">{pendingPairing.platform}</div>
+                  </div>
+                  <span className="status-badge online">{t("devices.pending")}</span>
+                </div>
+                <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}>
+                  {t("status.pairingHint")}
+                </div>
+              </div>
+            )}
+
+            <div className="card">
+              <div className="card-header">
+                <span className="card-title">{t("devices.paired")}</span>
+                <span className="text-secondary" style={{ fontSize: 12 }}>{devices.length}</span>
+              </div>
+              {devices.length > 0 ? (
+                <div className="device-list">
+                  {devices.map((device) => (
+                    <div key={device.id} className="device-item">
+                      <div className="device-icon"><DeviceGlyph /></div>
+                      <div className="device-info">
+                        <div className="device-name">{device.name || device.id.slice(0, 8)}</div>
+                        <div className="device-meta">
+                          {device.platform || "Unknown"}
+                          {device.state !== "Authorized" ? ` · ${device.state}` : ""}
+                        </div>
+                      </div>
+                      <div className="device-actions">
+                        <span className={`status-badge ${device.state === "Authorized" ? "online" : "offline"}`}>
+                          {device.state === "Authorized" ? t("devices.connected") : t("devices.revoked")}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <div className="empty-state-icon"><DeviceGlyph size={32} /></div>
+                  {t("devices.empty")}
+                </div>
+              )}
+            </div>
+
+            <div className="card">
+              <div className="card-header">
+                <span className="card-title">{t("devices.pairNew")}</span>
+              </div>
+              <div className="text-secondary" style={{ fontSize: 13, marginBottom: 12 }}>
+                {t("devices.pairHint")}
+              </div>
+              <button className="btn btn-primary btn-sm" onClick={() => setSection("pairing")}>
+                {t("devices.goPairing")}
+              </button>
             </div>
           </div>
         )}

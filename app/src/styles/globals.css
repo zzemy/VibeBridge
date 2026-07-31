@@ -466,8 +466,8 @@ body {
 }
 
 .qr-frame {
-  width: 172px;
-  height: 172px;
+  width: 220px;
+  height: 220px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -582,4 +582,111 @@ body {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Icon alignment ── */
+
+.nav-icon svg {
+  display: block;
+}
+
+.device-icon {
+  color: var(--text-secondary);
+}
+
+.empty-state-icon {
+  display: flex;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+
+/* ── Mobile layout (approved bottom-tab design) ── */
+
+@media (max-width: 768px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    flex: none;
+    border-right: none;
+    padding: 0;
+  }
+
+  .sidebar-brand {
+    padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    flex-direction: row;
+    gap: 4px;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+  }
+
+  .nav-item {
+    flex: 1;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 4px;
+    min-height: 48px;
+    justify-content: center;
+    align-items: center;
+    font-size: 11px;
+  }
+
+  .nav-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .sidebar-footer {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    border-top: none;
+    border-bottom: 1px solid var(--border);
+    margin-top: 0;
+    padding: 8px 16px;
+  }
+
+  .sidebar-status {
+    padding: 6px 0;
+  }
+
+  .lang-btn {
+    padding: 6px 10px;
+  }
+
+  .main-content {
+    padding: 20px 16px calc(90px + env(safe-area-inset-bottom));
+    scrollbar-width: none;
+  }
+
+  .main-content::-webkit-scrollbar {
+    display: none;
+  }
+
+  .page-title {
+    font-size: 18px;
+  }
+
+  .pairing-code {
+    font-size: 28px;
+    letter-spacing: 6px;
+    padding: 16px;
+  }
+
+  .device-item {
+    min-height: 56px;
+  }
 }
