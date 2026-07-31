@@ -56,7 +56,7 @@ const dict: Dict = {
   "header.stopped": { zh: "已停止", en: "Stopped" },
 
   // ── Navigation ──
-  "nav.status": { zh: "状态", en: "Status" },
+  "nav.status": { zh: "概览", en: "Overview" },
   "nav.devices": { zh: "设备", en: "Devices" },
   "nav.pairing": { zh: "配对", en: "Pairing" },
   "nav.settings": { zh: "设置", en: "Settings" },

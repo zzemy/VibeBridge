@@ -63,9 +63,151 @@ jobs:
           path: app/src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
+  build-linux:
+    name: Build Linux Packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.2
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        run: pnpm --dir web install --frozen-lockfile
+
+      - name: Build web frontend
+        run: pnpm --dir web build
+
+      - name: Build Go agent sidecar (embedded web)
+        run: go build -tags embed -trimpath -o app/src-tauri/binaries/vibebridge-agent-x86_64-unknown-linux-gnu ./cmd/vibebridge
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      - name: Install app dependencies
+        run: pnpm --dir app install --frozen-lockfile
+
+      - name: Build Tauri app
+        working-directory: app
+        run: pnpm tauri build
+        env:
+          NO_STRIP: 'true'
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: VibeBridge-linux-packages
+          path: |
+            app/src-tauri/target/release/bundle/deb/*.deb
+            app/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS (${{ matrix.arch }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            target: aarch64-apple-darwin
+            goarch: arm64
+          - arch: x86_64
+            target: x86_64-apple-darwin
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.2
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        run: pnpm --dir web install --frozen-lockfile
+
+      - name: Build web frontend
+        run: pnpm --dir web build
+
+      - name: Build Go agent sidecar (embedded web)
+        run: go build -tags embed -trimpath -o app/src-tauri/binaries/vibebridge-agent-${{ matrix.target }} ./cmd/vibebridge
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      - name: Install app dependencies
+        run: pnpm --dir app install --frozen-lockfile
+
+      - name: Build Tauri app
+        working-directory: app
+        run: pnpm tauri build -- --target ${{ matrix.target }}
+        env:
+          NO_STRIP: 'true'
+
+      - name: Upload macOS bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: VibeBridge-macos-${{ matrix.arch }}
+          path: app/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: app/src-tauri/target/release/bundle/nsis/*.exe
+          files: dist/**/*
           draft: true
