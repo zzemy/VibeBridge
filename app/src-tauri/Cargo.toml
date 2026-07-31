@@ -1,6 +1,6 @@
 [package]
 name = "vibebridge"
-version = "1.0.0"
+version = "1.0.2"
 description = "VibeBridge Desktop"
 authors = ["VibeBridge"]
 edition = "2021"

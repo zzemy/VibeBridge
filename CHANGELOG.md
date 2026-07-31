@@ -5,6 +5,22 @@ All notable changes to VibeBridge are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] — 2026-08-01
+
+### Fixed
+
+- **Cross-platform release build.** Fixed macOS bundler failing to locate the
+  compiled binary when passing `--target` (the `--` separator forwarded the flag
+  to cargo instead of tauri). Fixed Linux/macOS bundling failing because
+  `icons/icon.icns` was missing from the repo.
+- **Releases were created as drafts.** The release workflow now publishes
+  releases directly instead of leaving them in draft state.
+
+### Changed
+
+- Regenerated the full icon set (icns/ico/png + iOS/Android) from the source
+  icon.
+
 ## [1.0.0] — 2026-07-31
 
 Initial public release.

@@ -183,7 +183,7 @@ jobs:
 
       - name: Build Tauri app
         working-directory: app
-        run: pnpm tauri build -- --target ${{ matrix.target }}
+        run: pnpm tauri build --target ${{ matrix.target }}
         env:
           NO_STRIP: 'true'
 
@@ -210,4 +210,4 @@ jobs:
         with:
           generate_release_notes: true
           files: dist/**/*
-          draft: true
+          draft: false
