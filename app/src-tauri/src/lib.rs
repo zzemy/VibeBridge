@@ -190,6 +190,88 @@ async fn fetch_pairing_code(state: tauri::State<'_, AppState>) -> Result<serde_j
         .map_err(|e| format!("Failed to parse pairing response: {}", e))
 }
 
+
+#[tauri::command]
+async fn get_pairing_status(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let port = *state.agent_port.lock().unwrap();
+    let token = state.management_token.clone();
+    let url = format!("http://127.0.0.1:{}/agent/pairing/status?token={}", port, token);
+    reqwest::Client::new()
+        .get(&url)
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch pairing status: {}", e))?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Failed to parse pairing status: {}", e))
+}
+
+async fn post_management_form(port: u16, token: &str, path: &str, form: &[(&str, &str)]) -> Result<(), String> {
+    let url = format!("http://127.0.0.1:{}{}?token={}", port, path, token);
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+    let resp = client
+        .post(&url)
+        .form(form)
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    let status = resp.status();
+    if status.is_success() || status.as_u16() == 303 {
+        Ok(())
+    } else {
+        Err(format!("Agent returned {}", status))
+    }
+}
+
+#[tauri::command]
+async fn approve_pairing(state: tauri::State<'_, AppState>, flow_id: String) -> Result<(), String> {
+    let port = *state.agent_port.lock().unwrap();
+    let token = state.management_token.clone();
+    post_management_form(port, &token, "/agent/pairing/approve", &[("flow_id", &flow_id)]).await
+}
+
+#[tauri::command]
+async fn reject_pairing(state: tauri::State<'_, AppState>, flow_id: String) -> Result<(), String> {
+    let port = *state.agent_port.lock().unwrap();
+    let token = state.management_token.clone();
+    post_management_form(port, &token, "/agent/pairing/reject", &[("flow_id", &flow_id)]).await
+}
+
+#[tauri::command]
+async fn revoke_device(state: tauri::State<'_, AppState>, device_id: String) -> Result<(), String> {
+    let port = *state.agent_port.lock().unwrap();
+    let token = state.management_token.clone();
+    post_management_form(port, &token, "/agent/devices/revoke", &[("device_id", &device_id)]).await
+}
+
+#[tauri::command]
+async fn toggle_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let autolaunch = app.autolaunch();
+    if enabled {
+        autolaunch.enable().map_err(|e| format!("Failed to enable autostart: {}", e))
+    } else {
+        autolaunch.disable().map_err(|e| format!("Failed to disable autostart: {}", e))
+    }
+}
+
+#[tauri::command]
+fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    app.shell().open(url, None).map_err(|e| format!("Failed to open URL: {}", e))
+}
+
+#[tauri::command]
+fn open_identity_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let path = format!("{}/.vibebridge", home);
+    app.shell().open(path, None).map_err(|e| format!("Failed to open directory: {}", e))
+}
+
 pub fn run() {
     env_logger::init();
 
@@ -208,6 +290,13 @@ pub fn run() {
             get_ws_url,
             get_http_url,
             fetch_pairing_code,
+            get_pairing_status,
+            approve_pairing,
+            reject_pairing,
+            revoke_device,
+            toggle_autostart,
+            open_url,
+            open_identity_dir,
         ])
         .setup(|app| {
             log::info!("VibeBridge desktop app starting...");

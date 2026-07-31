@@ -42,8 +42,10 @@ const dict: Dict = {
   "header.stopped": { zh: "已停止", en: "Stopped" },
 
   "sidebar.mainMenu": { zh: "主菜单", en: "Main Menu" },
-  "sidebar.you": { zh: "郑昊", en: "You" },
-  "sidebar.thisDevice": { zh: "MacBook Pro 16”", en: "MacBook Pro 16”" },
+  "sidebar.you": { zh: "本机", en: "Local" },
+  "sidebar.thisDevice": { zh: "本机 Agent", en: "Local Agent" },
+  "sidebar.agentRunning": { zh: "Agent 运行中", en: "Agent Running" },
+  "sidebar.agentStopped": { zh: "Agent 已停止", en: "Agent Stopped" },
 
   "nav.overview": { zh: "概览", en: "Overview" },
   "nav.pairing": { zh: "配对", en: "Pairing" },
