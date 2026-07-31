@@ -1,0 +1,127 @@
+name: Mobile Build (iOS / Android)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-34
+            build-tools;34.0.0
+            platform-tools
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Capacitor
+        run: |
+          pnpm add -D @capacitor/cli
+          pnpm add @capacitor/core @capacitor/android @capacitor/splash-screen @capacitor/status-bar @capacitor/app @capacitor/haptics @capacitor/keyboard
+          pnpm exec cap sync android || true
+
+      - name: Build web
+        run: pnpm build
+
+      - name: Add Android platform
+        run: |
+          pnpm exec cap add android || true
+          pnpm exec cap copy android
+
+      - name: Build APK
+        working-directory: web/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug -x lint
+          ls -la app/build/outputs/apk/debug/
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibebridge-android-apk
+          path: web/android/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+  build-ios-simulator:
+    name: Build iOS Simulator App
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Capacitor
+        run: |
+          pnpm add -D @capacitor/cli
+          pnpm add @capacitor/core @capacitor/ios @capacitor/splash-screen @capacitor/status-bar @capacitor/app @capacitor/haptics @capacitor/keyboard
+          pnpm exec cap sync ios || true
+
+      - name: Build web
+        run: pnpm build
+
+      - name: Add iOS platform
+        run: |
+          pnpm exec cap add ios || true
+          pnpm exec cap copy ios
+
+      - name: Build iOS Simulator App
+        working-directory: web/ios
+        run: |
+          xcodebuild -workspace App/App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+            -derivedDataPath build \
+            build
+          mkdir -p App/build
+          cp -r build/Build/Products/Debug-iphonesimulator/App.app App/build/VibeBridge-simulator.app
+
+      - name: Zip simulator app
+        run: |
+          cd web/ios/App/build
+          zip -r VibeBridge-iOS-Simulator.zip VibeBridge-simulator.app
+
+      - name: Upload iOS Simulator Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibebridge-ios-simulator
+          path: web/ios/App/build/VibeBridge-iOS-Simulator.zip
+          retention-days: 30

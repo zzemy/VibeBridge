@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════
-   VibeBridge Desktop — Design System
+   VibeBridge Desktop — Design System v3
+   Matches approved v4 design prototype exactly
    ═══════════════════════════════════════════════ */
 
 :root {
@@ -77,6 +78,18 @@ body {
   align-items: center;
   gap: 10px;
   padding: 18px 16px 16px;
+}
+
+.sidebar-logo-wrap {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #0a0a0a;
 }
 
 .sidebar-logo {
@@ -188,6 +201,9 @@ body {
 .user-name { font-size: 13px; font-weight: 600; }
 .user-meta { font-size: 11px; color: var(--text-3); margin-top: 1px; }
 
+.user-settings-btn { cursor: pointer; opacity: 0.6; transition: opacity 0.12s; }
+.user-settings-btn:hover { opacity: 1; }
+
 /* ── Main content ── */
 
 .main-content {
@@ -242,10 +258,13 @@ body {
 
 /* ── Hero status card ── */
 
+.hero-card-wrap { padding: 0; overflow: hidden; }
+
 .hero-card {
   display: flex;
   align-items: center;
   gap: 16px;
+  padding: 20px;
 }
 
 .hero-icon {
@@ -335,10 +354,15 @@ body {
 .stat-delta {
   font-size: 11px;
   margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .stat-delta.up { color: var(--accent-text); }
 .stat-delta.neutral { color: var(--text-3); }
+
+.delta-arrow { font-size: 10px; }
 
 /* ── Two-column grid ── */
 
@@ -364,7 +388,10 @@ body {
   font-size: 13px;
   color: var(--text-2);
   flex-shrink: 0;
-  width: 60px;
+  width: 70px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .resource-bar {
@@ -449,6 +476,8 @@ body {
   flex-shrink: 0;
 }
 
+.device-avatar.sm { width: 28px; height: 28px; }
+
 .device-body { flex: 1; min-width: 0; }
 .device-name { font-size: 13px; font-weight: 600; }
 .device-sub {
@@ -456,6 +485,32 @@ body {
   color: var(--text-3);
   margin-top: 2px;
   font-family: "SF Mono", "Fira Code", monospace;
+}
+
+/* ── Action pair (allow/deny) ── */
+
+.action-pair {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── Recent pairing rows ── */
+
+.recent-pairing-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.recent-pairing-row + .recent-pairing-row { border-top: 1px solid var(--border); }
+
+.time-stamp {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ── Badges ── */
@@ -475,6 +530,18 @@ body {
 .badge.revoked { background: var(--danger-bg); color: var(--danger); }
 .badge.pending { background: var(--warning-bg); color: var(--warning); }
 .badge.info { background: var(--info-bg); color: var(--info); }
+
+.info-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "SF Mono", "Fira Code", monospace;
+}
 
 .badge-dot {
   width: 6px;
@@ -526,6 +593,21 @@ body {
 }
 .btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.18); }
 
+.btn-danger-ghost {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
+}
+.btn-danger-ghost:hover:not(:disabled) { background: var(--danger-bg); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-2);
+  border: none;
+  padding: 6px;
+}
+.btn-ghost:hover:not(:disabled) { color: var(--text); background: var(--bg-card-hover); }
+
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 
 /* ── Toggle ── */
@@ -565,6 +647,10 @@ body {
   gap: 16px;
 }
 
+.pairing-right { display: flex; flex-direction: column; gap: 16px; }
+
+.pairing-qr-card { text-align: center; }
+
 .qr-wrap {
   display: flex;
   flex-direction: column;
@@ -587,6 +673,32 @@ body {
 
 .qr-frame img { width: 100%; height: 100%; object-fit: contain; }
 
+.qr-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qr-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(7, 1fr);
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+}
+
+.qr-cell {
+  background: #fff;
+  border-radius: 1px;
+}
+
+.qr-cell.on {
+  background: #0a0a0a;
+}
+
 .pairing-divider {
   font-size: 12px;
   color: var(--text-3);
@@ -605,6 +717,16 @@ body {
   font-size: 12px;
   color: var(--text-2);
   text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.countdown {
+  font-weight: 700;
+  color: var(--warning);
+  font-family: "SF Mono", "Fira Code", monospace;
 }
 
 /* ── Device table ── */
@@ -614,6 +736,12 @@ body {
   align-items: center;
   gap: 10px;
   margin-bottom: 16px;
+}
+
+.device-count {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
 }
 
 .search-input {
@@ -652,8 +780,9 @@ body {
   color: var(--text-2);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  padding: 0 12px 10px;
+  padding: 12px 12px 10px;
   border-bottom: 1px solid var(--border);
+  white-space: nowrap;
 }
 
 .data-table td {
@@ -669,6 +798,17 @@ body {
 }
 
 .data-table td.fp-authorized { color: var(--accent-text); }
+
+.col-check {
+  width: 32px;
+  text-align: center;
+}
+
+.col-check input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .data-table tr:hover td { background: var(--bg-card-hover); }
 
 .table-device {
@@ -688,6 +828,8 @@ body {
   color: var(--text-2);
   flex-shrink: 0;
 }
+
+.table-device-name { font-weight: 600; font-size: 13px; }
 
 /* ── Settings ── */
 
@@ -736,6 +878,9 @@ body {
 
 .setting-item + .setting-item { border-top: 1px solid var(--border); }
 
+.setting-item.danger .setting-label { color: var(--danger); }
+.setting-item.danger .setting-hint { color: var(--danger); opacity: 0.7; }
+
 .setting-label { font-size: 13px; font-weight: 500; }
 .setting-hint { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 
@@ -748,6 +893,7 @@ body {
   font-size: 13px;
   outline: none;
   cursor: pointer;
+  min-width: 120px;
 }
 
 .input-control {
@@ -760,6 +906,10 @@ body {
   outline: none;
   width: 160px;
   font-family: "SF Mono", "Fira Code", monospace;
+}
+
+.input-control:focus, .select-control:focus {
+  border-color: var(--accent);
 }
 
 /* ── Misc ── */
@@ -776,6 +926,9 @@ body {
   font-weight: 500;
   background: none;
   border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .link:hover { text-decoration: underline; }
 
@@ -826,4 +979,6 @@ body {
   .data-table { font-size: 12px; }
   .data-table th, .data-table td { padding: 8px 6px; }
   .toolbar { flex-wrap: wrap; }
+  .hero-card { flex-direction: column; text-align: center; }
+  .hero-actions { width: 100%; justify-content: center; }
 }

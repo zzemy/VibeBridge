@@ -89,6 +89,7 @@ fn start_agent(app: &tauri::AppHandle, token: &str) -> Result<CommandChild, Stri
         .args([
             "--addr", &addr,
             "--tray=false",
+            "--background=false",
             "--management-token", token,
         ])
         .spawn()
