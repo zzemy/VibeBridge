@@ -65,6 +65,9 @@ Section "VibeBridge" SecMain
   ; Desktop shortcut
   CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}"
 
+  ; Refresh Windows icon cache so shortcuts pick up the new icon immediately
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+
   ; Autostart at logon
   WriteRegStr HKCU "${APP_RUNKEY}" "${APP_NAME}" "$\"$INSTDIR\${APP_EXE}$\""
 
@@ -99,6 +102,9 @@ Section "Uninstall"
   RMDir "$SMPROGRAMS\${APP_NAME}"
 
   Delete "$DESKTOP\${APP_NAME}.lnk"
+
+  ; Refresh icon cache after removing shortcuts
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
 
   DeleteRegKey HKCU "${APP_REGKEY}"
   DeleteRegKey HKCU "${APP_UNINSTKEY}"
