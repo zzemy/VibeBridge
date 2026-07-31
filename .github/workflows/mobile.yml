@@ -5,6 +5,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-android:
     name: Build Android APK
@@ -124,3 +127,32 @@ jobs:
           name: vibebridge-ios-simulator
           path: web/ios/App/build/VibeBridge-iOS-Simulator.zip
           retention-days: 30
+
+  release-mobile:
+    name: Add Mobile Builds to Release
+    needs: [build-android, build-ios-simulator]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Rename with platform labels
+        working-directory: dist
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          for f in *.apk; do
+            mv "$f" "VibeBridge-${VER}-android.apk"
+          done
+          for f in *.zip; do
+            mv "$f" "VibeBridge-${VER}-ios-simulator.zip"
+          done
+          ls -la
+
+      - name: Add to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
