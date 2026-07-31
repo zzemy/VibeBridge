@@ -21,7 +21,7 @@ export const file_vibebridge_v1_relay: GenFile = /*@__PURE__*/
  * The issuer_signature covers every other field under the deterministic
  * protobuf encoding; the relay verifies it with a configured issuer public key
  * and never inspects or persists plaintext payload bytes.
- * 
+ *
  * issuer_epoch is the Agent-side device-identity revocation epoch the issuer
  * observed at mint time (ADR-0006). It is the single source of truth for
  * "the device was still authorized at the moment this ticket was signed":
