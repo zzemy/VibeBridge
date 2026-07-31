@@ -104,7 +104,7 @@ jobs:
       - name: Build iOS Simulator App
         working-directory: web/ios
         run: |
-          xcodebuild -workspace App/App.xcworkspace \
+          xcodebuild -project App/App.xcodeproj \
             -scheme App \
             -configuration Debug \
             -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
