@@ -27,7 +27,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
-          java-version: "17"
+          java-version: "21"
 
       - name: Setup Android SDK
         run: |
@@ -43,14 +43,14 @@ jobs:
         run: |
           pnpm add -D @capacitor/cli
           pnpm add @capacitor/core @capacitor/android @capacitor/splash-screen @capacitor/status-bar @capacitor/app @capacitor/haptics @capacitor/keyboard
-          pnpm exec cap sync android || true
 
       - name: Build web
         run: pnpm build
 
       - name: Add Android platform
         run: |
-          pnpm exec cap add android || true
+          pnpm exec cap add android
+          pnpm exec cap sync android
           pnpm exec cap copy android
 
       - name: Build APK
@@ -91,14 +91,14 @@ jobs:
         run: |
           pnpm add -D @capacitor/cli
           pnpm add @capacitor/core @capacitor/ios @capacitor/splash-screen @capacitor/status-bar @capacitor/app @capacitor/haptics @capacitor/keyboard
-          pnpm exec cap sync ios || true
 
       - name: Build web
         run: pnpm build
 
       - name: Add iOS platform
         run: |
-          pnpm exec cap add ios || true
+          pnpm exec cap add ios
+          pnpm exec cap sync ios
           pnpm exec cap copy ios
 
       - name: Build iOS Simulator App
