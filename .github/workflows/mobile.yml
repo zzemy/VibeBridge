@@ -107,7 +107,7 @@ jobs:
           xcodebuild -project App/App.xcodeproj \
             -scheme App \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=latest' \
+            -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build \
             build
           mkdir -p App/build
