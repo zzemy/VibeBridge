@@ -115,7 +115,7 @@ jobs:
 
       - name: Zip simulator app
         run: |
-          cd web/ios/App/build
+          cd ios/App/build
           zip -r VibeBridge-iOS-Simulator.zip VibeBridge-simulator.app
 
       - name: Upload iOS Simulator Build
