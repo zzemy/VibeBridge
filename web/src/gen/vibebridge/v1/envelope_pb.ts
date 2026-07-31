@@ -67,7 +67,7 @@ export const ProtocolVersionRangeSchema: GenMessage<ProtocolVersionRange> = /*@_
 /**
  * Hello advertises compatibility before any session mutation is accepted.
  * Capability names describe optional behavior and never imply authorization.
- *
+ * 
  * The Agent-side fields `device_id`, `public_key_fingerprint`, and
  * `revocation_epoch` are populated only when the Agent has a bound device
  * identity (ADR-0006). The Agent advertises them so clients can route locally
