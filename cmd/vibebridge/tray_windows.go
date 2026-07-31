@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"os"
 	"os/exec"
 	"runtime"
 	"sync"
@@ -152,9 +153,32 @@ func requestAgentTrayQuit() {
 }
 
 func openTrayURL(target string) error {
+	if exe := findAppBrowserExe(); exe != "" {
+		cmd := exec.Command(exe, "--app="+target, "--no-default-browser-check")
+		cmd.SysProcAttr = hiddenWindowProcessAttributes()
+		return cmd.Start()
+	}
 	command := exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", target)
 	command.SysProcAttr = hiddenWindowProcessAttributes()
 	return command.Start()
+}
+
+// findAppBrowserExe looks for Microsoft Edge (pre-installed on Windows 10+)
+// to launch the UI in app mode, which provides a native-like window without
+// browser chrome (no tabs, no URL bar). Falls back to the default browser
+// if Edge is not found.
+func findAppBrowserExe() string {
+	candidates := []string{
+		os.Getenv("ProgramFiles(x86)") + `\Microsoft\Edge\Application\msedge.exe`,
+		os.Getenv("ProgramFiles") + `\Microsoft\Edge\Application\msedge.exe`,
+		os.Getenv("LocalAppData") + `\Microsoft\Edge\Application\msedge.exe`,
+	}
+	for _, p := range candidates {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p
+		}
+	}
+	return ""
 }
 
 func confirmAgentExit() bool {
