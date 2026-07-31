@@ -20,6 +20,7 @@ import {
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { isServerMessage, isSessionStatus, type ServerMessage, type SessionStatus } from "./lib/protocol";
+import { t, subscribeLang } from "./lib/i18n";
 import {
   acceptAgentHello,
   attachmentPromptActionCapability,
@@ -91,15 +92,15 @@ function readTerminalFontSize() {
 
 function formatElapsed(startedAt: string | undefined, now: number) {
   if (!startedAt) {
-    return "Not started";
+    return t("term.notStarted");
   }
   const elapsedSeconds = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
   const hours = Math.floor(elapsedSeconds / 3600);
   const minutes = Math.floor((elapsedSeconds % 3600) / 60);
   if (hours > 0) {
-    return `${hours}h ${minutes}m`;
+    return t("time.elapsedHm", { h: hours, m: minutes });
   }
-  return minutes > 0 ? `${minutes}m` : "<1m";
+  return minutes > 0 ? t("time.elapsedM", { m: minutes }) : t("time.elapsedLess");
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array) {
@@ -108,9 +109,9 @@ function equalBytes(left: Uint8Array, right: Uint8Array) {
 
 function formatAgo(timestamp: string, now: number) {
   const seconds = Math.max(0, Math.floor((now - new Date(timestamp).getTime()) / 1000));
-  if (seconds < 60) return "now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 60) return t("time.now");
+  if (seconds < 3600) return t("time.mAgo", { m: Math.floor(seconds / 60) });
+  return t("time.hAgo", { h: Math.floor(seconds / 3600) });
 }
 
 export function TerminalApp() {
@@ -138,6 +139,8 @@ export function TerminalApp() {
   const hasConnectedRef = useRef(false);
   const disconnectReportedRef = useRef(false);
   const noticeTimerRef = useRef<number | undefined>(undefined);
+  const [, setTick] = useState(0);
+  useEffect(() => subscribeLang(() => setTick((n) => n + 1)), []);
 
   const token = useMemo(() => new URLSearchParams(window.location.search).get("token") ?? "", []);
   const forcedTransport = useMemo<"direct" | "relay" | null>(() => {
@@ -385,7 +388,7 @@ export function TerminalApp() {
         }
         if (hasConnectedRef.current) {
           setTerminalChunks((chunks) => [...chunks, "connection restored\r\n"]);
-          showNotice("Session restored");
+          showNotice(t("term.sessionRestored"));
         }
         hasConnectedRef.current = true;
         disconnectReportedRef.current = false;
@@ -537,7 +540,7 @@ export function TerminalApp() {
               if (message.disposition === ResumeDisposition.RESYNC_REQUIRED) {
                 terminalRef.current?.reset();
                 setTerminalChunks(["terminal history was truncated; synchronized with the current session\r\n"]);
-                showNotice("Terminal history was truncated");
+                showNotice(t("term.historyTruncated"));
               }
               markConnected();
             } else if (message.type === "terminal-output") {
@@ -619,7 +622,7 @@ export function TerminalApp() {
           if (transportRef.current === "direct" && !relayAttemptedRef.current) {
             transportRef.current = "relay";
             relayAttemptedRef.current = true;
-            showNotice("Trying relay connection...");
+            showNotice(t("term.tryingRelay"));
             reconnectTimer = window.setTimeout(connect, 0);
             return;
           }
@@ -684,7 +687,7 @@ export function TerminalApp() {
   const sendInput = useCallback((data: string) => {
     const socket = socketRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      showNotice("Terminal is not connected");
+      showNotice(t("term.terminalNotConnected"));
       return;
     }
     try {
@@ -692,14 +695,14 @@ export function TerminalApp() {
       const payload = protocolStream ? protocolStream.createTerminalInput(data).slice().buffer : JSON.stringify({ type: "input", data });
       socket.send(payload);
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : "Invalid terminal input");
+      showNotice(error instanceof Error ? error.message : t("term.invalidInput"));
     }
   }, [showNotice]);
 
   const submitPrompt = useCallback(async (value: string, appendEnter: boolean) => {
     if (stagedTransferIds.length === 0) {
       sendInput(`${value}${appendEnter ? terminalKeys.enter : ""}`);
-      showNotice(appendEnter ? "Prompt sent" : "Prompt inserted");
+      showNotice(appendEnter ? t("term.promptSent") : t("term.promptInserted"));
       return;
     }
 
@@ -711,7 +714,7 @@ export function TerminalApp() {
     if (result.disposition === AttachmentPromptDisposition.COMMITTED) {
       setStagedTransferIds([]);
       setAttachmentComposerKey((key) => key + 1);
-      showNotice("Prompt was already committed");
+      showNotice(t("term.promptCommitted"));
       return;
     }
     setPreparedAttachmentPrompt({ preview: result.preview, appendEnter: result.appendEnter });
@@ -729,7 +732,7 @@ export function TerminalApp() {
         : JSON.stringify({ type: "resize", cols, rows });
       socket.send(payload);
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : "Invalid terminal dimensions");
+      showNotice(error instanceof Error ? error.message : t("term.invalidDimensions"));
     }
   }, [showNotice]);
 
@@ -750,7 +753,7 @@ export function TerminalApp() {
         socket.send(payload);
       } catch (error) {
         stopReconnectRef.current = false;
-        showNotice(error instanceof Error ? error.message : "Could not end the session");
+        showNotice(error instanceof Error ? error.message : t("term.couldNotEndSession"));
       }
       return;
     }
@@ -760,18 +763,18 @@ export function TerminalApp() {
 
   const copySelection = useCallback(async () => {
     const copied = await terminalRef.current?.copySelection();
-    showNotice(copied ? "Selection copied" : "Select terminal text first");
+    showNotice(copied ? t("term.selectionCopied") : t("term.selectTextFirst"));
   }, [showNotice]);
 
   const searchTerminal = useCallback((query: string) => {
     const found = terminalRef.current?.findNext(query) ?? false;
-    showNotice(found ? `Found "${query}"` : `No match for "${query}"`);
+    showNotice(found ? t("term.found", { q: query }) : t("term.noMatch", { q: query }));
   }, [showNotice]);
 
   const canSend = connectionState === "connected";
   const canRetry = connectionState === "closed" || connectionState === "error";
   const elapsed = formatElapsed(sessionStatus?.started_at, now);
-  const statusText = notice || (canSend ? "Terminal keyboard ready" : connectionState === "reconnecting" ? `Reconnecting in ${retryIn}s` : "Waiting for terminal connection");
+  const statusText = notice || (canSend ? t("term.keyboardReady") : connectionState === "reconnecting" ? t("term.reconnectingIn", { s: retryIn }) : t("term.waitingConnection"));
 
   return (
     <main className="h-dvh overflow-hidden bg-zinc-950 text-zinc-100">
@@ -785,7 +788,7 @@ export function TerminalApp() {
               <h1 className="truncate text-base font-semibold tracking-normal text-zinc-50">VibeBridge</h1>
               <p className="flex items-center gap-1 truncate text-xs text-zinc-400">
                 <Activity className="size-3" aria-hidden="true" />
-                {sessionStatus?.state ?? "local terminal relay"} · {elapsed}
+                {sessionStatus?.state ?? t("term.localRelay")} · {elapsed}
               </p>
             </div>
           </div>
@@ -794,7 +797,7 @@ export function TerminalApp() {
             <ConnectionStatus state={connectionState} />
             <Badge variant="outline" className="hidden border-zinc-700 bg-zinc-900 text-zinc-300 sm:inline-flex">
               <ShieldCheck className="mr-1 size-3" aria-hidden="true" />
-              private LAN
+              {t("term.privateLAN")}
             </Badge>
           </div>
         </header>
@@ -806,7 +809,7 @@ export function TerminalApp() {
             canZoomOut={terminalFontSize > minTerminalFontSize}
             onClear={() => {
               terminalRef.current?.clear();
-              showNotice("Terminal view cleared");
+              showNotice(t("term.terminalCleared"));
             }}
             onCopy={() => void copySelection()}
             onFocus={() => terminalRef.current?.focus()}
@@ -815,7 +818,7 @@ export function TerminalApp() {
             onZoomOut={() => setTerminalFontSize((size) => Math.max(minTerminalFontSize, size - 1))}
           />
           <div className="min-h-0 flex-1">
-            <Suspense fallback={<div className="grid h-full min-h-0 place-items-center text-sm text-zinc-500">Loading terminal...</div>}>
+            <Suspense fallback={<div className="grid h-full min-h-0 place-items-center text-sm text-zinc-500">{t("term.loadingTerminal")}</div>}>
               <TerminalView ref={terminalRef} chunks={terminalChunks} fontSize={terminalFontSize} onInput={sendInput} onResize={sendResize} />
             </Suspense>
           </div>
@@ -824,8 +827,8 @@ export function TerminalApp() {
         <section className="workspace-controls shrink-0 space-y-2 pt-2 sm:pt-3">
           {connectionState === "reconnecting" ? (
             <div className="flex items-center justify-between rounded-md border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-xs text-amber-200">
-              <span>Connection interrupted. The PTY is being kept alive.</span>
-              <span className="tabular-nums">retry {retryIn}s</span>
+              <span>{t("term.connectionInterrupted")}</span>
+              <span className="tabular-nums">{t("term.retryLabel", { s: retryIn })}</span>
             </div>
           ) : null}
 
@@ -860,12 +863,12 @@ export function TerminalApp() {
               {canRetry ? (
                 <Button type="button" variant="ghost" size="sm" className="h-8 text-zinc-400" onClick={retryConnection}>
                   <RefreshCw className="size-3" aria-hidden="true" />
-                  Retry
+                  {t("term.retryBtn")}
                 </Button>
               ) : null}
               <Button type="button" variant="ghost" size="sm" className="h-8 text-zinc-400 hover:text-red-300" onClick={() => setEndDialogOpen(true)}>
                 <Power className="size-3" aria-hidden="true" />
-                End
+                {t("term.endBtn")}
               </Button>
             </div>
           </div>
@@ -885,24 +888,24 @@ export function TerminalApp() {
           if (result === "committed") {
             setStagedTransferIds([]);
             setAttachmentComposerKey((key) => key + 1);
-            showNotice(appendEnter ? "Prompt sent" : "Prompt inserted");
+            showNotice(appendEnter ? t("term.promptSent") : t("term.promptInserted"));
           } else if (result === "cancelled") {
-            showNotice("Prompt cancelled; staged files were kept");
+            showNotice(t("term.promptCancelled"));
           } else {
-            showNotice("Prompt action failed; staged files were kept");
+            showNotice(t("term.promptActionFailed"));
           }
         }}
       />
 
       <AlertDialog open={endDialogOpen} onOpenChange={setEndDialogOpen}>
         <AlertDialogContent>
-          <AlertDialogTitle className="text-base font-semibold text-zinc-50">End this terminal session?</AlertDialogTitle>
+          <AlertDialogTitle className="text-base font-semibold text-zinc-50">{t("term.endSessionTitle")}</AlertDialogTitle>
           <AlertDialogDescription className="mt-2 text-sm leading-6 text-zinc-400">
-            The local AI CLI and its PTY will be stopped. This cannot be undone.
+            {t("term.endSessionDesc")}
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep session</AlertDialogCancel>
-            <AlertDialogAction onClick={endSession}>End session</AlertDialogAction>
+            <AlertDialogCancel>{t("term.keepSession")}</AlertDialogCancel>
+            <AlertDialogAction onClick={endSession}>{t("term.endSession")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

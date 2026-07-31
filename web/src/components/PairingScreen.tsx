@@ -5,6 +5,7 @@ import { BrowserDeviceStore } from "../lib/device-identity-store";
 import { pairPhone, type PairingClientStatus } from "../lib/pairing-client";
 import type { PairingEntry } from "../lib/pairing-invitation";
 import { Button } from "./ui/button";
+import { t, subscribeLang } from "../lib/i18n";
 
 type PairingPhase =
   | { state: "invalid"; message: string }
@@ -29,6 +30,8 @@ export function PairingScreen({ entry }: { entry: PairingEntry }) {
   const executionRef = useRef<PairingExecution | null>(null);
   const lifecycleRef = useRef(0);
   const lastSasRef = useRef<string | undefined>(undefined);
+  const [, setTick] = useState(0);
+  useEffect(() => subscribeLang(() => setTick((n) => n + 1)), []);
 
   useEffect(() => {
     if (entry.kind === "invalid") return;
@@ -57,7 +60,7 @@ export function PairingScreen({ entry }: { entry: PairingEntry }) {
           if (controller.signal.aborted) return;
           setPhase({
             state: "error",
-            message: error instanceof Error ? error.message : "Pairing failed",
+            message: error instanceof Error ? error.message : t("pair.pairingFailed"),
             sas: lastSasRef.current,
           });
         }
@@ -81,15 +84,15 @@ export function PairingScreen({ entry }: { entry: PairingEntry }) {
     return (
       <PairingShell>
         <StatusIcon tone="error" />
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-red-300">Invalid pairing link</p>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">This code cannot be used</h1>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-red-300">{t("pair.invalidLink")}</p>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50">{t("pair.cannotUse")}</h1>
         <p className="mt-3 text-sm leading-6 text-zinc-400">{phase.state === "invalid" ? phase.message : entry.message}</p>
-        <p className="mt-5 text-xs leading-5 text-zinc-500">Open VibeBridge on the computer and create a new single-use QR code.</p>
+        <p className="mt-5 text-xs leading-5 text-zinc-500">{t("pair.openNewQR")}</p>
       </PairingShell>
     );
   }
 
-  const agentName = entry.route.invitation.agent?.deviceDescriptor?.displayName ?? "Home computer";
+  const agentName = entry.route.invitation.agent?.deviceDescriptor?.displayName ?? t("pair.homeComputer");
   const waiting = phase.state === "connecting" || phase.state === "handshaking";
   const sas = "sas" in phase ? phase.sas : undefined;
 
@@ -98,7 +101,7 @@ export function PairingScreen({ entry }: { entry: PairingEntry }) {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
           <ShieldCheck className="size-4" aria-hidden="true" />
-          Secure device pairing
+          {t("pair.securePairing")}
         </div>
         <span className="rounded-full border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-[11px] text-zinc-400">E2EE</span>
       </div>
@@ -116,13 +119,13 @@ export function PairingScreen({ entry }: { entry: PairingEntry }) {
       </div>
 
       <div className="mt-7 space-y-3 rounded-xl border border-zinc-800 bg-zinc-950/70 p-4">
-        <VerificationRow label="QR verification code" value={entry.route.invitation.verificationCode} />
-        <VerificationRow label="Encrypted handshake code" value={sas ?? (waiting ? "Computing…" : "—")} emphasis={phase.state === "pending"} />
+        <VerificationRow label={t("pair.qrVerification")} value={entry.route.invitation.verificationCode} />
+        <VerificationRow label={t("pair.encryptedHandshake")} value={sas ?? (waiting ? t("pair.computing") : "—")} emphasis={phase.state === "pending"} />
       </div>
 
       {phase.state === "pending" ? (
         <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-4 text-sm leading-6 text-amber-100">
-          Confirm that <strong>{phase.sas}</strong> also appears in the computer's tray menu or local management page, then choose <strong>Allow phone</strong> there.
+          {t("pair.confirmSas", { sas: phase.sas })}
         </div>
       ) : null}
 
@@ -134,14 +137,14 @@ export function PairingScreen({ entry }: { entry: PairingEntry }) {
             setAttempt((value) => value + 1);
           }}>
             <RefreshCw className="size-4" aria-hidden="true" />
-            Try again
+            {t("pair.tryAgain")}
           </Button>
         </div>
       ) : null}
 
       <div className="mt-7 flex items-start gap-2 border-t border-zinc-800 pt-5 text-xs leading-5 text-zinc-500">
         <KeyRound className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        The QR secret was removed from the address bar and is never saved. Trust is stored only after encrypted approval on the computer.
+        {t("pair.qrSecretNote")}
       </div>
     </PairingShell>
   );
@@ -188,24 +191,24 @@ function VerificationRow({ label, value, emphasis = false }: { label: string; va
 
 function phaseTitle(phase: PairingPhase): string {
   switch (phase.state) {
-    case "connecting": return "Connecting to your computer";
-    case "handshaking": return "Securing the connection";
-    case "pending": return "Approve this phone on the computer";
-    case "approved": return "Phone paired";
-    case "rejected": return "Pairing rejected";
-    case "error": return "Pairing could not finish";
-    case "invalid": return "Invalid pairing link";
+    case "connecting": return t("pair.title.connecting");
+    case "handshaking": return t("pair.title.handshaking");
+    case "pending": return t("pair.title.pending");
+    case "approved": return t("pair.title.approved");
+    case "rejected": return t("pair.title.rejected");
+    case "error": return t("pair.title.error");
+    case "invalid": return t("pair.title.invalid");
   }
 }
 
 function phaseDescription(phase: PairingPhase, agentName: string): string {
   switch (phase.state) {
-    case "connecting": return `Opening a private connection to ${agentName}.`;
-    case "handshaking": return "Authenticating both devices and deriving one-time encryption keys.";
-    case "pending": return "The encrypted handshake is complete. Final approval must happen locally.";
-    case "approved": return `${agentName} now recognizes this browser. You can close this page.`;
-    case "rejected": return `${agentName} did not authorize this browser. Create a new QR code to try again.`;
-    case "error": return "No trust was created on this browser. You can retry while the QR invitation is still valid.";
+    case "connecting": return t("pair.desc.connecting", { name: agentName });
+    case "handshaking": return t("pair.desc.handshaking");
+    case "pending": return t("pair.desc.pending");
+    case "approved": return t("pair.desc.approved", { name: agentName });
+    case "rejected": return t("pair.desc.rejected", { name: agentName });
+    case "error": return t("pair.desc.error");
     case "invalid": return phase.message;
   }
 }

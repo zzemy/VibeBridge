@@ -8,6 +8,7 @@ import {
   type AttachmentTransferProgress,
   validateAttachmentSelection,
 } from "../lib/attachments";
+import { t, subscribeLang } from "../lib/i18n";
 
 type AttachmentSelection = {
   id: string;
@@ -38,6 +39,8 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
   const [error, setError] = useState("");
   const [progress, setProgress] = useState<AttachmentTransferProgress | null>(null);
   const [state, setState] = useState<"idle" | "uploading" | "success" | "failed">("idle");
+  const [, setTick] = useState(0);
+  useEffect(() => subscribeLang(() => setTick((n) => n + 1)), []);
 
   useEffect(() => {
     return () => {
@@ -69,7 +72,7 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
         }
         return [];
       });
-      setError(cause instanceof Error ? cause.message : "Selected files are not supported");
+      setError(cause instanceof Error ? cause.message : t("attach.filesNotSupported"));
       return;
     }
 
@@ -118,14 +121,14 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
     } catch (cause) {
       if (cause instanceof AttachmentBatchCleanupError) {
         if (isAbortError(cause.transferCause)) {
-          setError("Transfer cancelled, but cleanup could not be confirmed. Remaining files will be removed when the session ends.");
+          setError(t("attach.cancelledCleanup"));
         } else {
-          setError(`${cause.message}. Cleanup could not be confirmed; remaining files will be removed when the session ends.`);
+          setError(`${cause.message}. ${t("attach.cleanupNote")}`);
         }
       } else if (isAbortError(cause)) {
-        setError("Transfer cancelled. This file batch was discarded.");
+        setError(t("attach.cancelledDiscarded"));
       } else {
-        setError(cause instanceof Error ? cause.message : "Attachment transfer failed");
+        setError(cause instanceof Error ? cause.message : t("attach.transferFailed"));
       }
       setState("failed");
     } finally {
@@ -161,10 +164,10 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
             <Paperclip className="size-4 text-emerald-300" aria-hidden="true" />
-            Attach files
+            {t("attach.attachFiles")}
           </div>
           <p className="mt-1 text-xs leading-5 text-zinc-500">
-            Review up to {attachmentMaxFilesPerAction} files before sending them to this workspace.
+            {t("attach.reviewUpTo", { n: attachmentMaxFilesPerAction })}
           </p>
         </div>
         <input
@@ -200,7 +203,7 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
             onClick={() => cameraInputRef.current?.click()}
           >
             <Camera className="size-3.5" aria-hidden="true" />
-            Camera
+            {t("attach.camera")}
           </Button>
           <Button
             type="button"
@@ -210,13 +213,13 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
             onClick={() => inputRef.current?.click()}
           >
             <UploadCloud className="size-3.5" aria-hidden="true" />
-            Choose
+            {t("attach.choose")}
           </Button>
         </div>
       </div>
 
       {selection.length > 0 ? (
-        <div className="mt-3 space-y-2" aria-label="Selected attachments">
+        <div className="mt-3 space-y-2" aria-label={t("attach.selectedAttachments")}>
           {selection.map((item) => (
             <div key={item.id} className="flex items-center gap-2 rounded border border-zinc-800 bg-zinc-950/70 p-2">
               {item.previewUrl ? (
@@ -237,25 +240,25 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
                 className="size-8 shrink-0 text-zinc-500 hover:text-red-300"
                 disabled={state === "uploading"}
                 onClick={() => removeFile(item.id)}
-                aria-label={`Remove ${item.file.name}`}
+                aria-label={t("attach.remove", { name: item.file.name })}
               >
                 <X className="size-4" aria-hidden="true" />
               </Button>
             </div>
           ))}
           <div className="flex items-center justify-between gap-2 text-xs text-zinc-500">
-            <span>{selection.length} file{selection.length === 1 ? "" : "s"} · {formatAttachmentBytes(totalBytes)}</span>
+            <span>{t("attach.fileCount", { n: selection.length, size: formatAttachmentBytes(totalBytes) })}</span>
             <div className="flex items-center gap-1">
               <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={state === "uploading"} onClick={clearSelection}>
-                Clear
+                {t("attach.clear")}
               </Button>
               {state === "uploading" ? (
                 <Button type="button" size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={cancelTransfer}>
-                  Cancel
+                  {t("attach.cancel")}
                 </Button>
               ) : (
                 <Button type="button" size="sm" className="h-7 px-2 text-xs" disabled={disabled || !transferEnabled} onClick={() => void transfer()}>
-                  Send files
+                  {t("attach.sendFiles")}
                 </Button>
               )}
             </div>
@@ -266,13 +269,13 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
       {state === "uploading" && progress ? (
         <div className="mt-3" role="status" aria-live="polite">
           <div className="mb-1 flex justify-between gap-2 text-xs text-zinc-400">
-            <span className="truncate">Sending {progress.fileName}</span>
+            <span className="truncate">{t("attach.sending", { name: progress.fileName })}</span>
             <span className="tabular-nums">{progressPercent}%</span>
           </div>
           <div
             className="h-1.5 overflow-hidden rounded-full bg-zinc-800"
             role="progressbar"
-            aria-label="Attachment transfer progress"
+            aria-label={t("attach.transferProgress")}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={progressPercent}
@@ -283,7 +286,7 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
       ) : null}
       {state === "success" ? (
         <p className="mt-2 flex items-center gap-1 text-xs text-emerald-300" role="status">
-          <CheckCircle2 className="size-3.5" aria-hidden="true" /> Files verified and staged.
+          <CheckCircle2 className="size-3.5" aria-hidden="true" /> {t("attach.filesVerified")}
         </p>
       ) : null}
       {error ? (
@@ -291,7 +294,7 @@ export function AttachmentComposer({ disabled, transferEnabled, onTransfer }: At
           <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /> {error}
         </p>
       ) : null}
-      {!transferEnabled ? <p className="mt-2 text-xs text-zinc-600">Attachment transfer is not available on this Agent yet.</p> : null}
+      {!transferEnabled ? <p className="mt-2 text-xs text-zinc-600">{t("attach.notAvailable")}</p> : null}
     </div>
   );
 }

@@ -2,14 +2,9 @@ import { ChevronUp, ClipboardPaste, CornerDownLeft, History, SendHorizontal, Spa
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
+import { t, tArray, subscribeLang } from "../lib/i18n";
 
 const maxPromptLength = 8_000;
-const quickPrompts = [
-  "Review the current changes and identify the highest-risk issue.",
-  "Run the relevant tests and fix any failures.",
-  "Explain the current blocker and the next concrete step.",
-  "Summarize progress, remaining work, and verification status.",
-] as const;
 
 type InputMode = "send" | "insert";
 
@@ -45,6 +40,8 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const isComposingRef = useRef(false);
+  const [, setTick] = useState(0);
+  useEffect(() => subscribeLang(() => setTick((n) => n + 1)), []);
 
   useEffect(() => {
     setValue(readDraft(storageKey));
@@ -63,13 +60,13 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
         sessionStorage.removeItem(storageKey);
       }
     } catch {
-      setNotice("Draft storage is unavailable in this browser.");
+      setNotice(t("prompt.draftUnavailable"));
     }
   }, [storageKey, value]);
 
   function updateValue(nextValue: string) {
     if (nextValue.length > maxPromptLength) {
-      setNotice(`Prompts are limited to ${maxPromptLength.toLocaleString()} characters.`);
+      setNotice(t("prompt.charLimit", { n: maxPromptLength.toLocaleString() }));
       setValue(nextValue.slice(0, maxPromptLength));
       return;
     }
@@ -95,14 +92,14 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
         sessionStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
       } catch {
         historyStored = false;
-        setNotice("Prompt history is unavailable in this browser.");
+        setNotice(t("prompt.historyUnavailable"));
       }
       setValue("");
       if (historyStored) {
         setNotice("");
       }
     } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : "Prompt preparation failed");
+      setNotice(cause instanceof Error ? cause.message : t("prompt.prepFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -118,7 +115,7 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
       return;
     }
     if (!navigator.clipboard?.readText) {
-      setNotice("Clipboard access is unavailable on this LAN page. Paste directly into the editor.");
+      setNotice(t("prompt.clipboardUnavailable"));
       return;
     }
 
@@ -130,22 +127,23 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
 
       const nextValue = `${value}${value ? "\n" : ""}${text}`;
       if (nextValue.length > maxPromptLength) {
-        setNotice(`Clipboard text exceeds the ${maxPromptLength.toLocaleString()} character limit.`);
+        setNotice(t("prompt.clipboardExceeds", { n: maxPromptLength.toLocaleString() }));
         return;
       }
       updateValue(nextValue);
     } catch {
-      setNotice("Clipboard access was denied. Paste directly into the editor instead.");
+      setNotice(t("prompt.clipboardDenied"));
     }
   }
 
   const isEmpty = value.trim() === "";
   const interactionDisabled = disabled || submitting;
+  const quickPrompts = tArray("prompt.quickPrompts");
 
   return (
     <div className="rounded-md border border-zinc-800 bg-zinc-900/90 p-2">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="inline-flex rounded-md border border-zinc-800 p-0.5" role="group" aria-label="Prompt submission mode">
+        <div className="inline-flex rounded-md border border-zinc-800 p-0.5" role="group" aria-label={t("prompt.modeLabel")}>
           <Button
             type="button"
             size="sm"
@@ -155,7 +153,7 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
             disabled={interactionDisabled}
             onClick={() => setMode("send")}
           >
-            Send + Enter
+            {t("prompt.sendEnter")}
           </Button>
           <Button
             type="button"
@@ -166,7 +164,7 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
             disabled={interactionDisabled}
             onClick={() => setMode("insert")}
           >
-            Insert only
+            {t("prompt.insertOnly")}
           </Button>
         </div>
         <span className="shrink-0 text-xs tabular-nums text-zinc-500" aria-live="polite">
@@ -185,18 +183,18 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
           onClick={() => setQuickActionsOpen((open) => !open)}
         >
           {quickActionsOpen ? <ChevronUp className="size-3.5" aria-hidden="true" /> : <Sparkles className="size-3.5" aria-hidden="true" />}
-          Quick prompts
+          {t("prompt.quickPromptsBtn")}
         </Button>
         {history.length > 0 ? (
           <span className="flex items-center gap-1 text-xs text-zinc-600">
             <History className="size-3.5" aria-hidden="true" />
-            {history.length} recent
+            {t("prompt.recent", { n: history.length })}
           </span>
         ) : null}
       </div>
 
       {quickActionsOpen ? (
-        <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1" aria-label="Quick prompts and recent history">
+        <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1" aria-label={t("prompt.quickPromptsLabel")}>
           {quickPrompts.map((prompt) => (
             <Button key={prompt} type="button" size="sm" variant="secondary" className="h-8 shrink-0 px-2 text-xs" disabled={interactionDisabled} onClick={() => appendPrompt(prompt)}>
               {prompt.split(" ").slice(0, 3).join(" ")}
@@ -217,7 +215,7 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
           disabled={interactionDisabled}
           rows={2}
           maxLength={maxPromptLength}
-          placeholder="Tell the local AI CLI what to do..."
+          placeholder={t("prompt.placeholder")}
           className="max-h-32 min-h-12 resize-none border-zinc-800 bg-zinc-950/80 text-sm text-zinc-100 placeholder:text-zinc-600"
           onChange={(event) => updateValue(event.target.value)}
           onCompositionStart={() => {
@@ -236,11 +234,11 @@ export function PromptComposer({ disabled, historyStorageKey, storageKey, onSubm
         <div className="flex shrink-0 flex-col gap-2">
           <Button type="button" variant="secondary" size="icon" disabled={interactionDisabled} className="size-10" onClick={pasteFromClipboard}>
             <ClipboardPaste className="size-4" aria-hidden="true" />
-            <span className="sr-only">Paste from clipboard</span>
+            <span className="sr-only">{t("prompt.pasteClipboard")}</span>
           </Button>
           <Button type="button" disabled={interactionDisabled || isEmpty} size="icon" className="size-10" onClick={submit}>
             {mode === "send" ? <SendHorizontal className="size-4" aria-hidden="true" /> : <CornerDownLeft className="size-4" aria-hidden="true" />}
-            <span className="sr-only">{mode === "send" ? "Send prompt" : "Insert prompt"}</span>
+            <span className="sr-only">{mode === "send" ? t("prompt.sendPrompt") : t("prompt.insertPrompt")}</span>
           </Button>
         </div>
       </div>

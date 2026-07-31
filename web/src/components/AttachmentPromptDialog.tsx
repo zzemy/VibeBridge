@@ -9,6 +9,7 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
+import { t, subscribeLang } from "../lib/i18n";
 
 type AttachmentPromptDialogProps = {
   open: boolean;
@@ -32,6 +33,8 @@ export function AttachmentPromptDialog({
 }: AttachmentPromptDialogProps) {
   const [pending, setPending] = useState<PendingAction>("idle");
   const [error, setError] = useState("");
+  const [, setTick] = useState(0);
+  useEffect(() => subscribeLang(() => setTick((n) => n + 1)), []);
 
   useEffect(() => {
     setPending("idle");
@@ -46,7 +49,7 @@ export function AttachmentPromptDialog({
       await onConfirm();
       onComplete("committed");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Attachment prompt action failed");
+      setError(cause instanceof Error ? cause.message : t("attachDialog.actionFailed"));
     } finally {
       setPending("idle");
     }
@@ -60,7 +63,7 @@ export function AttachmentPromptDialog({
       await onCancel();
       onComplete("cancelled");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Attachment prompt action failed");
+      setError(cause instanceof Error ? cause.message : t("attachDialog.actionFailed"));
     } finally {
       setPending("idle");
     }
@@ -70,9 +73,9 @@ export function AttachmentPromptDialog({
   return (
     <AlertDialog open={open} onOpenChange={() => {}}>
       <AlertDialogContent className="max-w-xl">
-        <AlertDialogTitle className="text-base font-semibold text-zinc-50">Confirm trusted attachment prompt</AlertDialogTitle>
+        <AlertDialogTitle className="text-base font-semibold text-zinc-50">{t("attachDialog.title")}</AlertDialogTitle>
         <AlertDialogDescription className="mt-2 text-sm leading-6 text-zinc-400">
-          The Agent resolved staged files locally. Review the exact terminal text before continuing.
+          {t("attachDialog.desc")}
         </AlertDialogDescription>
         <pre
           className="mt-4 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-zinc-800 bg-black p-3 text-xs leading-5 text-zinc-200"
@@ -80,22 +83,22 @@ export function AttachmentPromptDialog({
         >{preview}</pre>
         <p className="mt-3 text-xs leading-5 text-amber-200">
           {appendEnter
-            ? "Confirming writes this exact text and presses Enter."
-            : "Confirming inserts this exact text without pressing Enter."}
+            ? t("attachDialog.confirmSend")
+            : t("attachDialog.confirmInsert")}
         </p>
         {error ? <p className="mt-3 text-sm text-red-300" role="alert">{error}</p> : null}
         <AlertDialogFooter>
           {error ? (
-            <AlertDialogCancel disabled={busy} onClick={() => onComplete("failed")}>Close</AlertDialogCancel>
+            <AlertDialogCancel disabled={busy} onClick={() => onComplete("failed")}>{t("attachDialog.close")}</AlertDialogCancel>
           ) : (
             <>
-              <AlertDialogCancel disabled={busy} onClick={() => void cancel()}>Cancel action</AlertDialogCancel>
+              <AlertDialogCancel disabled={busy} onClick={() => void cancel()}>{t("attachDialog.cancelAction")}</AlertDialogCancel>
               <AlertDialogAction
                 disabled={busy}
                 className="bg-emerald-400 text-zinc-950 hover:bg-emerald-300 focus-visible:ring-emerald-300"
                 onClick={() => void confirm()}
               >
-                {pending === "committing" ? "Sending…" : appendEnter ? "Confirm and send" : "Confirm insertion"}
+                {pending === "committing" ? t("attachDialog.sending") : appendEnter ? t("attachDialog.confirmAndSend") : t("attachDialog.confirmInsertion")}
               </AlertDialogAction>
             </>
           )}
