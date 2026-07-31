@@ -33,6 +33,8 @@ const (
 	localRevokePath         = "/agent/devices/revoke"
 	localRelayProvisionPath = "/agent/relay/provision"
 	localRelayStatusPath    = "/agent/relay/status"
+	localInfoPath           = "/agent/info"
+	localPairingCodePath    = "/agent/pairing/code"
 )
 
 var pairingPageTemplate = template.Must(template.New("pairing").Parse(`<!doctype html>
@@ -161,6 +163,8 @@ func newAgentHTTPHandler(application http.Handler, listenAddress string, token s
 	mux.Handle(localRevokePath, management.revokeDeviceHandler())
 	mux.Handle(localRelayProvisionPath, rateLimitMiddleware(management.provisionLimiter, management.relayProvisionHandler()))
 	mux.Handle(localRelayStatusPath, management.relayStatusHandler())
+	mux.Handle(localInfoPath, management.infoHandler())
+	mux.Handle(localPairingCodePath, management.pairingCodeHandler())
 	mux.Handle(pairingTransportPath, management.pairingTransportHandler())
 	mux.Handle("/", application)
 	return mux, nil
@@ -502,6 +506,84 @@ func setManagementHeaders(writer http.ResponseWriter, allowForms bool) {
 	writer.Header().Set("Content-Security-Policy", fmt.Sprintf("default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action %s; frame-ancestors 'none'", formAction))
 	writer.Header().Set("Referrer-Policy", "no-referrer")
 	writer.Header().Set("X-Content-Type-Options", "nosniff")
+}
+
+// infoHandler returns agent status as JSON: paired devices, pending pairing, protocol.
+func (management *agentManagement) infoHandler() http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if !authorizeLocalManagement(writer, request, management.token) {
+			return
+		}
+		devices, err := management.deviceRows()
+		if err != nil {
+			http.Error(writer, "could not read paired devices", http.StatusInternalServerError)
+			return
+		}
+		type deviceInfo struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			Platform string `json:"platform"`
+			State    string `json:"state"`
+		}
+		deviceList := make([]deviceInfo, 0, len(devices))
+		for _, d := range devices {
+			deviceList = append(deviceList, deviceInfo{
+				ID:       d.DeviceID,
+				Name:     d.Name,
+				Platform: d.Platform,
+				State:    d.State,
+			})
+		}
+		result := map[string]any{
+			"devices":  deviceList,
+			"protocol": "v1",
+		}
+		if pending, ok := management.flows.Current(); ok {
+			result["pending_pairing"] = map[string]any{
+				"name":     pending.DisplayName,
+				"platform": pending.Platform,
+				"sas":      pending.SAS,
+			}
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(result)
+	})
+}
+
+// pairingCodeHandler returns the pairing code and QR as JSON for desktop integration.
+func (management *agentManagement) pairingCodeHandler() http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if !authorizeLocalManagement(writer, request, management.token) {
+			return
+		}
+		if management.pairingBase == "" {
+			http.Error(writer, "pairing base URL not available", http.StatusServiceUnavailable)
+			return
+		}
+		connectionHint := strings.TrimSuffix(management.pairingBase, "/") + "/pairing/v1"
+		invitation, err := management.pairing.Create([]string{connectionHint})
+		if err != nil {
+			http.Error(writer, "could not create pairing invitation", http.StatusInternalServerError)
+			return
+		}
+		target, err := pairing.FragmentURL(management.pairingBase, invitation)
+		if err != nil {
+			http.Error(writer, "could not encode pairing invitation", http.StatusInternalServerError)
+			return
+		}
+		code, err := qr.Encode(target, qr.M)
+		if err != nil {
+			http.Error(writer, "could not create QR code", http.StatusInternalServerError)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"code":       invitation.VerificationCode,
+			"qr_url":     "data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG()),
+			"target":     target,
+			"expires_at": invitation.ExpiresAt.AsTime().Local().Format("15:04:05"),
+		})
+	})
 }
 
 func authorizeLocalManagement(writer http.ResponseWriter, request *http.Request, token string) bool {

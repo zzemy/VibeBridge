@@ -16,9 +16,14 @@ interface PairingData {
 interface DeviceInfo {
   id: string;
   name: string;
-  type: string;
-  paired: boolean;
-  lastSeen?: string;
+  platform: string;
+  state: string;
+}
+
+interface PendingPairing {
+  name: string;
+  platform: string;
+  sas: string;
 }
 
 type Section = "status" | "devices" | "pairing" | "settings";
@@ -71,25 +76,11 @@ export default function App() {
     if (section === "pairing") fetchPairing();
   }, [section]);
 
-  // Extract device list from agent status info
-  const devices: DeviceInfo[] = (() => {
-    if (!status?.info) return [];
-    const raw = status.info.devices;
-    if (Array.isArray(raw)) return raw as DeviceInfo[];
-    return [];
-  })();
-
-  // Extract resource info from agent status info
-  const resources = (() => {
-    if (!status?.info) return null;
-    const info = status.info;
-    return {
-      cpu: (info.cpu as number) ?? 0,
-      memory: (info.memory as number) ?? 0,
-      uptime: (info.uptime as string) ?? "—",
-      sessions: (info.sessions as number) ?? 0,
-    };
-  })();
+  // Extract data from agent info response
+  const info = status?.info ?? {};
+  const devices: DeviceInfo[] = Array.isArray(info.devices) ? (info.devices as DeviceInfo[]) : [];
+  const pendingPairing: PendingPairing | null = info.pending_pairing ? (info.pending_pairing as PendingPairing) : null;
+  const activeDevices = devices.filter((d) => d.state === "Authorized");
 
   const navItems: { key: Section; icon: string; label: string }[] = [
     { key: "status", icon: "◉", label: t("nav.status") },
@@ -97,6 +88,13 @@ export default function App() {
     { key: "pairing", icon: "⊕", label: t("nav.pairing") },
     { key: "settings", icon: "⚙", label: t("nav.settings") },
   ];
+
+  const platformIcon = (platform: string) => {
+    const p = platform.toLowerCase();
+    if (p.includes("ios") || p.includes("iphone") || p.includes("ipad")) return "";
+    if (p.includes("android")) return "🤖";
+    return "📱";
+  };
 
   return (
     <div className="app-shell">
@@ -161,8 +159,8 @@ export default function App() {
                     <span className="data-value">{t("status.protocolValue")}</span>
                   </div>
                   <div className="data-row">
-                    <span className="data-label">{t("status.sessions")}</span>
-                    <span className="data-value">{resources?.sessions ?? 0}</span>
+                    <span className="data-label">{t("status.devices")}</span>
+                    <span className="data-value">{activeDevices.length}</span>
                   </div>
                   <div style={{ marginTop: 14 }}>
                     <button
@@ -180,34 +178,25 @@ export default function App() {
               )}
             </div>
 
-            {resources && (
+            {pendingPairing && (
               <div className="card">
                 <div className="card-header">
-                  <span className="card-title">{t("status.resources")}</span>
+                  <span className="card-title">{t("status.pendingPairing")}</span>
                 </div>
                 <div className="data-row">
-                  <span className="data-label">{t("status.cpu")}</span>
-                  <span className="data-value mono">{resources.cpu.toFixed(1)}%</span>
+                  <span className="data-label">{t("status.deviceName")}</span>
+                  <span className="data-value">{pendingPairing.name}</span>
                 </div>
-                <div className="resource-bar">
-                  <div
-                    className={`resource-bar-fill ${resources.cpu > 80 ? "danger" : resources.cpu > 50 ? "warning" : "normal"}`}
-                    style={{ width: `${Math.min(resources.cpu, 100)}%` }}
-                  />
+                <div className="data-row">
+                  <span className="data-label">{t("status.platform")}</span>
+                  <span className="data-value">{pendingPairing.platform}</span>
                 </div>
-                <div className="data-row" style={{ marginTop: 8 }}>
-                  <span className="data-label">{t("status.memory")}</span>
-                  <span className="data-value mono">{resources.memory.toFixed(1)}%</span>
+                <div className="data-row">
+                  <span className="data-label">{t("status.verificationCode")}</span>
+                  <span className="data-value mono text-accent">{pendingPairing.sas}</span>
                 </div>
-                <div className="resource-bar">
-                  <div
-                    className={`resource-bar-fill ${resources.memory > 80 ? "danger" : resources.memory > 50 ? "warning" : "normal"}`}
-                    style={{ width: `${Math.min(resources.memory, 100)}%` }}
-                  />
-                </div>
-                <div className="data-row" style={{ marginTop: 8 }}>
-                  <span className="data-label">{t("status.uptime")}</span>
-                  <span className="data-value">{resources.uptime}</span>
+                <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}>
+                  {t("status.pairingHint")}
                 </div>
               </div>
             )}
@@ -217,6 +206,26 @@ export default function App() {
         {section === "devices" && (
           <div className="fade-in">
             <h1 className="page-title">{t("nav.devices")}</h1>
+
+            {pendingPairing && (
+              <div className="card">
+                <div className="card-header">
+                  <span className="card-title">{t("devices.pendingTitle")}</span>
+                </div>
+                <div className="device-item">
+                  <div className="device-icon">{platformIcon(pendingPairing.platform)}</div>
+                  <div className="device-info">
+                    <div className="device-name">{pendingPairing.name}</div>
+                    <div className="device-meta">{pendingPairing.platform}</div>
+                  </div>
+                  <span className="status-badge online">{t("devices.pending")}</span>
+                </div>
+                <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}>
+                  {t("status.pairingHint")}
+                </div>
+              </div>
+            )}
+
             <div className="card">
               <div className="card-header">
                 <span className="card-title">{t("devices.paired")}</span>
@@ -226,16 +235,18 @@ export default function App() {
                 <div className="device-list">
                   {devices.map((device) => (
                     <div key={device.id} className="device-item">
-                      <div className="device-icon">{device.type === "ios" ? "" : device.type === "android" ? "🤖" : "📱"}</div>
+                      <div className="device-icon">{platformIcon(device.platform)}</div>
                       <div className="device-info">
-                        <div className="device-name">{device.name}</div>
+                        <div className="device-name">{device.name || device.id.slice(0, 8)}</div>
                         <div className="device-meta">
-                          {device.paired ? t("devices.connected") : t("devices.disconnected")}
-                          {device.lastSeen ? ` · ${device.lastSeen}` : ""}
+                          {device.platform || "Unknown"}
+                          {device.state !== "Authorized" ? ` · ${device.state}` : ""}
                         </div>
                       </div>
                       <div className="device-actions">
-                        <button className="btn btn-danger btn-sm">{t("devices.revoke")}</button>
+                        <span className={`status-badge ${device.state === "Authorized" ? "online" : "offline"}`}>
+                          {device.state === "Authorized" ? t("devices.connected") : t("devices.revoked")}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -247,6 +258,7 @@ export default function App() {
                 </div>
               )}
             </div>
+
             <div className="card">
               <div className="card-header">
                 <span className="card-title">{t("devices.pairNew")}</span>
