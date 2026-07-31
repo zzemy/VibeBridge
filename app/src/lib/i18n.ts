@@ -48,6 +48,7 @@ const dict: Dict = {
   "sidebar.agentStopped": { zh: "Agent 已停止", en: "Agent Stopped" },
 
   "nav.overview": { zh: "概览", en: "Overview" },
+  "nav.terminal": { zh: "终端", en: "Terminal" },
   "nav.pairing": { zh: "配对", en: "Pairing" },
   "nav.devices": { zh: "设备", en: "Devices" },
   "nav.settings": { zh: "设置", en: "Settings" },
@@ -132,6 +133,9 @@ const dict: Dict = {
   "settings.security": { zh: "安全", en: "Security" },
   "settings.advanced": { zh: "高级", en: "Advanced" },
   "settings.about": { zh: "关于", en: "About" },
+  "terminal.notRunning": { zh: "Agent 未运行", en: "Agent not running" },
+  "terminal.notRunningDesc": { zh: "请先启动 Agent 才能使用终端", en: "Start the Agent first to use the terminal" },
+  "terminal.loading": { zh: "正在加载终端...", en: "Loading terminal..." },
   "settings.launchAtStartup": { zh: "开机自启动", en: "Launch at startup" },
   "settings.launchHint": { zh: "系统登录时自动启动", en: "Auto-launch on system login" },
   "settings.silentStart": { zh: "静默启动", en: "Silent start" },

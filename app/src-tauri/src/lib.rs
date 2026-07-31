@@ -144,6 +144,19 @@ async fn get_agent_status(state: tauri::State<'_, AppState>) -> Result<serde_jso
 }
 
 #[tauri::command]
+
+/// Returns the URL for embedding the web terminal client in the desktop app's iframe.
+#[tauri::command]
+async fn get_terminal_url(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let port = *state.agent_port.lock().unwrap();
+    let token = state.management_token.clone();
+    let running = check_agent_health(port).await;
+    if !running {
+        return Err("agent not running".to_string());
+    }
+    Ok(format!("http://127.0.0.1:{}/?token={}", port, token))
+}
+
 async fn restart_agent(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -285,7 +298,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
-            get_agent_status,
+            get_agent_status, get_terminal_url,
             restart_agent,
             get_ws_url,
             get_http_url,

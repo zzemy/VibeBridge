@@ -34,7 +34,7 @@ interface PairingData {
   expires_at?: string;
 }
 
-type Section = "overview" | "pairing" | "devices" | "settings";
+type Section = "overview" | "terminal" | "pairing" | "devices" | "settings";
 type SettingsTab = "general" | "network" | "security" | "about";
 
 /* ── SVG Icon set ── */
@@ -46,6 +46,7 @@ function Svg({ children, size = 18 }: { children: ReactNode; size?: number }) {
 }
 
 const NavIcons: Record<Section, ReactNode> = {
+  terminal: (<><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M7 9l3 3-3 3" /><path d="M13 15h4" /></>),
   overview: (<><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></>),
   pairing: (<><rect x="3" y="3" width="6" height="6" rx="1" /><rect x="15" y="3" width="6" height="6" rx="1" /><rect x="3" y="15" width="6" height="6" rx="1" /><path d="M15 15h2.5v2.5H15z" /><path d="M21 15v2.5" /><path d="M15 21h2.5" /><path d="M18.5 18.5H21V21h-2.5z" /></>),
   devices: (<><rect x="7" y="2" width="10" height="20" rx="2.5" /><path d="M11 18.5h2" /></>),
@@ -96,7 +97,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [autoStart, setAutoStart] = useState(true);
-  const [, setTick] = useState(0);
+  const [terminalUrl, setTerminalUrl] = useState<string | null>(null);
+  const [, setTick = useState(0);
   useEffect(() => subscribeLang(() => setTick((n) => n + 1)), []);
 
   const fetchStatus = useCallback(async () => {
@@ -128,6 +130,22 @@ export default function App() {
     const interval = setInterval(fetchPairingStatus, 5000);
     return () => clearInterval(interval);
   }, [fetchPairingStatus]);
+
+  useEffect(() => {
+    if (section !== "terminal") return;
+    let active = true;
+    const fetchUrl = async () => {
+      try {
+        const url = await invoke<string>("get_terminal_url");
+        if (active) setTerminalUrl(url);
+      } catch {
+        if (active) setTerminalUrl(null);
+      }
+    };
+    fetchUrl();
+    const interval = setInterval(fetchUrl, 3000);
+    return () => { active = false; clearInterval(interval); };
+  }, [section, running]);
 
   const handleRestart = async () => {
     setLoading(true);
@@ -173,6 +191,7 @@ export default function App() {
 
   const navItems: { key: Section; label: string }[] = [
     { key: "overview", label: t("nav.overview") },
+    { key: "terminal", label: t("nav.terminal") },
     { key: "pairing", label: t("nav.pairing") },
     { key: "devices", label: t("nav.devices") },
     { key: "settings", label: t("nav.settings") },
@@ -211,6 +230,7 @@ export default function App() {
       </aside>
 
       <main className="main-content">
+        {section === "terminal" && <TerminalSection running={running} url={terminalUrl} />}
         {section === "overview" && <OverviewSection running={running} port={port} uptimeSec={uptimeSec} memMb={memMb} goroutines={goroutines} cpuCores={cpuCores} protocol={protocol} activeDevices={activeDevices} loading={loading} onRestart={handleRestart} />}
         {section === "pairing" && <PairingSection running={running} pairing={pairing} pairingStatus={pairingStatus} hasPending={!!hasPending} actionLoading={actionLoading} onRefresh={fetchPairing} onApprove={handleApprove} onReject={handleReject} />}
         {section === "devices" && <DevicesSection devices={devices} actionLoading={actionLoading} onRevoke={handleRevoke} onGoPairing={() => setSection("pairing")} />}
@@ -221,6 +241,39 @@ export default function App() {
 }
 
 /* ════════ Overview ════════ */
+
+/* ── Terminal Section (embedded web client) ── */
+
+function TerminalSection({ running, url }: { running: boolean; url: string | null }) {
+  if (!running) {
+    return (
+      <div className="terminal-section-empty">
+        <div className="terminal-empty-icon"><Svg size={48}><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M7 9l3 3-3 3" /><path d="M13 15h4" /></Svg></div>
+        <h2 className="terminal-empty-title">{t("terminal.notRunning")}</h2>
+        <p className="terminal-empty-desc">{t("terminal.notRunningDesc")}</p>
+      </div>
+    );
+  }
+  if (!url) {
+    return (
+      <div className="terminal-section-empty">
+        <div className="terminal-empty-spinner" />
+        <p className="terminal-empty-desc">{t("terminal.loading")}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="terminal-iframe-container">
+      <iframe
+        src={url}
+        className="terminal-iframe"
+        title="VibeBridge Terminal"
+        allow="clipboard-read; clipboard-write"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+      />
+    </div>
+  );
+}
 
 function OverviewSection({ running, port, uptimeSec, memMb, goroutines, cpuCores, protocol, activeDevices, loading, onRestart }: {
   running: boolean; port: number; uptimeSec: number; memMb: number; goroutines: number; cpuCores: number; protocol: string;
