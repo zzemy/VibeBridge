@@ -40,6 +40,11 @@ Control local AI CLI sessions such as Codex and Claude Code from your phone over
 - Paired-device authorization with Ed25519 signatures, 30-second single-use nonces, and local device revocation (ADR-0006). The legacy per-run bearer token has been removed from the WebSocket upgrade path.
 - Self-hosted relay transport with Ed25519-signed tickets, replay protection, revocation epoch enforcement, and automatic direct-versus-relay transport selection in the web client.
 - PWA manifest, service worker, install prompt, and update banner for installable mobile use.
+- Desktop Tauri application (Windows) with sidebar navigation, native window chrome, and the same terminal, files, settings, and info panels as the web client.
+- A four-tab mobile shell (Terminal, Files, Settings, Info) with bottom tab-bar navigation, safe-area insets, and no horizontal scroll.
+- Bilingual user interface (Chinese/English) with automatic language detection and manual switch in Settings.
+- Pairing auto-redirect: after successful device pairing, the browser automatically enters the terminal instead of showing a static success page.
+- NSIS per-user Windows installer with silent install/uninstall support and automatic startup registration.
 
 The browser endpoint now negotiates Protocol V1. When both peers support sequenced I/O and `session.resume_v1`, terminal traffic, acknowledgements, session attachment, and bounded reconnect replay use ordered Protobuf envelopes with explicit `FRESH`, `RESUMED`, or `RESYNC_REQUIRED` results. Peers that also negotiate `terminal.resize_end_v1` carry terminal resize and explicit end controls in the same ordered stream, `session.process_exit_v1` reports a safe final process outcome, `control.error_v1` reports allowlisted application failures without exposing host errors, and `control.health_v1` sequences application Ping/Pong independently of WebSocket transport keepalive. Older peers retain safe JSON adapters during this staged transition.
 
@@ -50,6 +55,7 @@ The browser endpoint now negotiates Protocol V1. When both peers support sequenc
 | Foreground local Agent and PTY | Tested | Implementation available; release validation incomplete |
 | User-scoped background installation | Supported through Task Scheduler with system tray controls | Not yet supported |
 | Self-hosted relay transport | Available (self-hosted) | Available (self-hosted) |
+| Desktop Tauri application | Tested | Not yet supported |
 
 No packaged release is published yet; build the project from source. See the [roadmap](docs/roadmap.md) for release gates and planned remote-access work.
 
@@ -216,12 +222,24 @@ go build -tags embed -o bin/vibebridge.exe ./cmd/vibebridge
 
 The resulting binary contains the React frontend and does not require `web/dist` at runtime.
 
+## Desktop Application
+
+The desktop Tauri application wraps the web frontend in a native window with sidebar navigation. It provides the same four-panel layout (terminal, files, settings, info) as the web client.
+
+```powershell
+pnpm --dir web install --frozen-lockfile
+pnpm --dir web build
+cd app && pnpm install && pnpm tauri build
+```
+
+The NSIS installer is output to `app/src-tauri/target/release/bundle/nsis/`. Per-user installation requires no UAC elevation, registers an HKCU Run key for automatic startup, and creates Start Menu shortcuts. Use `/S` for silent install or uninstall.
+
 ## Current Limitations
 
 - One browser client can control a session at a time.
 - Terminal access requires paired-device authentication (ADR-0006). The legacy per-run bearer token has been removed from the WebSocket upgrade path; the token now only bootstraps the local status and web-session endpoints. Self-hosted relay transport is available; public-internet use still requires an independent cryptographic review of the paired-session design.
 - The browser does not yet schedule Protocol V1 application health probes.
-- Native mobile clients and packaged releases are roadmap work, not current features.
+- Native mobile clients (iOS/Android) are roadmap work; mobile use currently relies on the installable PWA. The desktop Tauri application is available on Windows; macOS and Linux desktop builds are roadmap work.
 
 ## Brand
 

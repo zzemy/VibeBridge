@@ -240,6 +240,23 @@ Measure Agent memory, terminal latency, relay queueing, attachment throughput, m
 
 Dependencies, supported OS versions, protocol compatibility, release channels, telemetry schema, and incident response are maintained as product features.
 
+## Desktop Application and Internationalization (Code Complete)
+
+Goal: provide a native desktop client and bilingual user interface alongside the web client.
+
+Deliverables (code complete):
+
+- Desktop Tauri application (Windows) with sidebar navigation, native window chrome, and the same four-panel layout as the web client.
+- NSIS per-user Windows installer with silent install/uninstall, HKCU Run key for automatic startup, and Start Menu shortcuts.
+- Four-tab mobile shell (Terminal, Files, Settings, Info) with bottom tab-bar navigation, safe-area insets, and no horizontal scroll.
+- Bilingual user interface (Chinese/English) with automatic language detection (`navigator.language`) and manual switch persisted to `localStorage`.
+- Pairing auto-redirect: successful device pairing automatically enters the terminal after a brief confirmation.
+
+Exit gate:
+
+- Real-device validation on Windows 11 (installer, startup, terminal, settings). — Requires manual testing.
+- macOS/Linux desktop builds. — Requires platform-specific Tauri configuration and testing.
+
 ## Explicit Deferrals
 
 - Team and enterprise administration.
