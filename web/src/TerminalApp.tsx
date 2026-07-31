@@ -46,6 +46,10 @@ import { AcknowledgedAttachmentSender, type AcknowledgedAttachmentSenderOptions 
 import { AttachmentPromptActionClient } from "./lib/attachment-prompt-action";
 import { terminalKeys } from "./lib/terminalKeys";
 import { connectViaRelay, hexToBase64Url, provisionRelayRoute } from "./lib/relay-client";
+import { TabBar, type TabId } from "./components/TabBar";
+import { SessionsScreen } from "./components/SessionsScreen";
+import { FilesScreen } from "./components/FilesScreen";
+import { SettingsScreen } from "./components/SettingsScreen";
 
 type ConnectionState = "missing-token" | "connecting" | "reconnecting" | "connected" | "closed" | "error";
 type TerminalChunk = string | Uint8Array;
@@ -141,6 +145,7 @@ export function TerminalApp() {
   const noticeTimerRef = useRef<number | undefined>(undefined);
   const [, setTick] = useState(0);
   useEffect(() => subscribeLang(() => setTick((n) => n + 1)), []);
+  const [activeTab, setActiveTab] = useState<TabId>("terminal");
 
   const token = useMemo(() => new URLSearchParams(window.location.search).get("token") ?? "", []);
   const forcedTransport = useMemo<"direct" | "relay" | null>(() => {
@@ -777,8 +782,10 @@ export function TerminalApp() {
   const statusText = notice || (canSend ? t("term.keyboardReady") : connectionState === "reconnecting" ? t("term.reconnectingIn", { s: retryIn }) : t("term.waitingConnection"));
 
   return (
-    <main className="h-dvh overflow-hidden bg-zinc-950 text-zinc-100">
-      <div className="mx-auto flex h-dvh w-full max-w-6xl flex-col px-3 py-3 sm:px-5 sm:py-5">
+    <main className="flex h-dvh flex-col overflow-hidden bg-zinc-950 text-zinc-100">
+      {/* Terminal screen — always mounted to preserve xterm.js + WebSocket state */}
+      <div className={`flex min-h-0 flex-1 flex-col${activeTab !== "terminal" ? " hidden" : ""}`}>
+      <div className="mx-auto flex h-full w-full max-w-6xl flex-col px-3 py-3 sm:px-5 sm:py-5">
         <header className="flex items-center justify-between gap-3 pb-3">
           <div className="flex min-w-0 items-center gap-2">
             <div className="grid size-8 shrink-0 place-items-center rounded-md border border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
@@ -875,6 +882,50 @@ export function TerminalApp() {
         </section>
         </div>
       </div>
+      </div>
+
+      {/* Sessions screen */}
+      {activeTab === "sessions" ? (
+        <div className="vb-screen min-h-0 flex-1 overflow-y-auto">
+          <SessionsScreen
+            connectionState={connectionState}
+            sessionStatus={sessionStatus}
+            elapsed={elapsed}
+            lastActivityAgo={sessionStatus?.last_activity_at ? formatAgo(sessionStatus.last_activity_at, now) : null}
+            retryIn={retryIn}
+            transport={transportRef.current}
+            onRetry={retryConnection}
+            onEnd={() => setEndDialogOpen(true)}
+          />
+        </div>
+      ) : null}
+
+      {/* Files screen */}
+      {activeTab === "files" ? (
+        <div className="vb-screen min-h-0 flex-1 overflow-y-auto">
+          <FilesScreen
+            available={attachmentTransferAvailable}
+            canSend={canSend}
+            onTransfer={sendAttachments}
+            composerKey={attachmentComposerKey}
+            stagedCount={stagedTransferIds.length}
+          />
+        </div>
+      ) : null}
+
+      {/* Settings screen */}
+      {activeTab === "settings" ? (
+        <div className="vb-screen min-h-0 flex-1 overflow-y-auto">
+          <SettingsScreen
+            fontSize={terminalFontSize}
+            onFontSize={setTerminalFontSize}
+            minSize={minTerminalFontSize}
+            maxSize={maxTerminalFontSize}
+          />
+        </div>
+      ) : null}
+
+      <TabBar active={activeTab} onChange={setActiveTab} />
 
       <AttachmentPromptDialog
         open={preparedAttachmentPrompt !== null}

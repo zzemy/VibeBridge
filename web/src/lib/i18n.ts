@@ -221,6 +221,43 @@ const dict: Dict = {
 
   // ── Language toggle ──
   "lang.toggle": { zh: "EN", en: "中" },
+
+  // ── Tab bar ──
+  "tab.terminal": { zh: "终端", en: "Terminal" },
+  "tab.sessions": { zh: "会话", en: "Sessions" },
+  "tab.files": { zh: "文件", en: "Files" },
+  "tab.settings": { zh: "设置", en: "Settings" },
+
+  // ── Sessions screen ──
+  "session.title": { zh: "当前会话", en: "Current Session" },
+  "session.state": { zh: "状态", en: "State" },
+  "session.elapsed": { zh: "运行时长", en: "Uptime" },
+  "session.lastActivity": { zh: "最后活动", en: "Last activity" },
+  "session.transport": { zh: "传输方式", en: "Transport" },
+  "session.transportDirect": { zh: "直连", en: "Direct" },
+  "session.transportRelay": { zh: "中继", en: "Relay" },
+  "session.noSession": { zh: "没有活跃会话", en: "No active session" },
+  "session.noSessionDesc": { zh: "连接到一台电脑以开始远程终端。", en: "Connect to a computer to start a remote terminal." },
+  "session.reconnect": { zh: "重新连接", en: "Reconnect" },
+  "session.endSession": { zh: "结束会话", en: "End session" },
+
+  // ── Files screen ──
+  "files.title": { zh: "文件传输", en: "File Transfers" },
+  "files.stagedCount": { zh: "{n} 个文件已就绪", en: "{n} file(s) ready" },
+  "files.noTransfers": { zh: "暂无文件传输", en: "No file transfers" },
+  "files.notAvailable": { zh: "此 Agent 不支持文件传输。", en: "File transfer is not supported by this Agent." },
+
+  // ── Settings screen ──
+  "settings.title": { zh: "设置", en: "Settings" },
+  "settings.general": { zh: "通用", en: "General" },
+  "settings.language": { zh: "语言", en: "Language" },
+  "settings.terminal": { zh: "终端", en: "Terminal" },
+  "settings.fontSize": { zh: "字体大小", en: "Font size" },
+  "settings.fontSizeValue": { zh: "{n}px", en: "{n}px" },
+  "settings.about": { zh: "关于", en: "About" },
+  "settings.server": { zh: "服务器", en: "Server" },
+  "settings.theme": { zh: "主题", en: "Theme" },
+  "settings.themeDark": { zh: "深色", en: "Dark" },
 };
 
 export function t(key: string, params?: Record<string, string | number>): string {
