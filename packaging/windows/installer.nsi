@@ -62,6 +62,9 @@ Section "VibeBridge" SecMain
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\Uninstall ${APP_NAME}.lnk" "$INSTDIR\Uninstall.exe"
 
+  ; Desktop shortcut
+  CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}"
+
   ; Autostart at logon
   WriteRegStr HKCU "${APP_RUNKEY}" "${APP_NAME}" "$\"$INSTDIR\${APP_EXE}$\""
 
@@ -94,6 +97,8 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
   Delete "$SMPROGRAMS\${APP_NAME}\Uninstall ${APP_NAME}.lnk"
   RMDir "$SMPROGRAMS\${APP_NAME}"
+
+  Delete "$DESKTOP\${APP_NAME}.lnk"
 
   DeleteRegKey HKCU "${APP_REGKEY}"
   DeleteRegKey HKCU "${APP_UNINSTKEY}"

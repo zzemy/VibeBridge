@@ -30,8 +30,8 @@ import (
 const (
 	maxBufferedOutputBytes = 1024 * 1024
 	bufferedOutputMaxAge   = 2 * time.Minute
-	pongWait               = 5 * time.Minute
-	pingPeriod             = 4 * time.Minute
+	pongWait               = 90 * time.Second
+	pingPeriod             = 20 * time.Second
 	protocolHelloTimeout   = 5 * time.Second
 )
 
