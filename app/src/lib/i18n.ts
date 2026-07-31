@@ -51,16 +51,17 @@ export function subscribeLang(fn: () => void): () => void {
 type Dict = Record<string, { zh: string; en: string }>;
 
 const dict: Dict = {
-  // ── Header ──
+  // ── Header / Status ──
   "header.running": { zh: "运行中", en: "Running" },
   "header.stopped": { zh: "已停止", en: "Stopped" },
 
-  // ── Tabs ──
-  "tab.status": { zh: "状态", en: "Status" },
-  "tab.pairing": { zh: "配对", en: "Pairing" },
-  "tab.settings": { zh: "设置", en: "Settings" },
+  // ── Navigation ──
+  "nav.status": { zh: "状态", en: "Status" },
+  "nav.devices": { zh: "设备", en: "Devices" },
+  "nav.pairing": { zh: "配对", en: "Pairing" },
+  "nav.settings": { zh: "设置", en: "Settings" },
 
-  // ── Status tab ──
+  // ── Status section ──
   "status.agent": { zh: "Agent", en: "Agent" },
   "status.state": { zh: "状态", en: "State" },
   "status.online": { zh: "在线", en: "Online" },
@@ -68,14 +69,26 @@ const dict: Dict = {
   "status.port": { zh: "端口", en: "Port" },
   "status.protocol": { zh: "协议", en: "Protocol" },
   "status.protocolValue": { zh: "v1（配对会话）", en: "v1 (paired-session)" },
+  "status.sessions": { zh: "活跃会话", en: "Active Sessions" },
   "status.restartAgent": { zh: "重启 Agent", en: "Restart Agent" },
   "status.restarting": { zh: "正在重启…", en: "Restarting..." },
   "status.loading": { zh: "加载中…", en: "Loading..." },
-  "status.connectedDevices": { zh: "已连接设备", en: "Connected Devices" },
-  "status.noDevices": { zh: "暂无设备连接", en: "No devices connected" },
-  "status.pairToStart": { zh: "配对设备以开始使用", en: "Pair a device to get started" },
+  "status.resources": { zh: "资源占用", en: "Resources" },
+  "status.cpu": { zh: "CPU", en: "CPU" },
+  "status.memory": { zh: "内存", en: "Memory" },
+  "status.uptime": { zh: "运行时长", en: "Uptime" },
 
-  // ── Pairing tab ──
+  // ── Devices section ──
+  "devices.paired": { zh: "已配对设备", en: "Paired Devices" },
+  "devices.connected": { zh: "已连接", en: "Connected" },
+  "devices.disconnected": { zh: "未连接", en: "Disconnected" },
+  "devices.revoke": { zh: "撤销", en: "Revoke" },
+  "devices.empty": { zh: "暂无配对设备", en: "No paired devices" },
+  "devices.pairNew": { zh: "配对新设备", en: "Pair New Device" },
+  "devices.pairHint": { zh: "在移动端输入配对码或扫描二维码以连接新设备", en: "Enter the pairing code on your mobile device or scan the QR code to connect" },
+  "devices.goPairing": { zh: "前往配对", en: "Go to Pairing" },
+
+  // ── Pairing section ──
   "pairing.title": { zh: "配对新设备", en: "Pair New Device" },
   "pairing.enterCode": { zh: "在手机上输入此配对码，或扫描下方二维码", en: "Enter this code on your mobile device, or scan the QR code below" },
   "pairing.qrCode": { zh: "二维码", en: "QR Code" },
@@ -83,13 +96,13 @@ const dict: Dict = {
   "pairing.generating": { zh: "正在生成配对码…", en: "Generating pairing code..." },
   "pairing.agentNotRunning": { zh: "Agent 未运行", en: "Agent is not running" },
 
-  // ── Settings tab ──
+  // ── Settings section ──
   "settings.general": { zh: "通用", en: "General" },
   "settings.launchAtStartup": { zh: "开机自启", en: "Launch at startup" },
   "settings.listenPort": { zh: "监听端口", en: "Listen port" },
   "settings.portDefault": { zh: "8787（默认）", en: "8787 (default)" },
   "settings.protocol": { zh: "协议", en: "Protocol" },
-  "settings.v1Only": { zh: "仅 v1", en: "v1 only" },
+  "settings.v1Only": { zh: "仅 v1（配对会话）", en: "v1 only (paired-session)" },
   "settings.language": { zh: "语言", en: "Language" },
   "settings.about": { zh: "关于", en: "About" },
   "settings.version": { zh: "版本", en: "Version" },
