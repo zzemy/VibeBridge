@@ -6,13 +6,9 @@ use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
 /// Brand icons embedded at compile time.
-/// Light icon = cream background, suited for dark system themes (pops on a dark taskbar).
-/// Dark icon = slate background, suited for light system themes (pops on a light taskbar).
 const ICON_LIGHT_BYTES: &[u8] = include_bytes!("../../../brand/light/icon-256.png");
 const ICON_DARK_BYTES: &[u8] = include_bytes!("../../../brand/dark/icon-256.png");
 
-/// Return the brand icon bytes that pair with a given system theme.
-/// (Light system -> dark icon; Dark system -> light icon; unknown -> dark icon.)
 fn icon_bytes_for_theme(theme: Theme) -> &'static [u8] {
     match theme {
         Theme::Dark => ICON_LIGHT_BYTES,
@@ -20,12 +16,10 @@ fn icon_bytes_for_theme(theme: Theme) -> &'static [u8] {
     }
 }
 
-/// Build an `Image` from the brand bytes for the given theme.
 fn build_theme_icon(theme: Theme) -> Option<Image<'static>> {
     Image::from_bytes(icon_bytes_for_theme(theme)).ok()
 }
 
-/// Apply the theme-appropriate icon to the main window and the tray.
 fn apply_theme_icon(app: &tauri::AppHandle, theme: Theme) {
     let Some(img) = build_theme_icon(theme) else {
         log::warn!("Failed to decode theme icon bytes");
@@ -47,6 +41,7 @@ fn apply_theme_icon(app: &tauri::AppHandle, theme: Theme) {
 struct AppState {
     agent_process: Mutex<Option<CommandChild>>,
     agent_port: Mutex<u16>,
+    management_token: String,
 }
 
 impl Default for AppState {
@@ -54,13 +49,36 @@ impl Default for AppState {
         Self {
             agent_process: Mutex::new(None),
             agent_port: Mutex::new(8787),
+            management_token: generate_management_token(),
         }
     }
 }
 
-/// Start the Go agent as a sidecar process. Returns the `CommandChild` handle so the
-/// caller can kill it later; the stdout/stderr receiver is intentionally dropped.
-fn start_agent(app: &tauri::AppHandle) -> Result<CommandChild, String> {
+/// Generate a random 32-char hex token for local management API auth.
+fn generate_management_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let mut state = seed as u64;
+    let mut bytes = [0u8; 16];
+    for b in &mut bytes {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *b = (state >> 33) as u8;
+    }
+    hex_encode(&bytes)
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{:02x}", b));
+    }
+    s
+}
+
+fn start_agent(app: &tauri::AppHandle, token: &str) -> Result<CommandChild, String> {
     let port = 8787u16;
     let addr = format!("127.0.0.1:{}", port);
 
@@ -68,7 +86,11 @@ fn start_agent(app: &tauri::AppHandle) -> Result<CommandChild, String> {
         .shell()
         .sidecar("vibebridge-agent")
         .map_err(|e| format!("Failed to find sidecar binary: {}", e))?
-        .args(["--addr", &addr, "--tray=false"])
+        .args([
+            "--addr", &addr,
+            "--tray=false",
+            "--management-token", token,
+        ])
         .spawn()
         .map_err(|e| format!("Failed to spawn agent: {}", e))?;
 
@@ -76,9 +98,9 @@ fn start_agent(app: &tauri::AppHandle) -> Result<CommandChild, String> {
     Ok(child)
 }
 
-/// Check if the agent is responding on its HTTP status endpoint
+/// Check if the agent is responding on its health endpoint (no auth required).
 async fn check_agent_health(port: u16) -> bool {
-    let url = format!("http://127.0.0.1:{}/status", port);
+    let url = format!("http://127.0.0.1:{}/healthz", port);
     reqwest::Client::new()
         .get(&url)
         .timeout(Duration::from_secs(2))
@@ -91,21 +113,23 @@ async fn check_agent_health(port: u16) -> bool {
 #[tauri::command]
 async fn get_agent_status(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     let port = *state.agent_port.lock().unwrap();
+    let token = state.management_token.clone();
     let running = check_agent_health(port).await;
 
     let info = if running {
-        let url = format!("http://127.0.0.1:{}/status", port);
+        let url = format!("http://127.0.0.1:{}/agent/info?token={}", port, token);
         match reqwest::Client::new()
             .get(&url)
             .timeout(Duration::from_secs(2))
             .send()
             .await
         {
-            Ok(resp) => resp
-                .json::<serde_json::Value>()
-                .await
-                .unwrap_or(serde_json::json!({})),
-            Err(_) => serde_json::json!({}),
+            Ok(resp) if resp.status().is_success() => {
+                resp.json::<serde_json::Value>()
+                    .await
+                    .unwrap_or(serde_json::json!({}))
+            }
+            _ => serde_json::json!({}),
         }
     } else {
         serde_json::json!({})
@@ -124,11 +148,11 @@ async fn restart_agent(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     if let Some(child) = state.agent_process.lock().unwrap().take() {
-        // CommandChild::kill consumes self, no separate wait() needed.
         let _ = child.kill();
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
-    match start_agent(&app) {
+    let token = state.management_token.clone();
+    match start_agent(&app, &token) {
         Ok(child) => {
             *state.agent_process.lock().unwrap() = Some(child);
             Ok(())
@@ -152,7 +176,8 @@ fn get_http_url(state: tauri::State<'_, AppState>) -> String {
 #[tauri::command]
 async fn fetch_pairing_code(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     let port = *state.agent_port.lock().unwrap();
-    let url = format!("http://127.0.0.1:{}/pairing/code", port);
+    let token = state.management_token.clone();
+    let url = format!("http://127.0.0.1:{}/agent/pairing/code?token={}", port, token);
     reqwest::Client::new()
         .get(&url)
         .timeout(Duration::from_secs(5))
@@ -188,8 +213,9 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
             let state: tauri::State<AppState> = app.state();
+            let token = state.management_token.clone();
 
-            match start_agent(&app_handle) {
+            match start_agent(&app_handle, &token) {
                 Ok(child) => {
                     log::info!("Agent started successfully");
                     *state.agent_process.lock().unwrap() = Some(child);
@@ -199,16 +225,12 @@ pub fn run() {
                 }
             }
 
-            // Detect the current system theme and pick the matching brand icon.
-            // On Linux this query may fail; we fall back to Light (dark icon).
             let initial_theme = app
                 .get_webview_window("main")
                 .and_then(|w| w.theme().ok())
                 .unwrap_or(Theme::Light);
             let initial_icon = build_theme_icon(initial_theme);
 
-            // System tray — starts with the theme-matched icon and is updated
-            // on ThemeChanged below.
             let mut tray_builder = tauri::tray::TrayIconBuilder::with_id("main-tray")
                 .tooltip("VibeBridge")
                 .menu(&tauri::menu::Menu::with_items(
@@ -237,7 +259,6 @@ pub fn run() {
             }
             let _tray = tray_builder.build(app)?;
 
-            // Apply the initial theme icon to the main window as well.
             if let Some(window) = app.get_webview_window("main") {
                 if let Some(icon) = initial_icon {
                     let _ = window.set_icon(icon);
@@ -251,7 +272,6 @@ pub fn run() {
                 apply_theme_icon(window.app_handle(), *theme);
             }
             WindowEvent::CloseRequested { api, .. } => {
-                // Hide to tray instead of closing.
                 let _ = window.hide();
                 api.prevent_close();
             }

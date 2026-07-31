@@ -71,6 +71,7 @@ func runAgent(args []string) error {
 	identityStorePath := flags.String("identity-store", "", "protected persistent device identity path")
 	relayURL := flags.String("relay-url", "", "WebSocket URL of the relay server for remote sessions")
 	relayIssuerKeyPath := flags.String("relay-issuer-key", "", "path to the relay ticket issuer key file (default: alongside identity store)")
+	managementToken := flags.String("management-token", "", "pre-generated management token for desktop integration (skip random generation)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -108,9 +109,14 @@ func runAgent(args []string) error {
 		return err
 	}
 
-	token, err := newSessionToken()
-	if err != nil {
-		return fmt.Errorf("create session token: %w", err)
+	var token string
+	if *managementToken != "" {
+		token = *managementToken
+	} else {
+		token, err = newSessionToken()
+		if err != nil {
+			return fmt.Errorf("create session token: %w", err)
+		}
 	}
 	resolvedIdentityPath := *identityStorePath
 	if resolvedIdentityPath == "" {
