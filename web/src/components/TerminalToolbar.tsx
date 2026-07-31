@@ -1,6 +1,7 @@
 import { ClipboardCopy, Eraser, Keyboard, Search, X, ZoomIn, ZoomOut } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Button } from "./ui/button";
+import { t, subscribeLang } from "../lib/i18n";
 
 type Props = {
   canZoomIn: boolean;
@@ -23,6 +24,9 @@ export function TerminalToolbar({
   onZoomIn,
   onZoomOut,
 }: Props) {
+  const [, forceTick] = useState(0);
+  subscribeLang(() => forceTick((n) => n + 1));
+
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -41,44 +45,44 @@ export function TerminalToolbar({
           <input
             autoFocus
             value={query}
-            placeholder="Find terminal output"
+            placeholder={t("toolbar.findOutput")}
             className="h-8 min-w-36 flex-1 bg-transparent px-1 text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
             onChange={(event) => setQuery(event.target.value)}
           />
           <Button type="submit" size="sm" variant="secondary" className="h-8 shrink-0 px-2 text-xs">
-            Next
+            {t("toolbar.next")}
           </Button>
-          <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" title="Close search" onClick={() => setSearchOpen(false)}>
+          <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" title={t("toolbar.closeSearch")} onClick={() => setSearchOpen(false)}>
             <X className="size-4" aria-hidden="true" />
-            <span className="sr-only">Close search</span>
+            <span className="sr-only">{t("toolbar.closeSearch")}</span>
           </Button>
         </form>
       ) : (
         <>
-          <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" title="Focus terminal keyboard" onClick={onFocus}>
+          <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" title={t("toolbar.focusKeyboard")} onClick={onFocus}>
             <Keyboard className="size-4" aria-hidden="true" />
-            <span className="sr-only">Focus terminal keyboard</span>
+            <span className="sr-only">{t("toolbar.focusKeyboard")}</span>
           </Button>
-          <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" title="Search output" onClick={() => setSearchOpen(true)}>
+          <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" title={t("toolbar.searchOutput")} onClick={() => setSearchOpen(true)}>
             <Search className="size-4" aria-hidden="true" />
-            <span className="sr-only">Search output</span>
+            <span className="sr-only">{t("toolbar.searchOutput")}</span>
           </Button>
-          <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" title="Copy terminal selection" onClick={onCopy}>
+          <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" title={t("toolbar.copySelection")} onClick={onCopy}>
             <ClipboardCopy className="size-4" aria-hidden="true" />
-            <span className="sr-only">Copy terminal selection</span>
+            <span className="sr-only">{t("toolbar.copySelection")}</span>
           </Button>
-          <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" title="Clear terminal view" onClick={onClear}>
+          <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" title={t("toolbar.clearTerminal")} onClick={onClear}>
             <Eraser className="size-4" aria-hidden="true" />
-            <span className="sr-only">Clear terminal view</span>
+            <span className="sr-only">{t("toolbar.clearTerminal")}</span>
           </Button>
           <span className="mx-1 h-5 w-px shrink-0 bg-zinc-800" aria-hidden="true" />
-          <Button type="button" size="icon" variant="ghost" disabled={!canZoomOut} className="size-8 shrink-0" title="Decrease terminal font size" onClick={onZoomOut}>
+          <Button type="button" size="icon" variant="ghost" disabled={!canZoomOut} className="size-8 shrink-0" title={t("toolbar.decreaseFont")} onClick={onZoomOut}>
             <ZoomOut className="size-4" aria-hidden="true" />
-            <span className="sr-only">Decrease terminal font size</span>
+            <span className="sr-only">{t("toolbar.decreaseFont")}</span>
           </Button>
-          <Button type="button" size="icon" variant="ghost" disabled={!canZoomIn} className="size-8 shrink-0" title="Increase terminal font size" onClick={onZoomIn}>
+          <Button type="button" size="icon" variant="ghost" disabled={!canZoomIn} className="size-8 shrink-0" title={t("toolbar.increaseFont")} onClick={onZoomIn}>
             <ZoomIn className="size-4" aria-hidden="true" />
-            <span className="sr-only">Increase terminal font size</span>
+            <span className="sr-only">{t("toolbar.increaseFont")}</span>
           </Button>
         </>
       )}

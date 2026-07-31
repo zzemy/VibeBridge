@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { t, subscribeLang } from "../lib/i18n";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp } from "lucide-react";
 import { Button } from "./ui/button";
 import { terminalKeys } from "../lib/terminalKeys";
@@ -7,6 +9,7 @@ type Props = {
   onInput: (value: string) => void;
 };
 
+// Key labels stay English — they are universal keyboard key names
 const textShortcuts = [
   { label: "Enter", value: terminalKeys.enter },
   { label: "Esc", value: terminalKeys.escape },
@@ -24,8 +27,11 @@ const arrowShortcuts = [
 ] as const;
 
 export function ShortcutBar({ disabled, onInput }: Props) {
+  const [, setTick] = useState(0);
+  useEffect(() => subscribeLang(() => setTick((n) => n + 1)), []);
+
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Terminal shortcuts">
+    <div className="flex gap-2 overflow-x-auto pb-1" aria-label={t("shortcut.terminalShortcuts")}>
       {textShortcuts.map((shortcut) => (
         <Button
           key={shortcut.label}
