@@ -1,4 +1,4 @@
-import { Globe, Info, Monitor, Type, Wifi, ShieldCheck, FileText, Bell, Vibrate, Terminal as TerminalIcon, RefreshCw, Link2, Lock } from "lucide-react";
+import { Globe, Info, Monitor, Type, Wifi, ShieldCheck, FileText, RefreshCw, Link2, Lock } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
 import { getLang, setLang, subscribeLang, t, type Lang } from "../lib/i18n";
